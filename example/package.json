@@ -1,0 +1,13 @@
+{
+  "name": "rag-chunker-example",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node run.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "@msbayindir/rag-chunker": "file:../"
+  }
+}

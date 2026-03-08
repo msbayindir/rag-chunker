@@ -1,0 +1,50 @@
+{
+  "name": "@msbayindir/rag-chunker",
+  "version": "0.1.0",
+  "description": "Anthropic-style Contextual PDF Chunker for RAG pipelines",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "pino": "^9.0.0",
+    "zod": "^3.23.8"
+  },
+  "peerDependencies": {
+    "@google/genai": "^1.44.0",
+    "openai": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "openai": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "rag",
+    "pdf",
+    "chunker",
+    "gemini",
+    "contextual-retrieval"
+  ],
+  "license": "MIT"
+}
