@@ -9,9 +9,8 @@ dist/
 .env.local
 .env.*.local
 
-# Test artifacts
-example/*-result.json
-example/*.pdf
+# Test artifacts / local example
+example/
 
 # OS
 .DS_Store
