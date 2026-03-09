@@ -51,6 +51,11 @@ export interface ChunkerConfig {
   perGroupDelayMs?: number        // default: 300
   perChunkDelayMs?: number        // default: 500
   maxChunkChars?: number          // default: 3000 (~750 token). Prompt guideline + post-split guard.
+  chunkModel?: string             // chunk belirleme modeli (default: geminiModel)
+  contextModel?: string           // context summary modeli (default: geminiModel)
+  skipContext?: boolean           // true → context generation tamamen atlanır (default: false)
+  contextMode?: 'per-chunk' | 'batch'  // default: 'per-chunk'
+  contextBatchSize?: number       // batch başına chunk sayısı (default: 10, sadece batch modda)
   timeoutMs?: number
   abortSignal?: AbortSignal
   embeddingProvider?: import('./embedding/types.js').IEmbeddingProvider

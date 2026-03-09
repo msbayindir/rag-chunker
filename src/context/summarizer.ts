@@ -4,6 +4,10 @@ import type { RawChunk, FileRef, CacheRef } from '../types.js'
 import type { ILogger } from '../logger.js'
 import { callWithRetry, extractJson } from '../gemini/llm-caller.js'
 
+const BatchContextSchema = z.object({
+  summaries: z.array(z.string().min(1).max(600))
+})
+
 const ContextSummarySchema = z.object({
   contextSummary: z.string().min(1).max(600)
 })
@@ -87,4 +91,70 @@ export async function generateContext(
   const json = extractJson(rawText)
   const parsed = ContextSummarySchema.parse(JSON.parse(json))
   return parsed.contextSummary
+}
+
+/**
+ * N chunk için tek API çağrısıyla context summary üretir.
+ * Düşük kaliteli chunk'lar atlanır; karşılıkları null döner.
+ * Dönüş array'i input chunks array'iyle birebir eşleşir.
+ */
+export async function generateContextBatch(
+  chunks: RawChunk[],
+  fileRef: FileRef,
+  cacheRef: CacheRef | null,
+  opts: { apiKey: string; model: string; logger: ILogger }
+): Promise<Array<string | null>> {
+  const results: Array<string | null> = new Array(chunks.length).fill(null)
+
+  const validItems = chunks
+    .map((c, i) => ({ chunk: c, idx: i }))
+    .filter(({ chunk }) => !isLowQualityText(chunk.text))
+
+  if (validItems.length === 0) return results
+
+  const chunkBlock = validItems
+    .map(({ chunk }, pos) => `[PARÇA ${pos + 1}]\n${chunk.text}`)
+    .join('\n\n---\n\n')
+
+  const prompt = `global_referans: Tüm doküman. Bağlamı anlamak için kullan.
+Aşağıda ${validItems.length} adet metin parçası var.
+Her parça için TAM OLARAK 2 cümlelik bağlam özeti yaz.
+Kural: Her özet, parça olmadan da bağlamı anlaşılır kılmalıdır.
+ÇIKTI: Sadece JSON.
+{ "summaries": ["<parça 1 özeti>", "<parça 2 özeti>"] }
+
+${chunkBlock}`
+
+  const ai = new GoogleGenAI({ apiKey: opts.apiKey })
+
+  const response = await callWithRetry(async () => {
+    if (cacheRef !== null) {
+      return ai.models.generateContent({
+        model: opts.model,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: { cachedContent: cacheRef.name }
+      })
+    } else {
+      return ai.models.generateContent({
+        model: opts.model,
+        contents: [{
+          role: 'user',
+          parts: [
+            { fileData: { mimeType: 'application/pdf', fileUri: fileRef.uri } },
+            { text: prompt }
+          ]
+        }]
+      })
+    }
+  })
+
+  const rawText = response.text ?? response.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  const parsed = BatchContextSchema.parse(JSON.parse(extractJson(rawText)))
+
+  for (let i = 0; i < validItems.length; i++) {
+    const summary = parsed.summaries[i]
+    if (summary) results[validItems[i].idx] = summary
+  }
+
+  return results
 }

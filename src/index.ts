@@ -3,9 +3,9 @@ import { uploadPdf } from './gemini/file-upload.js'
 import { createCache } from './gemini/context-cache.js'
 import { splitIntoGroups } from './pdf/page-splitter.js'
 import { determineChunks } from './pdf/chunk-determiner.js'
-import { generateContext } from './context/summarizer.js'
+import { generateContext, generateContextBatch } from './context/summarizer.js'
 import { processWithPool } from './pipeline/pool.js'
-import type { ChunkerConfig, ChunkerResult, ChunkResult, RawChunk, PageGroup } from './types.js'
+import type { ChunkerConfig, ChunkerResult, ChunkResult, RawChunk, CacheRef, PageGroup } from './types.js'
 
 type GroupResult =
   | { ok: true; rawChunks: RawChunk[] }
@@ -28,7 +28,9 @@ export async function chunk(
   // A) Preparation
   const logger = config.logger ?? createDefaultLogger()
   const apiKey = config.geminiApiKey
-  const model = config.geminiModel ?? 'gemini-1.5-pro'
+
+  const chunkModel   = config.chunkModel   ?? config.geminiModel ?? 'gemini-1.5-pro'
+  const contextModel = config.contextModel ?? config.geminiModel ?? 'gemini-1.5-pro'
 
   const signals: AbortSignal[] = []
   if (config.timeoutMs) signals.push(AbortSignal.timeout(config.timeoutMs))
@@ -40,9 +42,15 @@ export async function chunk(
   // B) Step 1: PDF Upload (serial, throws on failure)
   const fileRef = await uploadPdf(pdfBuffer, { apiKey, logger })
 
-  // C) Steps 2+3: Cache and Page Groups (parallel)
-  const [cacheRef, pageGroups] = await Promise.all([
-    createCache(fileRef, { apiKey, model, logger }),
+  // C) Steps 2+3: Cache(s) and Page Groups (parallel)
+  // Context modeli chunk modelinden farklıysa ve context atlanmıyorsa ikinci cache gerekir.
+  const needsContextCache = !config.skipContext && contextModel !== chunkModel
+
+  const [chunkCacheRef, maybeContextCacheRef, pageGroups] = await Promise.all([
+    createCache(fileRef, { apiKey, model: chunkModel, logger }),
+    needsContextCache
+      ? createCache(fileRef, { apiKey, model: contextModel, logger })
+      : Promise.resolve(null as CacheRef | null),
     splitIntoGroups(pdfBuffer, {
       groupSize: config.groupSize,
       pageRange: config.pageRange,
@@ -50,7 +58,8 @@ export async function chunk(
     })
   ])
 
-  const cacheUsed = cacheRef !== null
+  const contextCacheRef: CacheRef | null = needsContextCache ? maybeContextCacheRef : chunkCacheRef
+  const cacheUsed = chunkCacheRef !== null
   const totalPages = pageGroups.reduce(
     (sum, g) => sum + g.pageRange.end - g.pageRange.start + 1,
     0
@@ -59,7 +68,10 @@ export async function chunk(
   logger.info('Pipeline basladi', {
     totalPages,
     groupCount: pageGroups.length,
-    cacheUsed
+    cacheUsed,
+    chunkModel,
+    contextModel,
+    contextMode: config.skipContext ? 'skip' : (config.contextMode ?? 'per-chunk')
   })
 
   // D) Step 4: Chunk Determination (group pool)
@@ -75,7 +87,9 @@ export async function chunk(
         return
       }
       try {
-        const rc = await determineChunks(g, i, fileRef, cacheRef, { apiKey, model, logger, maxChunkChars: config.maxChunkChars ?? 3000 })
+        const rc = await determineChunks(g, i, fileRef, chunkCacheRef, {
+          apiKey, model: chunkModel, logger, maxChunkChars: config.maxChunkChars ?? 3000
+        })
         groupResults[i] = { ok: true, rawChunks: rc }
         logger.info('Grup islendi', { groupIndex: i, chunkCount: rc.length })
       } catch (err) {
@@ -135,61 +149,148 @@ export async function chunk(
     w.rawChunk !== undefined
   )
 
-  // G) Steps 5+6: Context + Embedding (chunk pool)
-  await processWithPool(
-    validWorks,
-    config.maxConcurrentChunks ?? 3,
-    config.perChunkDelayMs ?? 500,
-    async (w) => {
-      if (combinedSignal?.aborted) return  // 'timeout' pre-fill stays
+  const concurrency = config.maxConcurrentChunks ?? 3
+  const chunkDelay  = config.perChunkDelayMs ?? 500
 
-      const rc = w.rawChunk
-      const pageRange = { start: Math.min(...rc.pages), end: Math.max(...rc.pages) }
-      const failedSteps: Array<'context' | 'embedding'> = []
-      let contextSummary = ''
+  // G) Steps 5+6: Context + Embedding
+  if (!config.skipContext && config.contextMode === 'batch') {
+    // ── BATCH MODE: N chunk → tek API çağrısı ──────────────────────────────
+    const batchSize = config.contextBatchSize ?? 10
+    const batches: Array<Array<ChunkWork & { rawChunk: RawChunk }>> = []
+    for (let i = 0; i < validWorks.length; i += batchSize) {
+      batches.push(validWorks.slice(i, i + batchSize))
+    }
 
-      // Context summary
-      try {
-        contextSummary = await generateContext(rc, fileRef, cacheRef, { apiKey, model, logger })
-      } catch (err) {
-        logger.warn('Context summary basarisiz', { chunkIndex: w.chunkIndex, err })
-        failedSteps.push('context')
-      }
+    // Pass 1: context batch üret
+    const contextMap = new Map<number, string>()
+    const contextFailedSet = new Set<number>()
 
-      // Embedding
-      let embedding: number[] | undefined
-      if (config.embeddingProvider) {
+    await processWithPool(
+      batches,
+      concurrency,
+      chunkDelay,
+      async (batch) => {
+        if (combinedSignal?.aborted) return
         try {
-          const input = `${contextSummary}\n\n${rc.text}`
-          const embedResult = await config.embeddingProvider.embed([input])
-          const vec = embedResult[0]
-          if (vec && vec.length > 0) embedding = vec
+          const summaries = await generateContextBatch(
+            batch.map(w => w.rawChunk),
+            fileRef,
+            contextCacheRef,
+            { apiKey, model: contextModel, logger }
+          )
+          batch.forEach((w, i) => {
+            const s = summaries[i]
+            if (s !== null && s !== undefined) contextMap.set(w.chunkIndex, s)
+            else contextFailedSet.add(w.chunkIndex)
+          })
+          logger.debug('Batch context tamamlandi', { batchChunkCount: batch.length })
         } catch (err) {
-          logger.warn('Embedding basarisiz', { chunkIndex: w.chunkIndex, err })
-          failedSteps.push('embedding')
+          logger.warn('Batch context basarisiz', { batchChunkCount: batch.length, err })
+          batch.forEach(w => contextFailedSet.add(w.chunkIndex))
         }
-      }
+      },
+      combinedSignal
+    )
 
-      const result: ChunkResult = {
-        chunkIndex: w.chunkIndex,
-        pageRange,
-        text: rc.text,
-        contextSummary,
-        contentHint: rc.contentHint,
-        status: failedSteps.length > 0 ? 'partial' : 'success',
-        ...(failedSteps.length > 0 && { failedSteps }),
-        ...(embedding !== undefined && { embedding })
-      }
+    // Pass 2: embedding per-chunk (contextMap'ten al)
+    await processWithPool(
+      validWorks,
+      concurrency,
+      chunkDelay,
+      async (w) => {
+        if (combinedSignal?.aborted) return
+        const rc = w.rawChunk
+        const contextSummary = contextMap.get(w.chunkIndex) ?? ''
+        const failedSteps: Array<'context' | 'embedding'> = []
+        if (contextFailedSet.has(w.chunkIndex)) failedSteps.push('context')
 
-      finalResults[w.chunkIndex] = result
-      logger.debug('Chunk tamamlandi', {
-        chunkIndex: w.chunkIndex,
-        status: result.status,
-        failedSteps
-      })
-    },
-    combinedSignal
-  )
+        let embedding: number[] | undefined
+        if (config.embeddingProvider) {
+          try {
+            const input = `${contextSummary}\n\n${rc.text}`
+            const embedResult = await config.embeddingProvider.embed([input])
+            const vec = embedResult[0]
+            if (vec && vec.length > 0) embedding = vec
+          } catch (err) {
+            logger.warn('Embedding basarisiz', { chunkIndex: w.chunkIndex, err })
+            failedSteps.push('embedding')
+          }
+        }
+
+        const pageRange = { start: Math.min(...rc.pages), end: Math.max(...rc.pages) }
+        finalResults[w.chunkIndex] = {
+          chunkIndex: w.chunkIndex, pageRange,
+          text: rc.text, contextSummary, contentHint: rc.contentHint,
+          status: failedSteps.length > 0 ? 'partial' : 'success',
+          ...(failedSteps.length > 0 && { failedSteps }),
+          ...(embedding !== undefined && { embedding })
+        }
+        logger.debug('Chunk tamamlandi', { chunkIndex: w.chunkIndex, status: finalResults[w.chunkIndex].status })
+      },
+      combinedSignal
+    )
+
+  } else {
+    // ── PER-CHUNK MODE (default) veya skipContext ──────────────────────────
+    await processWithPool(
+      validWorks,
+      concurrency,
+      chunkDelay,
+      async (w) => {
+        if (combinedSignal?.aborted) return
+
+        const rc = w.rawChunk
+        const pageRange = { start: Math.min(...rc.pages), end: Math.max(...rc.pages) }
+        const failedSteps: Array<'context' | 'embedding'> = []
+        let contextSummary = ''
+
+        // Context summary (skipContext=true ise atla)
+        if (!config.skipContext) {
+          try {
+            contextSummary = await generateContext(rc, fileRef, contextCacheRef, {
+              apiKey, model: contextModel, logger
+            })
+          } catch (err) {
+            logger.warn('Context summary basarisiz', { chunkIndex: w.chunkIndex, err })
+            failedSteps.push('context')
+          }
+        }
+
+        // Embedding
+        let embedding: number[] | undefined
+        if (config.embeddingProvider) {
+          try {
+            const input = `${contextSummary}\n\n${rc.text}`
+            const embedResult = await config.embeddingProvider.embed([input])
+            const vec = embedResult[0]
+            if (vec && vec.length > 0) embedding = vec
+          } catch (err) {
+            logger.warn('Embedding basarisiz', { chunkIndex: w.chunkIndex, err })
+            failedSteps.push('embedding')
+          }
+        }
+
+        const result: ChunkResult = {
+          chunkIndex: w.chunkIndex,
+          pageRange,
+          text: rc.text,
+          contextSummary,
+          contentHint: rc.contentHint,
+          status: failedSteps.length > 0 ? 'partial' : 'success',
+          ...(failedSteps.length > 0 && { failedSteps }),
+          ...(embedding !== undefined && { embedding })
+        }
+
+        finalResults[w.chunkIndex] = result
+        logger.debug('Chunk tamamlandi', {
+          chunkIndex: w.chunkIndex,
+          status: result.status,
+          failedSteps
+        })
+      },
+      combinedSignal
+    )
+  }
 
   // H) Result
   const durationMs = Date.now() - startTime
