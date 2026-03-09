@@ -19,7 +19,7 @@ export async function createCache(
             parts: [{ fileData: { mimeType: 'application/pdf', fileUri: fileRef.uri } }]
           }
         ],
-        ttl: '86400s'
+        ttl: '3600s'
       }
     }))
 
