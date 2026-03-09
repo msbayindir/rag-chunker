@@ -27,3 +27,13 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Lock file (library, not app)
+package-lock.json
+
+# Local spec & test artifacts
+rag-chunker-spec.md
+*-result.json
+
+# Claude Code session files
+.claude/
