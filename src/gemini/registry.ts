@@ -33,6 +33,16 @@ export function getPdfHash(buffer: Buffer | Uint8Array): string {
   return createHash('sha256').update(buffer).digest('hex').slice(0, 24)
 }
 
+/**
+ * API key fingerprint'i ile PDF hash'ini birleştirir.
+ * Farklı API key'lerle upload edilen aynı PDF'ler birbirinin kaydını kullanamaz.
+ */
+export function getRegistryKey(buffer: Buffer | Uint8Array, apiKey: string): string {
+  const pdfHash = getPdfHash(buffer)
+  const keyFingerprint = createHash('sha256').update(apiKey).digest('hex').slice(0, 8)
+  return `${keyFingerprint}_${pdfHash}`
+}
+
 // ─── Load / Save ──────────────────────────────────────────────────────────────
 
 function isExpired(dateStr: string, bufferMs = 120_000): boolean {

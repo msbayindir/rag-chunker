@@ -2,7 +2,7 @@ import { createDefaultLogger } from './logger.js'
 import { uploadPdf } from './gemini/file-upload.js'
 import { createCache } from './gemini/context-cache.js'
 import {
-  loadRegistry, saveRegistry, getPdfHash,
+  loadRegistry, saveRegistry, getRegistryKey,
   findFileRef, findCacheRef, setFileRef, setCacheRef,
   getFileExpiry, formatRemaining, DEFAULT_REGISTRY_PATH
 } from './gemini/registry.js'
@@ -51,7 +51,7 @@ export async function chunk(
     ? config.cacheRegistry
     : DEFAULT_REGISTRY_PATH
   const registry = registryEnabled ? loadRegistry(registryPath) : null
-  const pdfHash  = registry ? getPdfHash(pdfBuffer) : null
+  const pdfHash  = registry ? getRegistryKey(pdfBuffer, apiKey) : null
 
   // B) Step 1: PDF Upload — registry'de varsa atla
   let fileRef: FileRef
