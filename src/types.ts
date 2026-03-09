@@ -56,6 +56,7 @@ export interface ChunkerConfig {
   skipContext?: boolean           // true → context generation tamamen atlanır (default: false)
   contextMode?: 'per-chunk' | 'batch'  // default: 'per-chunk'
   contextBatchSize?: number       // batch başına chunk sayısı (default: 10, sadece batch modda)
+  cacheRegistry?: string | false  // registry JSON path; false=devre dışı; default: ~/.rag-chunker/registry.json
   timeoutMs?: number
   abortSignal?: AbortSignal
   embeddingProvider?: import('./embedding/types.js').IEmbeddingProvider

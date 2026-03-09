@@ -1,11 +1,16 @@
 import { createDefaultLogger } from './logger.js'
 import { uploadPdf } from './gemini/file-upload.js'
 import { createCache } from './gemini/context-cache.js'
+import {
+  loadRegistry, saveRegistry, getPdfHash,
+  findFileRef, findCacheRef, setFileRef, setCacheRef,
+  getFileExpiry, formatRemaining, DEFAULT_REGISTRY_PATH
+} from './gemini/registry.js'
 import { splitIntoGroups } from './pdf/page-splitter.js'
 import { determineChunks } from './pdf/chunk-determiner.js'
 import { generateContext, generateContextBatch } from './context/summarizer.js'
 import { processWithPool } from './pipeline/pool.js'
-import type { ChunkerConfig, ChunkerResult, ChunkResult, RawChunk, CacheRef, PageGroup } from './types.js'
+import type { ChunkerConfig, ChunkerResult, ChunkResult, RawChunk, CacheRef, PageGroup, FileRef } from './types.js'
 
 type GroupResult =
   | { ok: true; rawChunks: RawChunk[] }
@@ -39,17 +44,55 @@ export async function chunk(
 
   const startTime = Date.now()
 
-  // B) Step 1: PDF Upload (serial, throws on failure)
-  const fileRef = await uploadPdf(pdfBuffer, { apiKey, logger })
+  // Registry init
+  const registryEnabled = config.cacheRegistry !== false
+  const registryPath = typeof config.cacheRegistry === 'string'
+    ? config.cacheRegistry
+    : DEFAULT_REGISTRY_PATH
+  const registry = registryEnabled ? loadRegistry(registryPath) : null
+  const pdfHash  = registry ? getPdfHash(pdfBuffer) : null
+
+  // B) Step 1: PDF Upload — registry'de varsa atla
+  let fileRef: FileRef
+  const cachedFile = registry && pdfHash ? findFileRef(registry, pdfHash) : null
+  if (cachedFile) {
+    const expiry = getFileExpiry(registry!, pdfHash!)
+    logger.info('File registry\'den alindi', {
+      name: cachedFile.name,
+      kalan: expiry ? formatRemaining(expiry) : '?'
+    })
+    fileRef = cachedFile
+  } else {
+    fileRef = await uploadPdf(pdfBuffer, { apiKey, logger })
+    if (registry && pdfHash) {
+      setFileRef(registry, pdfHash, fileRef)
+      saveRegistry(registryPath, registry)
+    }
+  }
 
   // C) Steps 2+3: Cache(s) and Page Groups (parallel)
   // Context modeli chunk modelinden farklıysa ve context atlanmıyorsa ikinci cache gerekir.
   const needsContextCache = !config.skipContext && contextModel !== chunkModel
 
+  // Cache oluştur veya registry'den al
+  const findOrCreateCache = async (model: string): Promise<CacheRef | null> => {
+    const cached = registry && pdfHash ? findCacheRef(registry, pdfHash, model) : null
+    if (cached) {
+      logger.info('Cache registry\'den alindi', { model, kalan: formatRemaining(cached.expireTime) })
+      return cached
+    }
+    const created = await createCache(fileRef, { apiKey, model, logger })
+    if (created && registry && pdfHash) {
+      setCacheRef(registry, pdfHash, created)
+      saveRegistry(registryPath, registry)
+    }
+    return created
+  }
+
   const [chunkCacheRef, maybeContextCacheRef, pageGroups] = await Promise.all([
-    createCache(fileRef, { apiKey, model: chunkModel, logger }),
+    findOrCreateCache(chunkModel),
     needsContextCache
-      ? createCache(fileRef, { apiKey, model: contextModel, logger })
+      ? findOrCreateCache(contextModel)
       : Promise.resolve(null as CacheRef | null),
     splitIntoGroups(pdfBuffer, {
       groupSize: config.groupSize,
