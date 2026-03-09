@@ -20,7 +20,7 @@ type ParsedChunk = {
   contentHint: 'table' | 'narrative' | 'qa' | 'mixed'
 }
 
-function buildChunkingPrompt(maxChunkChars: number): string {
+function buildChunkingPrompt(maxChunkChars: number, groupSize: number): string {
   return `Sen bir belge analisti ve içerik yapılandırma uzmanısın.
 global_referans: Tüm doküman bağlamını anlamak için kullan.
 lokal_odak: Sadece bu sayfa grubunu işle, dışına çıkma.
@@ -29,6 +29,7 @@ Kural: Tek konu, tablo, soru grubu veya paragraf grubu = 1 birim.
 Kural: Yarım konu, yarım tablo, yarım soru BÖLME.
 Kural: Her birimin metni eksiksiz ve bağımsız anlaşılabilir olmalı.
 Kural: Her birimin metni ${maxChunkChars} karakteri GEÇMEMELİ. Uzun konuları birden fazla birime böl.
+Kural: "pages" alanında SADECE bu gruptaki LOCAL sayfa numaralarını kullan. Bu grup ${groupSize} sayfadan oluşur, numaralar 1'den ${groupSize}'e kadar gider.
 Her birim için: hangi sayfalar, metnin kendisi ve içerik tipi.
 ÇIKTI: Sadece JSON.
 {
@@ -81,7 +82,8 @@ export async function determineChunks(
 ): Promise<RawChunk[]> {
   const ai = new GoogleGenAI({ apiKey: opts.apiKey })
   const groupBase64 = Buffer.from(group.buffer).toString('base64')
-  const prompt = buildChunkingPrompt(opts.maxChunkChars)
+  const groupSize = group.pageRange.end - group.pageRange.start + 1
+  const prompt = buildChunkingPrompt(opts.maxChunkChars, groupSize)
 
   const response = await callWithRetry(async () => {
     if (cacheRef !== null) {
@@ -122,12 +124,20 @@ export async function determineChunks(
   // Sorun 4: post-process — Gemini yine de büyük chunk döndürürse paragraf bazlı böl
   const splitChunks = splitIfOversized(parsed.chunks, opts.maxChunkChars)
 
-  // Sorun 2: Gemini'nin LOCAL sayfa numaralarını ABSOLUTE'a çevir
-  // Grup pageRange.start = 16 ise, Gemini'nin "1" dediği sayfa gerçekte 16'dır.
+  // LOCAL sayfa numaralarını ABSOLUTE'a çevir.
+  // Gemini bazen local (1..groupSize) bazen global (start..end) döndürebilir.
+  // Global döndürürse offset eklememek gerekir; local döndürürse offset eklenir.
   const pageOffset = group.pageRange.start - 1
 
   return splitChunks.map(c => ({
-    pages: c.pages.map(p => p + pageOffset),
+    pages: c.pages.map(p => {
+      // Global sayfa aralığında mı? (model zaten absolute döndürmüş)
+      if (p >= group.pageRange.start && p <= group.pageRange.end) return p
+      // Local sayfa aralığında mı? (1..groupSize) → offset uygula
+      if (p >= 1 && p <= groupSize) return p + pageOffset
+      // Sınır dışı → en yakın absolute sayfaya sabitle
+      return Math.max(group.pageRange.start, Math.min(group.pageRange.end, p + pageOffset))
+    }),
     text: c.text,
     contentHint: c.contentHint,
     groupIndex

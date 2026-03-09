@@ -79,7 +79,7 @@ export async function chunk(
         groupResults[i] = { ok: true, rawChunks: rc }
         logger.info('Grup islendi', { groupIndex: i, chunkCount: rc.length })
       } catch (err) {
-        logger.error('Grup basarisiz', { groupIndex: i, error: err })
+        logger.error('Grup basarisiz', { groupIndex: i, err })
         groupResults[i] = { ok: false, pageRange: g.pageRange }
       }
     },
@@ -152,7 +152,7 @@ export async function chunk(
       try {
         contextSummary = await generateContext(rc, fileRef, cacheRef, { apiKey, model, logger })
       } catch (err) {
-        logger.warn('Context summary basarisiz', { chunkIndex: w.chunkIndex, error: err })
+        logger.warn('Context summary basarisiz', { chunkIndex: w.chunkIndex, err })
         failedSteps.push('context')
       }
 
@@ -165,7 +165,7 @@ export async function chunk(
           const vec = embedResult[0]
           if (vec && vec.length > 0) embedding = vec
         } catch (err) {
-          logger.warn('Embedding basarisiz', { chunkIndex: w.chunkIndex, error: err })
+          logger.warn('Embedding basarisiz', { chunkIndex: w.chunkIndex, err })
           failedSteps.push('embedding')
         }
       }
