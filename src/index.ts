@@ -10,7 +10,7 @@ import { splitIntoGroups } from './pdf/page-splitter.js'
 import { determineChunks } from './pdf/chunk-determiner.js'
 import { generateContext, generateContextBatch } from './context/summarizer.js'
 import { processWithPool } from './pipeline/pool.js'
-import type { ChunkerConfig, ChunkerResult, ChunkResult, RawChunk, CacheRef, PageGroup, FileRef } from './types.js'
+import type { ChunkerConfig, ChunkerResult, ChunkResult, RawChunk, CacheRef, PageGroup, FileRef, ProgressEvent } from './types.js'
 
 type GroupResult =
   | { ok: true; rawChunks: RawChunk[] }
@@ -33,6 +33,7 @@ export async function chunk(
   // A) Preparation
   const logger = config.logger ?? createDefaultLogger()
   const apiKey = config.geminiApiKey
+  const onProgress = config.onProgress
 
   const chunkModel   = config.chunkModel   ?? config.geminiModel ?? 'gemini-1.5-pro'
   const contextModel = config.contextModel ?? config.geminiModel ?? 'gemini-1.5-pro'
@@ -69,6 +70,7 @@ export async function chunk(
       saveRegistry(registryPath, registry)
     }
   }
+  onProgress?.({ stage: 'upload', done: 1, total: 1 })
 
   // C) Steps 2+3: Cache(s) and Page Groups (parallel)
   // Context modeli chunk modelinden farklıysa ve context atlanmıyorsa ikinci cache gerekir.
@@ -103,6 +105,9 @@ export async function chunk(
 
   const contextCacheRef: CacheRef | null = needsContextCache ? maybeContextCacheRef : chunkCacheRef
   const cacheUsed = chunkCacheRef !== null
+  const cacheTotal = needsContextCache ? 2 : 1
+  onProgress?.({ stage: 'cache', done: 1, total: cacheTotal })
+  if (needsContextCache) onProgress?.({ stage: 'cache', done: 2, total: 2 })
   const totalPages = pageGroups.reduce(
     (sum, g) => sum + g.pageRange.end - g.pageRange.start + 1,
     0
@@ -119,6 +124,7 @@ export async function chunk(
 
   // D) Step 4: Chunk Determination (group pool)
   const groupResults: GroupResult[] = new Array(pageGroups.length)
+  let groupsDone = 0
 
   await processWithPool(
     pageGroups.map((g, i) => ({ g, i })),
@@ -139,6 +145,7 @@ export async function chunk(
         logger.error('Grup basarisiz', { groupIndex: i, err })
         groupResults[i] = { ok: false, pageRange: g.pageRange }
       }
+      onProgress?.({ stage: 'chunk', done: ++groupsDone, total: pageGroups.length })
     },
     combinedSignal
   )
@@ -207,6 +214,7 @@ export async function chunk(
     // Pass 1: context batch üret
     const contextMap = new Map<number, string>()
     const contextFailedSet = new Set<number>()
+    let contextDone = 0
 
     await processWithPool(
       batches,
@@ -231,6 +239,8 @@ export async function chunk(
           logger.warn('Batch context basarisiz', { batchChunkCount: batch.length, err })
           batch.forEach(w => contextFailedSet.add(w.chunkIndex))
         }
+        contextDone += batch.length
+        onProgress?.({ stage: 'context', done: Math.min(contextDone, validWorks.length), total: validWorks.length })
       },
       combinedSignal
     )
@@ -275,6 +285,8 @@ export async function chunk(
 
   } else {
     // ── PER-CHUNK MODE (default) veya skipContext ──────────────────────────
+    let contextDone = 0
+
     await processWithPool(
       validWorks,
       concurrency,
@@ -330,6 +342,7 @@ export async function chunk(
           status: result.status,
           failedSteps
         })
+        onProgress?.({ stage: 'context', done: ++contextDone, total: validWorks.length })
       },
       combinedSignal
     )
@@ -361,6 +374,7 @@ export type {
   ChunkerConfig,
   ChunkerResult,
   ChunkResult,
+  ProgressEvent,
   FileRef,
   CacheRef,
   PageGroup,

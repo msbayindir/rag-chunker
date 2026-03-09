@@ -36,6 +36,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "bin": {
+    "rag-chunker": "./dist/cli.js"
+  },
   "files": [
     "dist"
   ],

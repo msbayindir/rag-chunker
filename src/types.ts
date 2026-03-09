@@ -40,6 +40,12 @@ export interface ChunkerResult {
   durationMs: number
 }
 
+export interface ProgressEvent {
+  stage: 'upload' | 'cache' | 'chunk' | 'context'
+  done: number
+  total: number
+}
+
 export interface ChunkerConfig {
   geminiApiKey: string
   geminiModel?: string            // default: 'gemini-1.5-pro'
@@ -61,4 +67,5 @@ export interface ChunkerConfig {
   abortSignal?: AbortSignal
   embeddingProvider?: import('./embedding/types.js').IEmbeddingProvider
   logger?: import('./logger.js').ILogger
+  onProgress?: (event: ProgressEvent) => void
 }
