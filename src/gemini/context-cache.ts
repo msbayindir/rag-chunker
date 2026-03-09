@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai'
 import type { FileRef, CacheRef } from '../types.js'
 import type { ILogger } from '../logger.js'
+import { callWithRetry } from './llm-caller.js'
 
 export async function createCache(
   fileRef: FileRef,
@@ -9,7 +10,7 @@ export async function createCache(
   const ai = new GoogleGenAI({ apiKey: opts.apiKey })
 
   try {
-    const cache = await ai.caches.create({
+    const cache = await callWithRetry(() => ai.caches.create({
       model: opts.model,
       config: {
         contents: [
@@ -20,7 +21,7 @@ export async function createCache(
         ],
         ttl: '86400s'
       }
-    })
+    }))
 
     opts.logger.info('Cache olusturuldu', { name: cache.name, expireTime: cache.expireTime })
 
@@ -30,7 +31,7 @@ export async function createCache(
       expireTime: cache.expireTime!
     }
   } catch (err) {
-    opts.logger.warn('Context cache olusturulamadi, fileRef ile devam ediliyor', { error: err })
+    opts.logger.warn('Context cache olusturulamadi, fileRef ile devam ediliyor', { err })
     return null
   }
 }
