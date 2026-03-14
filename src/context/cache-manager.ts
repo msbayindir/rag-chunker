@@ -51,10 +51,10 @@ function isExpired(dateStr: string, bufferMs = 120_000): boolean {
 
 function pruneExpired(registry: Registry): void {
   for (const k of Object.keys(registry.files)) {
-    if (isExpired(registry.files[k].expiresAt)) delete registry.files[k]
+    if (isExpired(registry.files[k]!.expiresAt)) delete registry.files[k]
   }
   for (const k of Object.keys(registry.caches)) {
-    if (isExpired(registry.caches[k].expireTime)) delete registry.caches[k]
+    if (isExpired(registry.caches[k]!.expireTime)) delete registry.caches[k]
   }
 }
 

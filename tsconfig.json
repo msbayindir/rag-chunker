@@ -11,6 +11,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "skipLibCheck": true,
+    "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src"],

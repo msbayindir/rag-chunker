@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai'
 import { z } from 'zod'
 import type { PageGroup, RawChunk, FileRef, CacheRef } from '../types.js'
 import type { ILogger } from '../logger.js'
-import { callWithRetry, extractJson } from '../gemini/llm-caller.js'
+import { callWithRetry, extractJson } from '../providers/llm-caller.js'
 
 const ChunkingOutputSchema = z.object({
   chunks: z.array(
@@ -121,21 +121,16 @@ export async function determineChunks(
   const json = extractJson(rawText)
   const parsed = ChunkingOutputSchema.parse(JSON.parse(json))
 
-  // Sorun 4: post-process — Gemini yine de büyük chunk döndürürse paragraf bazlı böl
+  // post-process — Gemini yine de büyük chunk döndürürse paragraf bazlı böl
   const splitChunks = splitIfOversized(parsed.chunks, opts.maxChunkChars)
 
   // LOCAL sayfa numaralarını ABSOLUTE'a çevir.
-  // Gemini bazen local (1..groupSize) bazen global (start..end) döndürebilir.
-  // Global döndürürse offset eklememek gerekir; local döndürürse offset eklenir.
   const pageOffset = group.pageRange.start - 1
 
   return splitChunks.map(c => ({
     pages: c.pages.map(p => {
-      // Global sayfa aralığında mı? (model zaten absolute döndürmüş)
       if (p >= group.pageRange.start && p <= group.pageRange.end) return p
-      // Local sayfa aralığında mı? (1..groupSize) → offset uygula
       if (p >= 1 && p <= groupSize) return p + pageOffset
-      // Sınır dışı → en yakın absolute sayfaya sabitle
       return Math.max(group.pageRange.start, Math.min(group.pageRange.end, p + pageOffset))
     }),
     text: c.text,

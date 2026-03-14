@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai'
 import { z } from 'zod'
 import type { RawChunk, FileRef, CacheRef } from '../types.js'
 import type { ILogger } from '../logger.js'
-import { callWithRetry, extractJson } from '../gemini/llm-caller.js'
+import { callWithRetry, extractJson } from '../providers/llm-caller.js'
 
 const BatchContextSchema = z.object({
   summaries: z.array(z.string().min(1).max(600))
@@ -153,7 +153,7 @@ ${chunkBlock}`
 
   for (let i = 0; i < validItems.length; i++) {
     const summary = parsed.summaries[i]
-    if (summary) results[validItems[i].idx] = summary
+    if (summary) results[validItems[i]!.idx] = summary
   }
 
   return results

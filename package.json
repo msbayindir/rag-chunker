@@ -1,6 +1,6 @@
 {
   "name": "@msbayindir/rag-chunker",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Anthropic-style Contextual PDF Chunker for RAG pipelines",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,7 +16,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "commander": "^14.0.3",
+    "ora": "^9.3.0",
     "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
     "pino": "^9.0.0",
     "zod": "^3.23.8"
   },
@@ -31,13 +34,14 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "typescript": "^5.4.5"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "bin": {
-    "rag-chunker": "./dist/cli.js"
+    "rag-chunker": "./dist/cli/index.js"
   },
   "files": [
     "dist"
