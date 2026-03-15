@@ -4,50 +4,97 @@ import chalk from 'chalk'
 import { process as processPdf } from '../../index.js'
 import { createCliLogger } from '../../logger.js'
 
+const BRAND = chalk.bold('rag-chunker')
+const VERSION = chalk.dim('v3.0.0')
+const TAGLINE = chalk.dim('PDF  →  OCR  →  Markdown  →  Chunks')
+
+const ok   = chalk.green('✓')
+const fail = chalk.red('✗')
+const warn = chalk.yellow('!')
+
+function w(line = '') { process.stderr.write(line + '\n') }
+
+function printHeader() {
+  w()
+  w('  ' + chalk.bold.cyan('◆') + '  ' + BRAND + '  ' + VERSION)
+  w('  ' + ' '.repeat(5) + TAGLINE)
+  w()
+}
+
+function printStep(icon: string, label: string, info: string) {
+  w('  ' + icon + '  ' + chalk.bold(label.padEnd(12)) + chalk.dim(info))
+}
+
 function printSummary(opts: {
-  chunks: number
-  pages: number
-  avgTokens: number
-  minTokens: number
-  maxTokens: number
-  tableChunks: number
-  codeChunks: number
-  durationMs: number
-  ocrModel: string
-  contextMode: string
-  ocrCacheHit: boolean
+  result: Awaited<ReturnType<typeof processPdf>>
   outputDir?: string
-}): void {
-  const w = 42
-  const line = chalk.dim('─'.repeat(w))
-  const pad = (label: string, value: string) => {
-    const gap = w - 2 - label.length - value.length
-    return ' ' + label + ' '.repeat(Math.max(1, gap)) + chalk.white(value)
+}) {
+  const { result, outputDir } = opts
+  const s = result.manifest.chunkStats
+  const hf = result.manifest.headingFix
+  const durationS = (result.manifest.durationMs / 1000).toFixed(1) + 's'
+
+  w()
+
+  // ── Step list ──────────────────────────────────────────────────────────────
+  const ocrExtra = result.manifest.ocrCacheHit
+    ? chalk.cyan('cached') + chalk.dim('  ·  ') + chalk.dim(result.manifest.ocrModel)
+    : chalk.dim(result.manifest.ocrModel)
+  printStep(ok, 'OCR', `${result.structure.pageCount} pages  ·  ` + ocrExtra)
+
+  if (hf !== null) {
+    if (hf.skipped) {
+      printStep(warn, 'Normalize', chalk.yellow('skipped'))
+    } else {
+      const hfInfo = [
+        `${hf.corrections} fixes`,
+        hf.documentType ? hf.documentType : null,
+        hf.mainSectionsFound > 0 ? `${hf.mainSectionsFound} sections` : null,
+        chalk.dim(`${(hf.phase1DurationMs / 1000).toFixed(1)}s + ${(hf.phase2DurationMs / 1000).toFixed(1)}s`)
+      ].filter(Boolean).join(chalk.dim('  ·  '))
+      printStep(ok, 'Normalize', hfInfo)
+    }
   }
 
-  process.stderr.write('\n')
-  process.stderr.write(chalk.dim('─'.repeat(w)) + '\n')
-  process.stderr.write(pad('Chunks',      String(opts.chunks)) + '\n')
-  process.stderr.write(pad('Pages',       String(opts.pages)) + '\n')
-  process.stderr.write(pad('Avg tokens',  String(opts.avgTokens)) + '\n')
-  process.stderr.write(pad('Token range', `${opts.minTokens} – ${opts.maxTokens}`) + '\n')
-  if (opts.tableChunks > 0)
-    process.stderr.write(pad('Table chunks', String(opts.tableChunks)) + '\n')
-  if (opts.codeChunks > 0)
-    process.stderr.write(pad('Code chunks',  String(opts.codeChunks)) + '\n')
-  process.stderr.write(pad('OCR model',   opts.ocrModel) + '\n')
-  process.stderr.write(pad('Context',     opts.contextMode) + '\n')
-  process.stderr.write(pad('OCR cache',   opts.ocrCacheHit ? chalk.green('hit') : chalk.dim('miss')) + '\n')
-  process.stderr.write(pad('Duration',    (opts.durationMs / 1000).toFixed(1) + 's') + '\n')
-  process.stderr.write(line + '\n')
+  const chunkInfo = [
+    `${s.total} chunks`,
+    `ø${s.avgTokens} tokens`,
+    s.tableChunks > 0 ? `${s.tableChunks} tables` : null,
+    s.codeChunks  > 0 ? `${s.codeChunks} code`   : null
+  ].filter(Boolean).join(chalk.dim('  ·  '))
+  printStep(ok, 'Chunk', chunkInfo)
 
-  if (opts.outputDir) {
-    process.stderr.write('\n')
-    process.stderr.write(chalk.dim('  Output → ') + chalk.white(opts.outputDir + '/') + '\n')
-    process.stderr.write(chalk.dim('    document.md  structure.json  chunks.jsonl  manifest.json') + '\n')
+  if (outputDir) {
+    printStep(ok, 'Saved', chalk.white(outputDir + '/'))
   }
 
-  process.stderr.write('\n')
+  // ── Stats bar ──────────────────────────────────────────────────────────────
+  const bar = chalk.dim('╌'.repeat(48))
+  w()
+  w('  ' + bar)
+  w(
+    '  ' +
+    chalk.white.bold(String(s.total)) + chalk.dim(' chunks') +
+    chalk.dim('   ·   ') +
+    chalk.white.bold(String(result.structure.pageCount)) + chalk.dim(' pages') +
+    chalk.dim('   ·   ') +
+    chalk.white.bold(durationS)
+  )
+  w(
+    '  ' +
+    chalk.dim('tokens ') + chalk.dim(`${s.minTokens} – ${s.maxTokens}`) +
+    chalk.dim('   ·   avg ') + chalk.dim(String(s.avgTokens))
+  )
+  w('  ' + bar)
+
+  // ── Output files ───────────────────────────────────────────────────────────
+  if (outputDir) {
+    w()
+    w('  ' + chalk.dim('→  ') + chalk.white(outputDir + '/'))
+    w('  ' + chalk.dim('   document.md  ·  chunks.jsonl  ·  structure.json  ·  manifest.json'))
+  }
+
+  w()
 }
 
 export function buildProcessCommand(): Command {
@@ -76,7 +123,7 @@ export function buildProcessCommand(): Command {
     .option('--no-ocr-cache', 'Disable OCR caching')
     .option('--heading-normalization', 'Fix inconsistent heading levels via Gemini (requires --gemini-api-key)')
     .option('--warn-large-chunk <n>', 'Warn when a table/code chunk exceeds N tokens', '2000')
-    .option('--verbose', 'Show debug log messages')
+    .option('--verbose', 'Show verbose pipeline logs')
     .action(async (pdfPath: string, opts: {
       output?: string
       geminiApiKey?: string
@@ -99,58 +146,57 @@ export function buildProcessCommand(): Command {
       const geminiApiKey = opts.geminiApiKey ?? globalThis.process.env['GEMINI_API_KEY']
       const mistralApiKey = opts.mistralApiKey ?? globalThis.process.env['MISTRAL_API_KEY']
 
+      printHeader()
+
       if (!mistralApiKey && !geminiApiKey) {
-        process.stderr.write(
-          chalk.red('\n  ✖ API key required\n') +
-          chalk.dim('    --mistral-api-key or MISTRAL_API_KEY  (primary OCR)\n') +
-          chalk.dim('    --gemini-api-key  or GEMINI_API_KEY   (context + fallback OCR)\n\n')
-        )
+        w(chalk.red('  ✗  No API key provided'))
+        w(chalk.dim('     --mistral-api-key   or  MISTRAL_API_KEY   (primary OCR)'))
+        w(chalk.dim('     --gemini-api-key    or  GEMINI_API_KEY    (context + fallback OCR)'))
+        w()
         globalThis.process.exit(1)
       }
 
       const contextMode = opts.contextMode
       if (!['per-chunk', 'batch', 'none'].includes(contextMode)) {
-        process.stderr.write(chalk.red('  ✖ --context-mode must be "per-chunk", "batch", or "none"\n'))
+        w(chalk.red('  ✗  --context-mode must be "per-chunk", "batch", or "none"'))
         globalThis.process.exit(1)
       }
 
       if (contextMode !== 'none' && !geminiApiKey) {
-        process.stderr.write(chalk.red('  ✖ --gemini-api-key required for context enrichment\n'))
+        w(chalk.red('  ✗  --gemini-api-key required for context enrichment'))
         globalThis.process.exit(1)
       }
-
-      process.stderr.write('\n')
-      process.stderr.write(chalk.bold('  rag-chunker') + chalk.dim(' v3.0.0\n'))
-      process.stderr.write('\n')
 
       const spinner = ora({
         stream: process.stderr,
         prefixText: ' ',
-        color: 'cyan'
-      }).start(chalk.dim('Initializing...'))
+        color: 'cyan',
+        indent: 1
+      }).start(chalk.dim('Initializing…'))
 
       const logger = createCliLogger(opts.verbose ?? false)
 
-      // Intercept logger to update spinner text
+      const spinnerLabels: Record<string, string | (() => string)> = {
+        'Running Mistral OCR':                  'OCR  →  scanning pages…',
+        'Running Gemini Vision OCR (fallback)': 'OCR  →  Gemini Vision fallback…',
+        'OCR result cached':                    'OCR  →  complete, caching…',
+        'OCR cache hit':                        'OCR  →  loading from cache…',
+        'Heading normalization phase 1: structure discovery': 'Normalize  →  phase 1: analyzing structure…',
+        'Heading normalization phase 2: applying corrections': 'Normalize  →  phase 2: correcting headings…',
+        'Chunking markdown':                    'Chunk  →  splitting document…',
+        'Chunks produced':                      'Chunk  →  finalizing…',
+        'Generating context summaries':         'Context  →  enriching chunks…',
+      }
+
       const trackedLogger = {
         debug: logger.debug.bind(logger),
         warn:  logger.warn.bind(logger),
         error: logger.error.bind(logger),
         info:  (msg: string, meta?: unknown) => {
-          const labels: Record<string, string> = {
-            'Running Mistral OCR':            'Running Mistral OCR 3...',
-            'Running Gemini Vision OCR (fallback)': 'Running Gemini Vision OCR...',
-            'OCR result cached':              'OCR complete — caching result',
-            'OCR cache hit':                  'OCR cache hit — skipping API call',
-            'Chunking markdown':              'Chunking document...',
-            'Chunks produced':                (() => {
-              const count = (meta as Record<string, unknown>)?.['count']
-              return count != null ? `Chunking complete — ${count} chunks` : 'Chunks produced'
-            })(),
-            'Generating context summaries':   'Generating context summaries...',
+          const label = spinnerLabels[msg]
+          if (label) {
+            spinner.text = chalk.dim(typeof label === 'function' ? label() : label)
           }
-          const label = labels[msg]
-          if (label) spinner.text = chalk.dim(label)
           if (opts.verbose) logger.info(msg, meta)
         }
       }
@@ -174,30 +220,20 @@ export function buildProcessCommand(): Command {
           logger: trackedLogger
         })
 
-        spinner.succeed(chalk.green('Done'))
+        spinner.stop()
 
         if (opts.output) {
           await result.save(opts.output)
         }
 
-        const s = result.manifest.chunkStats
-        printSummary({
-          chunks:      s.total,
-          pages:       result.structure.pageCount,
-          avgTokens:   s.avgTokens,
-          minTokens:   s.minTokens,
-          maxTokens:   s.maxTokens,
-          tableChunks: s.tableChunks,
-          codeChunks:  s.codeChunks,
-          durationMs:  result.manifest.durationMs,
-          ocrModel:    result.manifest.ocrModel,
-          contextMode: result.manifest.contextMode,
-          ocrCacheHit: result.manifest.ocrCacheHit,
-          outputDir:   opts.output
-        })
+        printSummary({ result, outputDir: opts.output })
+
       } catch (err) {
-        spinner.fail(chalk.red('Processing failed'))
-        process.stderr.write(chalk.red('\n  ' + (err instanceof Error ? err.message : String(err))) + '\n\n')
+        spinner.stop()
+        w()
+        w('  ' + chalk.red('✗  Processing failed'))
+        w('  ' + chalk.dim('   ' + (err instanceof Error ? err.message : String(err))))
+        w()
         globalThis.process.exit(1)
       }
     })

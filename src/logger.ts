@@ -30,13 +30,13 @@ export function createCliLogger(verbose = false): ILogger {
       if (verbose) write(chalk.gray('  · ' + msg))
     },
     info: (msg) => {
-      write(chalk.cyan('  › ') + msg)
+      write(chalk.cyan('  ›') + '  ' + chalk.dim(msg))
     },
     warn: (msg) => {
-      write(chalk.yellow('  ⚠ ') + chalk.yellow(msg))
+      write(chalk.yellow('  !') + '  ' + chalk.yellow(msg))
     },
     error: (msg) => {
-      write(chalk.red('  ✖ ') + chalk.red(msg))
+      write(chalk.red('  ✗') + '  ' + chalk.red(msg))
     },
   }
 }
