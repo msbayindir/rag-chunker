@@ -1,5 +1,5 @@
 export type { DocumentStructure, ProcessManifest, TableRecord } from './output/types.js'
-export type { HeadingCorrection } from './normalize/heading-fix.js'
+export type { HeadingCorrection, HeadingFixResult, StructureDiscovery } from './normalize/heading-fix.js'
 export type { IEmbeddingProvider } from './embeddings/types.js'
 
 export interface ChunkerConfig {
@@ -46,6 +46,16 @@ export interface ChunkerConfig {
    * Default: 2000
    */
   warnLargeChunkTokens?: number
+  /**
+   * Gemini model for heading fix phase 1 (structure discovery — full document sent).
+   * Default: 'gemini-2.5-pro'
+   */
+  headingFixPhase1Model?: string
+  /**
+   * Gemini model for heading fix phase 2 (corrections — heading list only).
+   * Default: 'gemini-2.5-flash-preview-05-20'
+   */
+  headingFixPhase2Model?: string
 }
 
 export interface Chunk {

@@ -110,20 +110,26 @@ export async function process(
   }
 
   // ── 4. Heading normalization ──────────────────────────────────────────────────
-  let headingCorrections = 0
   const contextMode = config.contextMode ?? 'none'
   const contextModel = config.contextModel ?? DEFAULT_CONTEXT_MODEL
+  let headingFixManifest: import('./output/types.js').ProcessManifest['headingFix'] = null
 
   if (config.headingNormalization && config.geminiApiKey) {
-    logger.info('Running heading normalization')
-    const result = await fixHeadingHierarchy(fullMarkdown, {
+    const headingFixResult = await fixHeadingHierarchy(fullMarkdown, {
       geminiApiKey: config.geminiApiKey,
-      geminiModel: contextModel,
-      cacheId: null,
+      phase1Model: config.headingFixPhase1Model,
+      phase2Model: config.headingFixPhase2Model,
       logger
     })
-    fullMarkdown = result.correctedMd
-    headingCorrections = result.corrections.length
+    fullMarkdown = headingFixResult.markdown
+    headingFixManifest = {
+      corrections: headingFixResult.corrections.length,
+      skipped: headingFixResult.skipped,
+      documentType: headingFixResult.structure?.documentType ?? null,
+      mainSectionsFound: headingFixResult.structure?.mainSections.length ?? 0,
+      phase1DurationMs: headingFixResult.phase1DurationMs,
+      phase2DurationMs: headingFixResult.phase2DurationMs
+    }
   } else if (config.headingNormalization && !config.geminiApiKey) {
     logger.warn('headingNormalization requires geminiApiKey — skipping')
   }
@@ -234,7 +240,7 @@ export async function process(
     chunks,
     startedAt,
     ocrCacheHit,
-    headingCorrections
+    headingFix: headingFixManifest
   })
 
   return {

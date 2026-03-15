@@ -26,8 +26,9 @@ export function buildInspectCommand(): Command {
         process.stdout.write(`Context model: ${manifest['contextModel']}\n`)
         process.stdout.write(`Context mode:  ${manifest['contextMode']}\n`)
         process.stdout.write(`OCR cache hit: ${manifest['ocrCacheHit']}\n`)
-        if (Number(manifest['headingCorrections']) > 0) {
-          process.stdout.write(`Heading fixes: ${manifest['headingCorrections']}\n`)
+        const hf = manifest['headingFix'] as Record<string, unknown> | null | undefined
+        if (hf && !hf['skipped'] && Number(hf['corrections']) > 0) {
+          process.stdout.write(`Heading fixes: ${hf['corrections']} (${hf['documentType'] ?? 'unknown type'}, ${hf['mainSectionsFound']} main sections)\n`)
         }
         process.stdout.write(`Duration:      ${(Number(manifest['durationMs']) / 1000).toFixed(2)}s\n`)
 

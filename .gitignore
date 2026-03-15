@@ -11,7 +11,10 @@ dist/
 
 # Test artifacts / local example
 example/
-output/
+output*/
+
+
+sefa.txt
 test.pdf
 # OS
 .DS_Store
