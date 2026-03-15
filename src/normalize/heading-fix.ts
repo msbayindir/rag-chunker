@@ -87,7 +87,8 @@ export async function createDocumentCache(
     opts.logger.info('Gemini document cache created', { name: cache.name })
     return cache.name ?? null
   } catch (err) {
-    opts.logger.warn('Gemini cache creation failed, proceeding without cache', { err })
+    const msg = err instanceof Error ? err.message : String(err)
+    opts.logger.warn(`Gemini cache creation failed: ${msg}`)
     return null
   }
 }
@@ -147,7 +148,8 @@ export async function fixHeadingHierarchy(
     config.logger.info('Heading normalization applied', { count: corrections.length })
     return { correctedMd: applyCorrections(documentMd, corrections), corrections }
   } catch (err) {
-    config.logger.warn('Heading normalization failed — using original markdown', { err })
+    const msg = err instanceof Error ? err.message : String(err)
+    config.logger.warn(`Heading normalization failed: ${msg}`)
     return { correctedMd: documentMd, corrections: [] }
   }
 }

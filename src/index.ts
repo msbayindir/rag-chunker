@@ -12,7 +12,7 @@ import {
 } from './context/cache.js'
 import { chunkMarkdown, finalizeChunks } from './chunker/ast-chunker.js'
 import { generateContext, generateContextBatch, type DocContext } from './context/gemini-context.js'
-import { fixHeadingHierarchy, createDocumentCache } from './normalize/heading-fix.js'
+import { fixHeadingHierarchy } from './normalize/heading-fix.js'
 import { buildDocumentMarkdown, buildStructure, buildManifest, saveOutputs } from './output/writer.js'
 import { createDefaultLogger } from './logger.js'
 import type { ChunkerConfig, Chunk, ProcessResult } from './types.js'
@@ -30,7 +30,7 @@ export { createDefaultLogger } from './logger.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_CONTEXT_MODEL = 'gemini-2.0-flash'
+const DEFAULT_CONTEXT_MODEL = 'gemini-3-flash-preview'
 const DEFAULT_OCR_CACHE_TTL_DAYS = 7
 
 // ─── process() ────────────────────────────────────────────────────────────────
@@ -109,36 +109,17 @@ export async function process(
     pageCount = ocrResult.pageCount
   }
 
-  // ── 4. Gemini document cache + heading normalization ──────────────────────────
+  // ── 4. Heading normalization ──────────────────────────────────────────────────
   let headingCorrections = 0
-  let geminiDocCacheId: string | null = null
   const contextMode = config.contextMode ?? 'none'
   const contextModel = config.contextModel ?? DEFAULT_CONTEXT_MODEL
-
-  // Create a Gemini cache when we'll be sending the document to Gemini multiple times
-  const needsGemini =
-    config.geminiApiKey &&
-    (config.headingNormalization || contextMode !== 'none')
-
-  if (needsGemini && config.geminiApiKey) {
-    logger.info('Creating Gemini document cache')
-    geminiDocCacheId = await createDocumentCache(fullMarkdown, {
-      apiKey: config.geminiApiKey,
-      model: contextModel,
-      logger
-    })
-  }
-
-  const docCtx: DocContext = geminiDocCacheId
-    ? { type: 'cache', cacheId: geminiDocCacheId }
-    : { type: 'text', markdown: fullMarkdown }
 
   if (config.headingNormalization && config.geminiApiKey) {
     logger.info('Running heading normalization')
     const result = await fixHeadingHierarchy(fullMarkdown, {
       geminiApiKey: config.geminiApiKey,
       geminiModel: contextModel,
-      cacheId: geminiDocCacheId,
+      cacheId: null,
       logger
     })
     fullMarkdown = result.correctedMd
@@ -146,6 +127,8 @@ export async function process(
   } else if (config.headingNormalization && !config.geminiApiKey) {
     logger.warn('headingNormalization requires geminiApiKey — skipping')
   }
+
+  const docCtx: DocContext = { type: 'text', markdown: fullMarkdown }
 
   // ── 5. Chunk the markdown ───────────────────────────────────────────────────
   logger.info('Chunking markdown', { pageCount })

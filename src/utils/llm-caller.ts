@@ -23,10 +23,13 @@ export function isNonRetryable(error: unknown): boolean {
  */
 export function extractJson(raw: string): string {
   const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
-  if (stripped.startsWith('{')) return stripped
+  if (stripped.startsWith('{') || stripped.startsWith('[')) return stripped
 
-  const match = raw.match(/\{[\s\S]*\}/)
-  if (match) return match[0]
+  const matchObj = raw.match(/\{[\s\S]*\}/)
+  if (matchObj) return matchObj[0]
+
+  const matchArr = raw.match(/\[[\s\S]*\]/)
+  if (matchArr) return matchArr[0]
 
   return stripped
 }

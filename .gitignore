@@ -11,7 +11,8 @@ dist/
 
 # Test artifacts / local example
 example/
-
+output/
+test.pdf
 # OS
 .DS_Store
 Thumbs.db
