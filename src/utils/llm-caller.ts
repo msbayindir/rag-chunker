@@ -18,15 +18,13 @@ export function isNonRetryable(error: unknown): boolean {
 }
 
 /**
- * JSON bloğunu modelin çıktısından güvenli şekilde ayıklar.
- * Markdown code fence, önceki açıklama metni veya sonraki metin varsa da çalışır.
+ * Safely extracts JSON from model output.
+ * Works even if the model wraps the JSON in markdown fences or adds preamble text.
  */
 export function extractJson(raw: string): string {
-  // Markdown code fence'i soy
   const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
   if (stripped.startsWith('{')) return stripped
 
-  // Yanıt içinde ilk { ... } bloğunu bul (model açıklama metni eklemiş olabilir)
   const match = raw.match(/\{[\s\S]*\}/)
   if (match) return match[0]
 
@@ -34,8 +32,7 @@ export function extractJson(raw: string): string {
 }
 
 /**
- * Herhangi bir hata için retry uygular (400/401/403 hariç).
- * Bilinmeyen hatalar (ağ, parse vs.) da üstel bekleme ile yeniden denenir.
+ * Retries any async function with exponential backoff (400/401/403 are not retried).
  */
 export async function callWithRetry<T>(
   fn: () => Promise<T>,

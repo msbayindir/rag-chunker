@@ -1,61 +1,61 @@
 import { Command } from 'commander'
-import { readFileSync } from 'fs'
-import { triagePages } from '../../pdf/triage.js'
-import { PDFParse } from 'pdf-parse'
+import { readFileSync, existsSync } from 'fs'
+import { join } from 'path'
 
 export function buildInspectCommand(): Command {
   return new Command('inspect')
-    .description('Inspect a PDF and show triage stats (no API calls)')
-    .argument('<pdf>', 'Path to the PDF file')
-    .option('--threshold <number>', 'Text density threshold for local routing', '0.7')
-    .action(async (pdfPath: string, opts: { threshold: string }) => {
-      let pdfBuffer: Buffer
-      try {
-        pdfBuffer = readFileSync(pdfPath)
-      } catch {
-        process.stderr.write(`Error: Cannot read file: ${pdfPath}\n`)
+    .description('Inspect an output directory (reads manifest.json and structure.json)')
+    .argument('<output-dir>', 'Path to the output directory produced by `rag-chunker process`')
+    .action((outputDir: string) => {
+      const manifestPath = join(outputDir, 'manifest.json')
+      const structurePath = join(outputDir, 'structure.json')
+
+      if (!existsSync(manifestPath)) {
+        process.stderr.write(`Error: No manifest.json found in: ${outputDir}\n`)
         globalThis.process.exit(1)
       }
 
-      const threshold = parseFloat(opts.threshold)
+      try {
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>
 
-      // Get total page count
-      const dataCopy = new Uint8Array(pdfBuffer).slice()
-      const parser = new PDFParse({ data: dataCopy.buffer, verbosity: 0 })
-      const textResult = await parser.getText({ pageJoiner: '' })
-      await parser.destroy()
-      const totalPages = textResult.total
+        process.stdout.write('\n')
+        process.stdout.write(`Version:       ${manifest['version']}\n`)
+        process.stdout.write(`Processed:     ${manifest['processedAt']}\n`)
+        process.stdout.write(`PDF hash:      ${String(manifest['pdfHash']).slice(0, 12)}…\n`)
+        process.stdout.write(`OCR model:     ${manifest['ocrModel']}\n`)
+        process.stdout.write(`Context model: ${manifest['contextModel']}\n`)
+        process.stdout.write(`Context mode:  ${manifest['contextMode']}\n`)
+        process.stdout.write(`OCR cache hit: ${manifest['ocrCacheHit']}\n`)
+        process.stdout.write(`Duration:      ${(Number(manifest['durationMs']) / 1000).toFixed(2)}s\n`)
 
-      process.stdout.write(`\nFile: ${pdfPath}\n`)
-      process.stdout.write(`Pages: ${totalPages}\n`)
-
-      if (totalPages === 0) {
-        process.stdout.write('No pages found.\n\n')
-        return
-      }
-
-      const triage = await triagePages(pdfBuffer, { threshold })
-
-      const localCount = triage.localPages.length
-      const visionCount = triage.visionPages.length
-      const localPct = Math.round((localCount / totalPages) * 100)
-      const visionPct = 100 - localPct
-      const estimatedSaving = Math.round(localPct * 0.9) // ~90% of vision cost saved per local page
-
-      process.stdout.write(`Text-rich pages (local): ${localCount} (${localPct}%)\n`)
-      process.stdout.write(`Visual pages (vision):   ${visionCount} (${visionPct}%)\n`)
-      process.stdout.write(`Estimated cost saving (hybrid): ~${estimatedSaving}%\n`)
-
-      if (triage.pageAnalyses.length <= 30) {
-        process.stdout.write('\nPage-by-page breakdown:\n')
-        for (const a of triage.pageAnalyses) {
-          const bar = a.parseMethod === 'local' ? '▓' : '░'
+        const s = manifest['chunkStats'] as Record<string, number> | undefined
+        if (s) {
+          process.stdout.write('\nChunks:\n')
+          process.stdout.write(`  total:  ${s['total']}\n`)
+          process.stdout.write(`  avg:    ${s['avgTokens']} tokens\n`)
+          process.stdout.write(`  range:  ${s['minTokens']}–${s['maxTokens']} tokens\n`)
           process.stdout.write(
-            `  p${String(a.pageNum).padStart(3)}: ${bar} density=${a.textDensity.toFixed(2)} (${a.extractedChars} chars) → ${a.parseMethod}\n`
+            `  types:  text=${s['textChunks']}  table=${s['tableChunks']}  ` +
+            `code=${s['codeChunks']}  mixed=${s['mixedChunks']}\n`
           )
         }
-      }
 
-      process.stdout.write('\n')
+        if (existsSync(structurePath)) {
+          const structure = JSON.parse(readFileSync(structurePath, 'utf-8')) as Record<string, unknown>
+          process.stdout.write('\nDocument structure:\n')
+          process.stdout.write(`  pages:       ${structure['pageCount']}\n`)
+          process.stdout.write(
+            `  headings:    ${(structure['headings'] as unknown[])?.length ?? 0}\n`
+          )
+          process.stdout.write(`  tables:      ${structure['tableCount']}\n`)
+          process.stdout.write(`  code blocks: ${structure['codeBlockCount']}\n`)
+          process.stdout.write(`  total tokens: ${structure['totalTokens']}\n`)
+        }
+
+        process.stdout.write('\n')
+      } catch (err) {
+        process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`)
+        globalThis.process.exit(1)
+      }
     })
 }

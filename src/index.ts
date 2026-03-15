@@ -1,561 +1,264 @@
-import { createDefaultLogger } from './logger.js'
-import { uploadPdf, createCache } from './providers/gemini.js'
-import {
-  loadRegistry, saveRegistry, getRegistryKey,
-  findFileRef, findCacheRef, setFileRef, setCacheRef,
-  getFileExpiry, formatRemaining, DEFAULT_REGISTRY_PATH
-} from './context/cache-manager.js'
-import { splitIntoGroups } from './pdf/page-splitter.js'
-import { triagePages } from './pdf/triage.js'
-import { parseLocalPages } from './pdf/local-parser.js'
-import { determineChunks } from './chunker/semantic.js'
-import { generateContext, generateContextBatch } from './context/contextual-retrieval.js'
+import { readFileSync } from 'fs'
+import { getPdfHash, getRegistryKey } from './utils/crypto.js'
 import { processWithPool } from './utils/concurrency.js'
-import type {
-  ChunkerConfig, ChunkerResult, ChunkResult, RawChunk,
-  CacheRef, PageGroup, FileRef, ProgressEvent, NormalizedSection
-} from './types.js'
+import { runMistralOcr } from './ocr/mistral.js'
+import { runGeminiVisionOcr } from './ocr/gemini-vision.js'
+import {
+  loadOcrRegistry,
+  saveOcrRegistry,
+  findOcrEntry,
+  setOcrEntry,
+  DEFAULT_OCR_CACHE_PATH
+} from './context/cache.js'
+import { chunkMarkdown, finalizeChunks } from './chunker/ast-chunker.js'
+import { generateContext, generateContextBatch } from './context/gemini-context.js'
+import { buildDocumentMarkdown, buildStructure, buildManifest, saveOutputs } from './output/writer.js'
+import { createDefaultLogger } from './logger.js'
+import type { ChunkerConfig, Chunk, ProcessResult } from './types.js'
+import type { OcrResult } from './ocr/types.js'
 
-type GroupResult =
-  | { ok: true; rawChunks: RawChunk[] }
-  | { ok: false; pageRange: { start: number; end: number } }
+// ─── Public re-exports ────────────────────────────────────────────────────────
 
-interface ChunkWork {
-  chunkIndex: number
-  rawChunk?: RawChunk
-  errorResult?: ChunkResult
-}
+export type { ChunkerConfig, Chunk, ProcessResult } from './types.js'
+export type { IEmbeddingProvider } from './embeddings/types.js'
+export type { ILogger } from './logger.js'
+export { createGeminiEmbeddingProvider } from './embeddings/gemini.js'
+export { createOpenAiEmbeddingProvider } from './embeddings/openai.js'
+export { createNullEmbeddingProvider } from './embeddings/null.js'
+export { createDefaultLogger } from './logger.js'
 
-/** Converts NormalizedSections from local parsing into RawChunks for the context pipeline. */
-function sectionsToRawChunks(sections: NormalizedSection[], maxChunkChars: number): RawChunk[] {
-  const chunks: RawChunk[] = []
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-  for (const section of sections) {
-    const fullText = section.heading
-      ? `${section.heading}\n\n${section.body}`
-      : section.body
+const DEFAULT_CONTEXT_MODEL = 'gemini-2.0-flash'
+const DEFAULT_OCR_CACHE_TTL_DAYS = 7
 
-    if (!fullText.trim()) continue
-
-    // Split oversized sections at paragraph boundaries
-    if (fullText.length > maxChunkChars) {
-      const paragraphs = fullText.split(/\n{2,}/)
-      let current = ''
-      for (const para of paragraphs) {
-        if (current.length + para.length > maxChunkChars && current.length > 0) {
-          chunks.push({
-            pages: section.sourcePages,
-            text: current.trim(),
-            contentHint: 'narrative',
-            groupIndex: -1
-          })
-          current = para
-        } else {
-          current += (current ? '\n\n' : '') + para
-        }
-      }
-      if (current.trim()) {
-        chunks.push({
-          pages: section.sourcePages,
-          text: current.trim(),
-          contentHint: 'narrative',
-          groupIndex: -1
-        })
-      }
-    } else {
-      chunks.push({
-        pages: section.sourcePages,
-        text: fullText.trim(),
-        contentHint: 'narrative',
-        groupIndex: -1
-      })
-    }
-  }
-
-  return chunks
-}
+// ─── process() ────────────────────────────────────────────────────────────────
 
 /**
- * Main pipeline: uploads PDF, creates context cache, splits into page groups,
- * determines chunk boundaries, generates context summaries, and optionally embeds.
+ * Full pipeline: OCR → AST chunk → Gemini context → embeddings → output.
  *
- * Default `parser: 'vision-only'` preserves v1 behavior.
- * Set `parser: 'hybrid'` to route text-rich pages through local parsing (no Gemini vision cost).
- * Set `parser: 'local-only'` for fully offline extraction (no Gemini calls).
+ * If `mistralApiKey` is provided, Mistral OCR 3 is used as the primary OCR provider.
+ * Otherwise, Gemini Vision is used as fallback (requires `geminiApiKey`).
+ *
+ * @param pdfInput - Path to PDF file or Buffer
+ * @param config   - Pipeline configuration
  */
-export async function chunk(
-  pdfBuffer: Buffer | Uint8Array,
+export async function process(
+  pdfInput: string | Buffer,
   config: ChunkerConfig
-): Promise<ChunkerResult> {
-  // A) Preparation
+): Promise<ProcessResult> {
   const logger = config.logger ?? createDefaultLogger()
-  const apiKey = config.geminiApiKey
-  const onProgress = config.onProgress
-  const parser = config.parser ?? 'vision-only'
+  const startedAt = Date.now()
 
-  const chunkModel   = config.chunkModel   ?? config.geminiModel ?? 'gemini-1.5-pro'
-  const contextModel = config.contextModel ?? config.geminiModel ?? 'gemini-1.5-pro'
+  // ── 1. Read PDF buffer ──────────────────────────────────────────────────────
+  const pdfBuffer: Buffer =
+    typeof pdfInput === 'string' ? readFileSync(pdfInput) : pdfInput
 
-  const signals: AbortSignal[] = []
-  if (config.timeoutMs) signals.push(AbortSignal.timeout(config.timeoutMs))
-  if (config.abortSignal) signals.push(config.abortSignal)
-  const combinedSignal = signals.length > 0 ? AbortSignal.any(signals) : undefined
+  const pdfHash = getPdfHash(pdfBuffer)
 
-  const startTime = Date.now()
-  const maxChunkChars = config.maxChunkChars ?? 3000
+  // ── 2. OCR cache setup ──────────────────────────────────────────────────────
+  const cacheEnabled = config.ocrCachePath !== false
+  const ocrCachePath =
+    cacheEnabled && typeof config.ocrCachePath === 'string'
+      ? config.ocrCachePath
+      : DEFAULT_OCR_CACHE_PATH
+  const ocrCacheTtlDays = config.ocrCacheTtlDays ?? DEFAULT_OCR_CACHE_TTL_DAYS
 
-  // ── LOCAL-ONLY: no Gemini at all ──────────────────────────────────────────
-  if (parser === 'local-only') {
-    logger.info('Local-only mode: PDF metin olarak parse ediliyor')
-    // pageNums=[] → parseLocalPages includes all pages
-    const allPagesDoc = await parseLocalPages(pdfBuffer, [], 'local-only')
-    const rawChunks = sectionsToRawChunks(allPagesDoc.sections, maxChunkChars)
+  const apiKeyForCache = config.mistralApiKey ?? config.geminiApiKey
+  const cacheKey = apiKeyForCache
+    ? getRegistryKey(pdfBuffer, apiKeyForCache)
+    : pdfHash
 
-    logger.info('Local-only parse tamamlandi', {
-      pageCount: allPagesDoc.metadata.pageCount,
-      sectionCount: allPagesDoc.sections.length,
-      chunkCount: rawChunks.length
-    })
-    onProgress?.({ stage: 'upload', done: 1, total: 1 })
-    onProgress?.({ stage: 'cache', done: 1, total: 1 })
-    onProgress?.({ stage: 'chunk', done: rawChunks.length, total: rawChunks.length })
+  let fullMarkdown: string
+  let ocrModel: string
+  let pageCount: number
+  let ocrCacheHit = false
 
-    const finalResults: ChunkResult[] = rawChunks.map((rc, idx) => ({
-      chunkIndex: idx,
-      pageRange: { start: Math.min(...rc.pages), end: Math.max(...rc.pages) },
-      text: rc.text,
-      contextSummary: '',
-      contentHint: rc.contentHint,
-      status: 'success'
-    }))
+  if (cacheEnabled) {
+    const registry = loadOcrRegistry(ocrCachePath)
+    const cached = findOcrEntry(registry, cacheKey, ocrCacheTtlDays)
 
-    return {
-      chunks: finalResults,
-      cacheUsed: false,
-      totalPages: allPagesDoc.metadata.pageCount,
-      durationMs: Date.now() - startTime
-    }
-  }
-
-  // ── HYBRID or VISION-ONLY ─────────────────────────────────────────────────
-
-  // Triage (only for hybrid mode)
-  let localRawChunks: RawChunk[] = []
-  let visionPageNums: number[] | null = null
-
-  if (parser === 'hybrid') {
-    const triageResult = await triagePages(pdfBuffer, {
-      threshold: config.triageThreshold ?? 0.7,
-      forceVisionPages: config.forceVisionPages
-    })
-
-    const localRatio = triageResult.localPages.length / triageResult.pageAnalyses.length
-    const estimatedSavingPct = Math.round(localRatio * 100)
-
-    logger.info('Triage tamamlandi', {
-      totalPages: triageResult.pageAnalyses.length,
-      localPages: triageResult.localPages.length,
-      visionPages: triageResult.visionPages.length,
-      estimatedCostSavingPct: estimatedSavingPct
-    })
-
-    visionPageNums = triageResult.visionPages
-
-    if (triageResult.localPages.length > 0) {
-      const localDoc = await parseLocalPages(pdfBuffer, triageResult.localPages, 'hybrid')
-      localRawChunks = sectionsToRawChunks(localDoc.sections, maxChunkChars)
-      logger.info('Local parse tamamlandi', {
-        localPageCount: triageResult.localPages.length,
-        localChunkCount: localRawChunks.length
-      })
-    }
-  }
-
-  // Registry init
-  const registryEnabled = config.cacheRegistry !== false
-  const registryPath = typeof config.cacheRegistry === 'string'
-    ? config.cacheRegistry
-    : DEFAULT_REGISTRY_PATH
-  const registry = registryEnabled ? loadRegistry(registryPath) : null
-  const pdfHash  = registry ? getRegistryKey(pdfBuffer, apiKey) : null
-
-  // B) Step 1: PDF Upload — registry'de varsa atla
-  let fileRef: FileRef
-  const cachedFile = registry && pdfHash ? findFileRef(registry, pdfHash) : null
-  if (cachedFile) {
-    const expiry = getFileExpiry(registry!, pdfHash!)
-    logger.info('File registry\'den alindi', {
-      name: cachedFile.name,
-      kalan: expiry ? formatRemaining(expiry) : '?'
-    })
-    fileRef = cachedFile
-  } else {
-    fileRef = await uploadPdf(pdfBuffer, { apiKey, logger })
-    if (registry && pdfHash) {
-      setFileRef(registry, pdfHash, fileRef)
-      saveRegistry(registryPath, registry)
-    }
-  }
-  onProgress?.({ stage: 'upload', done: 1, total: 1 })
-
-  // C) Steps 2+3: Cache(s) and Page Groups (parallel)
-  const needsContextCache = !config.skipContext && contextModel !== chunkModel
-
-  const findOrCreateCache = async (model: string): Promise<CacheRef | null> => {
-    const cached = registry && pdfHash ? findCacheRef(registry, pdfHash, model) : null
     if (cached) {
-      logger.info('Cache registry\'den alindi', { model, kalan: formatRemaining(cached.expireTime) })
-      return cached
+      logger.info('OCR cache hit', { key: cacheKey.slice(0, 12) })
+      ocrCacheHit = true
+      fullMarkdown = cached.markdown
+      ocrModel = cached.model
+      pageCount = cached.pageCount
+    } else {
+      // ── 3a. Run OCR ──────────────────────────────────────────────────────
+      const ocrResult = await runOcr(pdfBuffer, config, logger)
+      fullMarkdown = buildDocumentMarkdown(ocrResult)
+      ocrModel = ocrResult.model
+      pageCount = ocrResult.pageCount
+
+      // ── 3b. Persist to cache ─────────────────────────────────────────────
+      setOcrEntry(registry, cacheKey, {
+        markdown: fullMarkdown,
+        pageCount,
+        model: ocrModel,
+        cachedAt: new Date().toISOString()
+      })
+      saveOcrRegistry(ocrCachePath, registry)
+      logger.info('OCR result cached', { key: cacheKey.slice(0, 12), pageCount })
     }
-    const created = await createCache(fileRef, { apiKey, model, logger })
-    if (created && registry && pdfHash) {
-      setCacheRef(registry, pdfHash, created)
-      saveRegistry(registryPath, registry)
-    }
-    return created
-  }
-
-  // For hybrid: only split vision pages into groups
-  const splitOpts = visionPageNums !== null && visionPageNums.length > 0
-    ? {
-        groupSize: config.groupSize,
-        // Pass vision pages as an explicit list via pageRange start/end
-        // Since pageRange only supports contiguous ranges, we rely on splitIntoGroups
-        // filtering within page-splitter. For simplicity we pass the full buffer and
-        // then filter groups that contain at least one vision page.
-        pageRange: config.pageRange,
-        maxPages: config.maxPages
-      }
-    : {
-        groupSize: config.groupSize,
-        pageRange: config.pageRange,
-        maxPages: config.maxPages
-      }
-
-  const splitTask = (parser === 'hybrid' && visionPageNums !== null && visionPageNums.length === 0)
-    ? Promise.resolve([] as PageGroup[])
-    : splitIntoGroups(pdfBuffer, splitOpts)
-
-  const [chunkCacheRef, maybeContextCacheRef, allPageGroups] = await Promise.all([
-    findOrCreateCache(chunkModel),
-    needsContextCache
-      ? findOrCreateCache(contextModel)
-      : Promise.resolve(null as CacheRef | null),
-    splitTask
-  ])
-
-  // For hybrid: filter page groups to only include groups that overlap vision pages
-  let pageGroups: PageGroup[]
-  if (parser === 'hybrid' && visionPageNums !== null) {
-    const visionSet = new Set(visionPageNums)
-    pageGroups = allPageGroups.filter(g => {
-      for (let p = g.pageRange.start; p <= g.pageRange.end; p++) {
-        if (visionSet.has(p)) return true
-      }
-      return false
-    })
   } else {
-    pageGroups = allPageGroups
+    const ocrResult = await runOcr(pdfBuffer, config, logger)
+    fullMarkdown = buildDocumentMarkdown(ocrResult)
+    ocrModel = ocrResult.model
+    pageCount = ocrResult.pageCount
   }
 
-  const contextCacheRef: CacheRef | null = needsContextCache ? maybeContextCacheRef : chunkCacheRef
-  const cacheUsed = chunkCacheRef !== null
-  const cacheTotal = needsContextCache ? 2 : 1
-  onProgress?.({ stage: 'cache', done: 1, total: cacheTotal })
-  if (needsContextCache) onProgress?.({ stage: 'cache', done: 2, total: 2 })
-
-  const totalPages = allPageGroups.reduce(
-    (sum, g) => sum + g.pageRange.end - g.pageRange.start + 1,
-    0
-  ) || localRawChunks.reduce(
-    (maxPage, rc) => Math.max(maxPage, ...rc.pages),
-    0
-  )
-
-  logger.info('Pipeline basladi', {
-    totalPages,
-    groupCount: pageGroups.length,
-    localChunks: localRawChunks.length,
-    cacheUsed,
-    chunkModel,
-    contextModel,
-    contextMode: config.skipContext ? 'skip' : (config.contextMode ?? 'per-chunk')
+  // ── 4. Chunk the markdown ───────────────────────────────────────────────────
+  logger.info('Chunking markdown', { pageCount })
+  const chunkDatas = chunkMarkdown(fullMarkdown, {
+    maxChunkTokens: config.maxChunkTokens,
+    minChunkTokens: config.minChunkTokens,
+    overlapTokens: config.overlapTokens,
+    preserveTables: config.preserveTables,
+    preserveCodeBlocks: config.preserveCodeBlocks
   })
+  const partialChunks = finalizeChunks(chunkDatas)
+  logger.info('Chunks produced', { count: partialChunks.length })
 
-  // D) Step 4: Chunk Determination (group pool) — vision pages only
-  const groupResults: GroupResult[] = new Array(pageGroups.length)
-  let groupsDone = 0
+  // ── 5. Context summaries ────────────────────────────────────────────────────
+  const contextMode = config.contextMode ?? 'none'
+  const contextModel = config.contextModel ?? DEFAULT_CONTEXT_MODEL
+  const contextSummaries: string[] = new Array(partialChunks.length).fill('')
 
-  await processWithPool(
-    pageGroups.map((g, i) => ({ g, i })),
-    config.maxConcurrentGroups ?? 3,
-    config.perGroupDelayMs ?? 300,
-    async ({ g, i }: { g: PageGroup; i: number }) => {
-      if (combinedSignal?.aborted) {
-        groupResults[i] = { ok: false, pageRange: g.pageRange }
-        return
+  if (contextMode !== 'none' && config.geminiApiKey) {
+    logger.info('Generating context summaries', {
+      mode: contextMode,
+      chunks: partialChunks.length
+    })
+
+    if (contextMode === 'batch') {
+      const batchSize = config.contextBatchSize ?? 10
+      for (let i = 0; i < partialChunks.length; i += batchSize) {
+        const batch = partialChunks.slice(i, i + batchSize)
+        const summaries = await generateContextBatch(
+          batch.map(c => c.rawContent),
+          fullMarkdown,
+          { apiKey: config.geminiApiKey, model: contextModel, logger }
+        )
+        for (let j = 0; j < summaries.length; j++) {
+          if (summaries[j] != null) contextSummaries[i + j] = summaries[j]!
+        }
       }
-      try {
-        const rc = await determineChunks(g, i, fileRef, chunkCacheRef, {
-          apiKey, model: chunkModel, logger, maxChunkChars
-        })
-        groupResults[i] = { ok: true, rawChunks: rc }
-        logger.info('Grup islendi', { groupIndex: i, chunkCount: rc.length })
-      } catch (err) {
-        logger.error('Grup basarisiz', { groupIndex: i, err })
-        groupResults[i] = { ok: false, pageRange: g.pageRange }
-      }
-      onProgress?.({ stage: 'chunk', done: ++groupsDone, total: pageGroups.length })
-    },
-    combinedSignal
-  )
-
-  // E) Global chunkIndex assignment: merge local + vision chunks in page order
-  const visionRawChunks: RawChunk[] = []
-  const errorResults: Array<{ pageRange: { start: number; end: number } }> = []
-
-  for (const gr of groupResults) {
-    if (!gr.ok) {
-      errorResults.push({ pageRange: gr.pageRange })
     } else {
-      visionRawChunks.push(...gr.rawChunks)
+      // per-chunk — concurrent with rate-limit protection
+      await processWithPool(
+        partialChunks.map((_, idx) => idx),
+        3,
+        500,
+        async idx => {
+          try {
+            const summary = await generateContext(
+              partialChunks[idx]!.rawContent,
+              fullMarkdown,
+              { apiKey: config.geminiApiKey!, model: contextModel, logger }
+            )
+            contextSummaries[idx] = summary
+          } catch (err) {
+            logger.warn('Context generation failed', { chunkIndex: idx, err })
+          }
+        }
+      )
     }
   }
 
-  // Merge local and vision chunks, sort by first page number
-  const allRawChunks: RawChunk[] = [...localRawChunks, ...visionRawChunks]
-  allRawChunks.sort((a, b) => Math.min(...a.pages) - Math.min(...b.pages))
+  // ── 6. Build final Chunk objects ────────────────────────────────────────────
+  const chunks: Chunk[] = await Promise.all(
+    partialChunks.map(async (pc, i): Promise<Chunk> => {
+      const contextSummary = contextSummaries[i] ?? ''
+      const content = contextSummary
+        ? `Context: ${contextSummary}\n\n${pc.rawContent}`
+        : pc.rawContent
 
-  const works: ChunkWork[] = []
-  let idx = 0
+      let embedding: number[] = []
+      if (config.embeddingProvider) {
+        try {
+          const result = await config.embeddingProvider.embed([content])
+          embedding = result[0] ?? []
+        } catch {
+          // embedding failure is non-fatal
+        }
+      }
 
-  for (const rc of allRawChunks) {
-    works.push({ chunkIndex: idx++, rawChunk: rc })
-  }
-  for (const er of errorResults) {
-    works.push({
-      chunkIndex: idx,
-      errorResult: {
-        chunkIndex: idx,
-        pageRange: er.pageRange,
-        text: '',
-        contextSummary: '',
-        contentHint: 'mixed',
-        status: 'error'
+      return {
+        chunkId: pc.chunkId,
+        index: pc.index,
+        content,
+        rawContent: pc.rawContent,
+        contextSummary,
+        tokenCount: pc.tokenCount,
+        contentType: pc.contentType,
+        sectionPath: pc.sectionPath,
+        pageNumber: pc.pageNumber,
+        prevChunkId: pc.prevChunkId,
+        nextChunkId: pc.nextChunkId,
+        mustPreserve: pc.mustPreserve,
+        embedding
       }
     })
-    idx++
-  }
-
-  // F) finalResults pre-fill (timeout default)
-  const finalResults: ChunkResult[] = new Array(works.length)
-
-  for (const w of works) {
-    if (w.errorResult) {
-      finalResults[w.chunkIndex] = w.errorResult
-    } else {
-      const rc = w.rawChunk!
-      finalResults[w.chunkIndex] = {
-        chunkIndex: w.chunkIndex,
-        pageRange: { start: Math.min(...rc.pages), end: Math.max(...rc.pages) },
-        text: rc.text,
-        contextSummary: '',
-        contentHint: rc.contentHint,
-        status: 'timeout'
-      }
-    }
-  }
-
-  // Only valid works (with rawChunk) go into the pool
-  const validWorks = works.filter((w): w is ChunkWork & { rawChunk: RawChunk } =>
-    w.rawChunk !== undefined
   )
 
-  const concurrency = config.maxConcurrentChunks ?? 3
-  const chunkDelay  = config.perChunkDelayMs ?? 500
-
-  // G) Steps 5+6: Context + Embedding
-  if (!config.skipContext && config.contextMode === 'batch') {
-    // ── BATCH MODE: N chunk → tek API çağrısı ──────────────────────────────
-    const batchSize = config.contextBatchSize ?? 10
-    const batches: Array<Array<ChunkWork & { rawChunk: RawChunk }>> = []
-    for (let i = 0; i < validWorks.length; i += batchSize) {
-      batches.push(validWorks.slice(i, i + batchSize))
-    }
-
-    const contextMap = new Map<number, string>()
-    const contextFailedSet = new Set<number>()
-    let contextDone = 0
-
-    await processWithPool(
-      batches,
-      concurrency,
-      chunkDelay,
-      async (batch) => {
-        if (combinedSignal?.aborted) return
-        try {
-          const summaries = await generateContextBatch(
-            batch.map(w => w.rawChunk),
-            fileRef,
-            contextCacheRef,
-            { apiKey, model: contextModel, logger }
-          )
-          batch.forEach((w, i) => {
-            const s = summaries[i]
-            if (s !== null && s !== undefined) contextMap.set(w.chunkIndex, s)
-            else contextFailedSet.add(w.chunkIndex)
-          })
-          logger.debug('Batch context tamamlandi', { batchChunkCount: batch.length })
-        } catch (err) {
-          logger.warn('Batch context basarisiz', { batchChunkCount: batch.length, err })
-          batch.forEach(w => contextFailedSet.add(w.chunkIndex))
-        }
-        contextDone += batch.length
-        onProgress?.({ stage: 'context', done: Math.min(contextDone, validWorks.length), total: validWorks.length })
-      },
-      combinedSignal
-    )
-
-    await processWithPool(
-      validWorks,
-      concurrency,
-      chunkDelay,
-      async (w) => {
-        if (combinedSignal?.aborted) return
-        const rc = w.rawChunk
-        const contextSummary = contextMap.get(w.chunkIndex) ?? ''
-        const failedSteps: Array<'context' | 'embedding'> = []
-        if (contextFailedSet.has(w.chunkIndex)) failedSteps.push('context')
-
-        let embedding: number[] | undefined
-        if (config.embeddingProvider) {
-          try {
-            const input = `${contextSummary}\n\n${rc.text}`
-            const embedResult = await config.embeddingProvider.embed([input])
-            const vec = embedResult[0]
-            if (vec && vec.length > 0) embedding = vec
-          } catch (err) {
-            logger.warn('Embedding basarisiz', { chunkIndex: w.chunkIndex, err })
-            failedSteps.push('embedding')
-          }
-        }
-
-        const pageRange = { start: Math.min(...rc.pages), end: Math.max(...rc.pages) }
-        finalResults[w.chunkIndex] = {
-          chunkIndex: w.chunkIndex, pageRange,
-          text: rc.text, contextSummary, contentHint: rc.contentHint,
-          status: failedSteps.length > 0 ? 'partial' : 'success',
-          ...(failedSteps.length > 0 && { failedSteps }),
-          ...(embedding !== undefined && { embedding })
-        }
-        logger.debug('Chunk tamamlandi', { chunkIndex: w.chunkIndex, status: finalResults[w.chunkIndex]!.status })
-      },
-      combinedSignal
-    )
-
-  } else {
-    // ── PER-CHUNK MODE (default) veya skipContext ──────────────────────────
-    let contextDone = 0
-
-    await processWithPool(
-      validWorks,
-      concurrency,
-      chunkDelay,
-      async (w) => {
-        if (combinedSignal?.aborted) return
-
-        const rc = w.rawChunk
-        const pageRange = { start: Math.min(...rc.pages), end: Math.max(...rc.pages) }
-        const failedSteps: Array<'context' | 'embedding'> = []
-        let contextSummary = ''
-
-        if (!config.skipContext) {
-          try {
-            contextSummary = await generateContext(rc, fileRef, contextCacheRef, {
-              apiKey, model: contextModel, logger
-            })
-          } catch (err) {
-            logger.warn('Context summary basarisiz', { chunkIndex: w.chunkIndex, err })
-            failedSteps.push('context')
-          }
-        }
-
-        let embedding: number[] | undefined
-        if (config.embeddingProvider) {
-          try {
-            const input = `${contextSummary}\n\n${rc.text}`
-            const embedResult = await config.embeddingProvider.embed([input])
-            const vec = embedResult[0]
-            if (vec && vec.length > 0) embedding = vec
-          } catch (err) {
-            logger.warn('Embedding basarisiz', { chunkIndex: w.chunkIndex, err })
-            failedSteps.push('embedding')
-          }
-        }
-
-        const result: ChunkResult = {
-          chunkIndex: w.chunkIndex,
-          pageRange,
-          text: rc.text,
-          contextSummary,
-          contentHint: rc.contentHint,
-          status: failedSteps.length > 0 ? 'partial' : 'success',
-          ...(failedSteps.length > 0 && { failedSteps }),
-          ...(embedding !== undefined && { embedding })
-        }
-
-        finalResults[w.chunkIndex] = result
-        logger.debug('Chunk tamamlandi', {
-          chunkIndex: w.chunkIndex,
-          status: result.status,
-          failedSteps
-        })
-        onProgress?.({ stage: 'context', done: ++contextDone, total: validWorks.length })
-      },
-      combinedSignal
-    )
-  }
-
-  // H) Result
-  const durationMs = Date.now() - startTime
-  logger.info('Pipeline tamamlandi', {
-    totalChunks: finalResults.length,
-    durationMs,
-    cacheUsed
+  // ── 7. Build output objects ─────────────────────────────────────────────────
+  const structure = buildStructure(fullMarkdown, chunks)
+  const manifest = buildManifest({
+    pdfHash,
+    ocrModel,
+    contextModel,
+    contextMode,
+    chunks,
+    startedAt,
+    ocrCacheHit
   })
 
   return {
-    chunks: finalResults,
-    cacheUsed,
-    totalPages,
-    durationMs
+    chunks,
+    markdown: fullMarkdown,
+    structure,
+    manifest,
+    async save(outputDir: string): Promise<void> {
+      await saveOutputs(outputDir, fullMarkdown, structure, chunks, manifest)
+    }
   }
 }
 
-// Public exports
-export { process } from './process.js'
-export { createGeminiEmbeddingProvider } from './embeddings/gemini.provider.js'
-export { createOpenAiEmbeddingProvider } from './embeddings/openai.provider.js'
-export { createNullEmbeddingProvider } from './embeddings/null.provider.js'
-export { createDefaultLogger } from './logger.js'
+// ─── chunk() — convenience wrapper ───────────────────────────────────────────
 
-export type {
-  ChunkerConfig,
-  ChunkerResult,
-  ChunkResult,
-  ProgressEvent,
-  FileRef,
-  CacheRef,
-  PageGroup,
-  RawChunk,
-  NormalizedDocument,
-  NormalizedSection,
-  DocumentMetadata,
-  ProcessConfig,
-  ProcessResult,
-  ExtendedChunkResult,
-  DocumentStructure,
-  ProcessManifest
-} from './types.js'
-export type { IEmbeddingProvider } from './embeddings/types.js'
-export type { ILogger } from './logger.js'
+/**
+ * Runs the full pipeline with contextMode forced to 'none' and returns only the chunks array.
+ *
+ * @param pdfInput - Path to PDF file or Buffer
+ * @param config   - Pipeline configuration
+ */
+export async function chunk(
+  pdfInput: string | Buffer,
+  config: ChunkerConfig
+): Promise<Chunk[]> {
+  const result = await process(pdfInput, { ...config, contextMode: 'none' })
+  return result.chunks
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+
+async function runOcr(
+  pdfBuffer: Buffer,
+  config: ChunkerConfig,
+  logger: ReturnType<typeof createDefaultLogger>
+): Promise<OcrResult> {
+  if (config.mistralApiKey) {
+    logger.info('Running Mistral OCR')
+    return runMistralOcr(pdfBuffer, { apiKey: config.mistralApiKey })
+  }
+
+  if (config.geminiApiKey) {
+    logger.info('Running Gemini Vision OCR (fallback)')
+    return runGeminiVisionOcr(pdfBuffer, { apiKey: config.geminiApiKey })
+  }
+
+  throw new Error(
+    '[rag-chunker] No OCR provider configured — provide mistralApiKey or geminiApiKey'
+  )
+}
