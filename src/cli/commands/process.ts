@@ -74,6 +74,8 @@ export function buildProcessCommand(): Command {
     .option('--ocr-cache-path <path>', 'Custom OCR cache JSON path')
     .option('--ocr-cache-ttl <days>', 'OCR cache TTL in days', '7')
     .option('--no-ocr-cache', 'Disable OCR caching')
+    .option('--heading-normalization', 'Fix inconsistent heading levels via Gemini (requires --gemini-api-key)')
+    .option('--warn-large-chunk <n>', 'Warn when a table/code chunk exceeds N tokens', '2000')
     .option('--verbose', 'Show debug log messages')
     .action(async (pdfPath: string, opts: {
       output?: string
@@ -90,6 +92,8 @@ export function buildProcessCommand(): Command {
       ocrCachePath?: string
       ocrCacheTtl: string
       ocrCache: boolean
+      headingNormalization?: boolean
+      warnLargeChunk: string
       verbose?: boolean
     }) => {
       const geminiApiKey = opts.geminiApiKey ?? globalThis.process.env['GEMINI_API_KEY']
@@ -165,6 +169,8 @@ export function buildProcessCommand(): Command {
           preserveCodeBlocks: opts.preserveCode,
           ocrCachePath: opts.ocrCache ? (opts.ocrCachePath ?? undefined) : false,
           ocrCacheTtlDays: parseFloat(opts.ocrCacheTtl),
+          headingNormalization: opts.headingNormalization ?? false,
+          warnLargeChunkTokens: parseInt(opts.warnLargeChunk, 10),
           logger: trackedLogger
         })
 

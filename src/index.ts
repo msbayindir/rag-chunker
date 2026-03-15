@@ -11,7 +11,8 @@ import {
   DEFAULT_OCR_CACHE_PATH
 } from './context/cache.js'
 import { chunkMarkdown, finalizeChunks } from './chunker/ast-chunker.js'
-import { generateContext, generateContextBatch } from './context/gemini-context.js'
+import { generateContext, generateContextBatch, type DocContext } from './context/gemini-context.js'
+import { fixHeadingHierarchy, createDocumentCache } from './normalize/heading-fix.js'
 import { buildDocumentMarkdown, buildStructure, buildManifest, saveOutputs } from './output/writer.js'
 import { createDefaultLogger } from './logger.js'
 import type { ChunkerConfig, Chunk, ProcessResult } from './types.js'
@@ -108,21 +109,59 @@ export async function process(
     pageCount = ocrResult.pageCount
   }
 
-  // ── 4. Chunk the markdown ───────────────────────────────────────────────────
+  // ── 4. Gemini document cache + heading normalization ──────────────────────────
+  let headingCorrections = 0
+  let geminiDocCacheId: string | null = null
+  const contextMode = config.contextMode ?? 'none'
+  const contextModel = config.contextModel ?? DEFAULT_CONTEXT_MODEL
+
+  // Create a Gemini cache when we'll be sending the document to Gemini multiple times
+  const needsGemini =
+    config.geminiApiKey &&
+    (config.headingNormalization || contextMode !== 'none')
+
+  if (needsGemini && config.geminiApiKey) {
+    logger.info('Creating Gemini document cache')
+    geminiDocCacheId = await createDocumentCache(fullMarkdown, {
+      apiKey: config.geminiApiKey,
+      model: contextModel,
+      logger
+    })
+  }
+
+  const docCtx: DocContext = geminiDocCacheId
+    ? { type: 'cache', cacheId: geminiDocCacheId }
+    : { type: 'text', markdown: fullMarkdown }
+
+  if (config.headingNormalization && config.geminiApiKey) {
+    logger.info('Running heading normalization')
+    const result = await fixHeadingHierarchy(fullMarkdown, {
+      geminiApiKey: config.geminiApiKey,
+      geminiModel: contextModel,
+      cacheId: geminiDocCacheId,
+      logger
+    })
+    fullMarkdown = result.correctedMd
+    headingCorrections = result.corrections.length
+  } else if (config.headingNormalization && !config.geminiApiKey) {
+    logger.warn('headingNormalization requires geminiApiKey — skipping')
+  }
+
+  // ── 5. Chunk the markdown ───────────────────────────────────────────────────
   logger.info('Chunking markdown', { pageCount })
   const chunkDatas = chunkMarkdown(fullMarkdown, {
     maxChunkTokens: config.maxChunkTokens,
     minChunkTokens: config.minChunkTokens,
     overlapTokens: config.overlapTokens,
     preserveTables: config.preserveTables,
-    preserveCodeBlocks: config.preserveCodeBlocks
+    preserveCodeBlocks: config.preserveCodeBlocks,
+    warnLargeChunkTokens: config.warnLargeChunkTokens,
+    logger
   })
   const partialChunks = finalizeChunks(chunkDatas)
   logger.info('Chunks produced', { count: partialChunks.length })
 
-  // ── 5. Context summaries ────────────────────────────────────────────────────
-  const contextMode = config.contextMode ?? 'none'
-  const contextModel = config.contextModel ?? DEFAULT_CONTEXT_MODEL
+  // ── 6. Context summaries ────────────────────────────────────────────────────
   const contextSummaries: string[] = new Array(partialChunks.length).fill('')
 
   if (contextMode !== 'none' && config.geminiApiKey) {
@@ -137,7 +176,7 @@ export async function process(
         const batch = partialChunks.slice(i, i + batchSize)
         const summaries = await generateContextBatch(
           batch.map(c => c.rawContent),
-          fullMarkdown,
+          docCtx,
           { apiKey: config.geminiApiKey, model: contextModel, logger }
         )
         for (let j = 0; j < summaries.length; j++) {
@@ -154,7 +193,7 @@ export async function process(
           try {
             const summary = await generateContext(
               partialChunks[idx]!.rawContent,
-              fullMarkdown,
+              docCtx,
               { apiKey: config.geminiApiKey!, model: contextModel, logger }
             )
             contextSummaries[idx] = summary
@@ -211,7 +250,8 @@ export async function process(
     contextMode,
     chunks,
     startedAt,
-    ocrCacheHit
+    ocrCacheHit,
+    headingCorrections
   })
 
   return {

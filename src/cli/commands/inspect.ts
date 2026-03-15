@@ -26,6 +26,9 @@ export function buildInspectCommand(): Command {
         process.stdout.write(`Context model: ${manifest['contextModel']}\n`)
         process.stdout.write(`Context mode:  ${manifest['contextMode']}\n`)
         process.stdout.write(`OCR cache hit: ${manifest['ocrCacheHit']}\n`)
+        if (Number(manifest['headingCorrections']) > 0) {
+          process.stdout.write(`Heading fixes: ${manifest['headingCorrections']}\n`)
+        }
         process.stdout.write(`Duration:      ${(Number(manifest['durationMs']) / 1000).toFixed(2)}s\n`)
 
         const s = manifest['chunkStats'] as Record<string, number> | undefined

@@ -32,13 +32,22 @@ function isLowQualityText(text: string): boolean {
   return ratio < 0.45
 }
 
+/** Document context — either full markdown text or a pre-created Gemini cache ID. */
+export type DocContext =
+  | { type: 'text'; markdown: string }
+  | { type: 'cache'; cacheId: string }
+
+
 /**
  * Generates a 2-sentence context summary for a chunk using the full document as context.
  * Throws on low-quality text or API failure (caller handles gracefully).
+ *
+ * Pass `docCtx: { type: 'cache', cacheId }` to reuse a Gemini CachedContent
+ * (created via createDocumentCache) and avoid resending the full markdown each time.
  */
 export async function generateContext(
   chunkContent: string,
-  fullDocMarkdown: string,
+  docCtx: DocContext,
   opts: { apiKey: string; model: string; logger: ILogger }
 ): Promise<string> {
   if (isLowQualityText(chunkContent)) {
@@ -48,19 +57,29 @@ export async function generateContext(
 
   const ai = new GoogleGenAI({ apiKey: opts.apiKey })
 
-  const response = await callWithRetry(() =>
-    ai.models.generateContent({
+  const response = await callWithRetry(() => {
+    if (docCtx.type === 'cache') {
+      return ai.models.generateContent({
+        model: opts.model,
+        contents: [{
+          role: 'user',
+          parts: [{ text: chunkContent }, { text: CONTEXT_SYSTEM_PROMPT }]
+        }],
+        config: { cachedContent: docCtx.cacheId }
+      })
+    }
+    return ai.models.generateContent({
       model: opts.model,
       contents: [{
         role: 'user',
         parts: [
-          { text: fullDocMarkdown },
+          { text: docCtx.markdown },
           { text: chunkContent },
           { text: CONTEXT_SYSTEM_PROMPT }
         ]
       }]
     })
-  )
+  })
 
   const rawText = response.text ?? response.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
   const json = extractJson(rawText)
@@ -72,10 +91,12 @@ export async function generateContext(
  * Generates context summaries for N chunks in a single API call.
  * Low-quality chunks are skipped; their positions return null.
  * Return array is index-aligned with chunkContents.
+ *
+ * Pass `docCtx: { type: 'cache', cacheId }` to reuse a Gemini CachedContent.
  */
 export async function generateContextBatch(
   chunkContents: string[],
-  fullDocMarkdown: string,
+  docCtx: DocContext,
   opts: { apiKey: string; model: string; logger: ILogger }
 ): Promise<Array<string | null>> {
   const results: Array<string | null> = new Array(chunkContents.length).fill(null)
@@ -101,18 +122,22 @@ ${chunkBlock}`
 
   const ai = new GoogleGenAI({ apiKey: opts.apiKey })
 
-  const response = await callWithRetry(() =>
-    ai.models.generateContent({
+  const response = await callWithRetry(() => {
+    if (docCtx.type === 'cache') {
+      return ai.models.generateContent({
+        model: opts.model,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: { cachedContent: docCtx.cacheId }
+      })
+    }
+    return ai.models.generateContent({
       model: opts.model,
       contents: [{
         role: 'user',
-        parts: [
-          { text: fullDocMarkdown },
-          { text: prompt }
-        ]
+        parts: [{ text: docCtx.markdown }, { text: prompt }]
       }]
     })
-  )
+  })
 
   const rawText = response.text ?? response.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
   const parsed = BatchContextSchema.parse(JSON.parse(extractJson(rawText)))

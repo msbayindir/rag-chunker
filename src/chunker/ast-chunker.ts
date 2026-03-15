@@ -138,6 +138,65 @@ function splitAtParagraphs(
   return result
 }
 
+// ─── Orphan merge ─────────────────────────────────────────────────────────────
+
+function mergeContentTypes(
+  a: ChunkData['contentType'],
+  b: ChunkData['contentType']
+): ChunkData['contentType'] {
+  if (a === b) return a
+  return 'mixed'
+}
+
+/**
+ * Post-processing pass: merges chunks below `minTokens` into their neighbors.
+ * Preserves mustPreserve chunks as-is (they won't be merged into).
+ */
+export function mergeOrphanChunks(
+  chunks: ChunkData[],
+  minTokens: number
+): ChunkData[] {
+  if (chunks.length === 0) return chunks
+
+  // Work on a mutable copy
+  const items = chunks.map(c => ({ ...c }))
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!
+    if (item.tokenCount >= minTokens) continue
+
+    // Try to merge into previous non-mustPreserve chunk
+    if (i > 0 && !items[i - 1]!.mustPreserve) {
+      const prev = items[i - 1]!
+      const merged = prev.content + '\n\n' + item.content
+      prev.content = merged
+      prev.tokenCount = countTokens(merged)
+      prev.contentType = mergeContentTypes(prev.contentType, item.contentType)
+      // Remove current item
+      items.splice(i, 1)
+      i--
+      continue
+    }
+
+    // Try to merge into next non-mustPreserve chunk
+    if (i + 1 < items.length && !items[i + 1]!.mustPreserve) {
+      const next = items[i + 1]!
+      const merged = item.content + '\n\n' + next.content
+      next.content = merged
+      next.tokenCount = countTokens(merged)
+      next.contentType = mergeContentTypes(item.contentType, next.contentType)
+      next.sectionPath = item.sectionPath.length > 0 ? item.sectionPath : next.sectionPath
+      next.pageNumber = item.pageNumber
+      // Remove current item
+      items.splice(i, 1)
+      i--
+    }
+    // If can't merge either way, keep as-is (better than losing content)
+  }
+
+  return items
+}
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 export interface AstChunkerConfig {
@@ -146,6 +205,10 @@ export interface AstChunkerConfig {
   overlapTokens?: number
   preserveTables?: boolean
   preserveCodeBlocks?: boolean
+  /** Log a warning when a mustPreserve chunk exceeds this token count. Default: 2000 */
+  warnLargeChunkTokens?: number
+  /** Minimal logger for large-chunk warnings. Optional. */
+  logger?: { warn(msg: string, meta?: unknown): void }
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────
@@ -285,6 +348,24 @@ export function chunkMarkdown(
   }
 
   flushAccumulator()
+
+  // ── Orphan merge post-pass ────────────────────────────────────────────────
+  const merged = mergeOrphanChunks(chunks, minChunkTokens)
+  chunks.length = 0
+  chunks.push(...merged)
+
+  // ── Large chunk warnings ──────────────────────────────────────────────────
+  const warnAt = config.warnLargeChunkTokens ?? 2000
+  if (config.logger) {
+    for (const c of chunks) {
+      if (c.mustPreserve && c.tokenCount > warnAt) {
+        config.logger.warn(
+          `Large preserved chunk: ${c.tokenCount} tokens at page ${c.pageNumber} — ` +
+          `table/code block exceeds recommended size for embedding quality`
+        )
+      }
+    }
+  }
 
   // ── Overlap post-pass ──────────────────────────────────────────────────────
   if (overlapTokens > 0 && chunks.length > 1) {

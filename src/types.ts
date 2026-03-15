@@ -1,4 +1,5 @@
-export type { DocumentStructure, ProcessManifest } from './output/types.js'
+export type { DocumentStructure, ProcessManifest, TableRecord } from './output/types.js'
+export type { HeadingCorrection } from './normalize/heading-fix.js'
 export type { IEmbeddingProvider } from './embeddings/types.js'
 
 export interface ChunkerConfig {
@@ -33,6 +34,18 @@ export interface ChunkerConfig {
   embeddingProvider?: import('./embeddings/types.js').IEmbeddingProvider
   /** Custom logger. Default: pino logger at INFO level. */
   logger?: import('./logger.js').ILogger
+  /**
+   * Use Gemini to detect and fix inconsistent heading levels produced by OCR.
+   * Requires geminiApiKey. Fails gracefully if the API call fails.
+   * Default: false
+   */
+  headingNormalization?: boolean
+  /**
+   * Warn when a mustPreserve chunk (table/code) exceeds this token count.
+   * These chunks can't be split, so large values degrade embedding quality.
+   * Default: 2000
+   */
+  warnLargeChunkTokens?: number
 }
 
 export interface Chunk {
