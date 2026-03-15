@@ -1,8 +1,21 @@
+import { createInterface } from 'readline'
+import { statSync } from 'fs'
 import { Command } from 'commander'
 import ora from 'ora'
 import chalk from 'chalk'
 import { process as processPdf } from '../../index.js'
 import { createCliLogger } from '../../logger.js'
+import { MISTRAL_MAX_BYTES } from '../../utils/pdf-splitter.js'
+
+async function confirm(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr })
+  return new Promise(resolve => {
+    rl.question('  ' + chalk.cyan('?') + '  ' + question + chalk.dim(' [y/N] '), answer => {
+      rl.close()
+      resolve(answer.trim().toLowerCase() === 'y' || answer.trim().toLowerCase() === 'yes')
+    })
+  })
+}
 
 const BRAND = chalk.bold('rag-chunker')
 const VERSION = chalk.dim('v3.0.0')
@@ -147,6 +160,28 @@ export function buildProcessCommand(): Command {
       const mistralApiKey = opts.mistralApiKey ?? globalThis.process.env['MISTRAL_API_KEY']
 
       printHeader()
+
+      // ── Large PDF check ─────────────────────────────────────────────────────
+      try {
+        const { size } = statSync(pdfPath)
+        if (size > MISTRAL_MAX_BYTES) {
+          const sizeMB = (size / 1024 / 1024).toFixed(1)
+          w('  ' + chalk.yellow('!') + '  ' + chalk.yellow(`PDF is ${sizeMB} MB — exceeds Mistral's 50 MB limit`))
+          w(chalk.dim('     The document will be split into 40 MB batches and processed sequentially.'))
+          w(chalk.dim('     OCR results will be merged and cached as a single document.'))
+          w()
+          const ok = await confirm('Continue with batch processing?')
+          if (!ok) {
+            w()
+            w('  ' + chalk.dim('Cancelled.'))
+            w()
+            globalThis.process.exit(0)
+          }
+          w()
+        }
+      } catch {
+        // file doesn't exist — processPdf will surface a better error
+      }
 
       if (!mistralApiKey && !geminiApiKey) {
         w(chalk.red('  ✗  No API key provided'))

@@ -15,6 +15,7 @@ import { generateContext, generateContextBatch, type DocContext } from './contex
 import { fixHeadingHierarchy } from './normalize/heading-fix.js'
 import { buildDocumentMarkdown, buildStructure, buildManifest, saveOutputs } from './output/writer.js'
 import { createDefaultLogger } from './logger.js'
+import { splitPdf, MISTRAL_MAX_BYTES } from './utils/pdf-splitter.js'
 import type { ChunkerConfig, Chunk, ProcessResult } from './types.js'
 import type { OcrResult } from './ocr/types.js'
 
@@ -87,7 +88,7 @@ export async function process(
       pageCount = cached.pageCount
     } else {
       // ── 3a. Run OCR ──────────────────────────────────────────────────────
-      const ocrResult = await runOcr(pdfBuffer, config, logger)
+      const ocrResult = await runOcrWithSplit(pdfBuffer, config, logger)
       fullMarkdown = buildDocumentMarkdown(ocrResult)
       ocrModel = ocrResult.model
       pageCount = ocrResult.pageCount
@@ -103,7 +104,7 @@ export async function process(
       logger.info('OCR result cached', { key: cacheKey.slice(0, 12), pageCount })
     }
   } else {
-    const ocrResult = await runOcr(pdfBuffer, config, logger)
+    const ocrResult = await runOcrWithSplit(pdfBuffer, config, logger)
     fullMarkdown = buildDocumentMarkdown(ocrResult)
     ocrModel = ocrResult.model
     pageCount = ocrResult.pageCount
@@ -271,6 +272,36 @@ export async function chunk(
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+async function runOcrWithSplit(
+  pdfBuffer: Buffer,
+  config: ChunkerConfig,
+  logger: ReturnType<typeof createDefaultLogger>
+): Promise<OcrResult> {
+  if (config.mistralApiKey && pdfBuffer.length > MISTRAL_MAX_BYTES) {
+    const sizeMB = (pdfBuffer.length / 1024 / 1024).toFixed(1)
+    logger.info(`Large PDF (${sizeMB} MB) — splitting into batches`)
+    const chunks = await splitPdf(pdfBuffer)
+    logger.info(`Split into ${chunks.length} batches`)
+
+    const allPages: OcrResult['pages'] = []
+    let model = 'mistral-ocr-latest'
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]!
+      logger.info(`OCR batch ${i + 1}/${chunks.length} (pages ${chunk.pageOffset + 1}–${chunk.pageOffset + chunk.pageCount})`)
+      const result = await runMistralOcr(chunk.buffer, { apiKey: config.mistralApiKey })
+      model = result.model
+      for (const page of result.pages) {
+        allPages.push({ ...page, pageNumber: page.pageNumber + chunk.pageOffset })
+      }
+    }
+
+    return { pages: allPages, model, pageCount: allPages.length }
+  }
+
+  return runOcr(pdfBuffer, config, logger)
+}
 
 async function runOcr(
   pdfBuffer: Buffer,
