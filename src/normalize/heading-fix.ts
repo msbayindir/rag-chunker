@@ -47,19 +47,45 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function applyCorrections(markdown: string, corrections: HeadingCorrection[]): string {
-  let result = markdown
+function stripInlineFormatting(text: string): string {
+  return text.replace(/\*+/g, '').replace(/_+/g, '').trim()
+}
+
+function applyCorrections(
+  markdown: string,
+  corrections: HeadingCorrection[],
+  logger: ILogger
+): { result: string; applied: number; missed: string[] } {
+  const lines = markdown.split('\n')
+  let applied = 0
+  const missed: string[] = []
+
   for (const c of corrections) {
     if (c.originalLevel === c.correctedLevel) continue
     const oldHashes = '#'.repeat(c.originalLevel)
     const newHashes = '#'.repeat(c.correctedLevel)
-    const regex = new RegExp(
-      `^${escapeRegex(oldHashes)} ${escapeRegex(c.originalText)}\\s*$`,
-      'gm'
-    )
-    result = result.replace(regex, `${newHashes} ${c.originalText}`)
+    const targetText = c.originalText.trim()
+
+    let found = false
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!
+      if (!line.startsWith(oldHashes + ' ')) continue
+      const lineText = stripInlineFormatting(line.slice(oldHashes.length + 1))
+      if (lineText === targetText) {
+        // Keep original inline formatting, just change the # level
+        lines[i] = newHashes + ' ' + line.slice(oldHashes.length + 1)
+        found = true
+        applied++
+        break
+      }
+    }
+
+    if (!found) {
+      missed.push(`${oldHashes} ${c.originalText}`)
+    }
   }
-  return result
+
+  return { result: lines.join('\n'), applied, missed }
 }
 
 // ─── Gemini document cache ────────────────────────────────────────────────────
@@ -145,8 +171,12 @@ export async function fixHeadingHierarchy(
       return { correctedMd: documentMd, corrections: [] }
     }
 
-    config.logger.info('Heading normalization applied', { count: corrections.length })
-    return { correctedMd: applyCorrections(documentMd, corrections), corrections }
+    const { result: correctedMd, applied, missed } = applyCorrections(documentMd, corrections, config.logger)
+    config.logger.info(`Heading normalization: ${applied}/${corrections.length} corrections applied`)
+    if (missed.length > 0) {
+      config.logger.warn(`Heading normalization: ${missed.length} headings not found in document — sample: ${missed.slice(0, 3).join(' | ')}`)
+    }
+    return { correctedMd, corrections }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     config.logger.warn(`Heading normalization failed: ${msg}`)
