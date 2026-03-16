@@ -1,6 +1,6 @@
 {
   "name": "@msbayindir/rag-chunker",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Mistral OCR + deterministic AST chunker for RAG pipelines",
   "type": "module",
   "main": "./dist/index.js",
