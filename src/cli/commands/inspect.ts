@@ -1,12 +1,24 @@
 import { Command } from 'commander'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
+import { serveInspectUI } from '../ui.js'
 
 export function buildInspectCommand(): Command {
   return new Command('inspect')
     .description('Inspect an output directory (reads manifest.json and structure.json)')
     .argument('<output-dir>', 'Path to the output directory produced by `rag-chunker process`')
-    .action((outputDir: string) => {
+    .option('--ui', 'Open an interactive browser UI for exploring the output')
+    .option('--pdf <path>', 'Path to the original PDF file (enables side-by-side PDF view in UI)')
+    .action((outputDir: string, opts: { ui?: boolean; pdf?: string }) => {
+      if (opts.ui) {
+        const manifestPath = join(outputDir, 'manifest.json')
+        if (!existsSync(manifestPath)) {
+          process.stderr.write(`Error: No manifest.json found in: ${outputDir}\n`)
+          globalThis.process.exit(1)
+        }
+        serveInspectUI(outputDir, opts.pdf)
+        return
+      }
       const manifestPath = join(outputDir, 'manifest.json')
       const structurePath = join(outputDir, 'structure.json')
 
