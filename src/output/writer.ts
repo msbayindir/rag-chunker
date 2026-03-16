@@ -162,6 +162,7 @@ export function buildManifest(opts: {
   startedAt: number
   ocrCacheHit: boolean
   headingFix?: ProcessManifest['headingFix']
+  contextEnrichment?: ProcessManifest['contextEnrichment']
 }): ProcessManifest {
   return {
     version: '3.0',
@@ -173,7 +174,8 @@ export function buildManifest(opts: {
     chunkStats: buildChunkStats(opts.chunks),
     durationMs: Date.now() - opts.startedAt,
     ocrCacheHit: opts.ocrCacheHit,
-    headingFix: opts.headingFix ?? null
+    headingFix: opts.headingFix ?? null,
+    contextEnrichment: opts.contextEnrichment ?? null
   }
 }
 

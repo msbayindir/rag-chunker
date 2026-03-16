@@ -11,7 +11,7 @@ import {
   DEFAULT_OCR_CACHE_PATH
 } from './context/cache.js'
 import { chunkMarkdown, finalizeChunks } from './chunker/ast-chunker.js'
-import { generateContext, generateContextBatch, type DocContext } from './context/gemini-context.js'
+import { generateContext, generateContextBatch, createContextCache, type DocContext } from './context/gemini-context.js'
 import { fixHeadingHierarchy } from './normalize/heading-fix.js'
 import { buildDocumentMarkdown, buildStructure, buildManifest, saveOutputs } from './output/writer.js'
 import { createDefaultLogger } from './logger.js'
@@ -31,7 +31,7 @@ export { createDefaultLogger } from './logger.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_CONTEXT_MODEL = 'gemini-3-flash-preview'
+const DEFAULT_CONTEXT_MODEL = 'gemini-2.5-flash'
 const DEFAULT_OCR_CACHE_TTL_DAYS = 7
 
 // ─── process() ────────────────────────────────────────────────────────────────
@@ -135,8 +135,6 @@ export async function process(
     logger.warn('headingNormalization requires geminiApiKey — skipping')
   }
 
-  const docCtx: DocContext = { type: 'text', markdown: fullMarkdown }
-
   // ── 5. Chunk the markdown ───────────────────────────────────────────────────
   logger.info('Chunking markdown', { pageCount })
   const chunkDatas = chunkMarkdown(fullMarkdown, {
@@ -153,6 +151,7 @@ export async function process(
 
   // ── 6. Context summaries ────────────────────────────────────────────────────
   const contextSummaries: string[] = new Array(partialChunks.length).fill('')
+  let contextEnrichmentStats: import('./output/types.js').ProcessManifest['contextEnrichment'] = null
 
   if (contextMode !== 'none' && config.geminiApiKey) {
     logger.info('Generating context summaries', {
@@ -160,24 +159,60 @@ export async function process(
       chunks: partialChunks.length
     })
 
+    const contextStartMs = Date.now()
+    let contextCacheId: string | null = null
+    let contextBatchCallCount = 0
+
+    if (contextMode === 'batch') {
+      logger.info('Context cache: creating')
+      contextCacheId = await createContextCache(fullMarkdown, {
+        apiKey: config.geminiApiKey,
+        model: contextModel,
+        logger
+      })
+      logger.info(contextCacheId ? 'Context cache: ready' : 'Context cache: unavailable — using inline text')
+    }
+
+    const docCtx: DocContext = contextCacheId
+      ? { type: 'cache', cacheId: contextCacheId }
+      : { type: 'text', markdown: fullMarkdown }
+
     if (contextMode === 'batch') {
       const batchSize = config.contextBatchSize ?? 10
+      const totalBatches = Math.ceil(partialChunks.length / batchSize)
       for (let i = 0; i < partialChunks.length; i += batchSize) {
-        const batch = partialChunks.slice(i, i + batchSize)
+        const batchNum = Math.floor(i / batchSize) + 1
+        const chunkEnd = Math.min(i + batchSize, partialChunks.length)
+        logger.info(`Context batch ${batchNum}/${totalBatches} — chunks ${i + 1}–${chunkEnd}`)
+        const batch = partialChunks.slice(i, chunkEnd)
         const summaries = await generateContextBatch(
-          batch.map(c => c.rawContent),
+          batch.map(c => ({
+            rawContent: c.rawContent,
+            sectionPath: c.sectionPath,
+            pageNumber: c.pageNumber,
+            mustPreserve: c.mustPreserve
+          })),
           docCtx,
           { apiKey: config.geminiApiKey, model: contextModel, logger }
         )
+        contextBatchCallCount++
         for (let j = 0; j < summaries.length; j++) {
           if (summaries[j] != null) contextSummaries[i + j] = summaries[j]!
         }
+      }
+
+      // Clean up the cache (TTL will handle it if delete fails)
+      if (contextCacheId) {
+        try {
+          const ai = new (await import('@google/genai')).GoogleGenAI({ apiKey: config.geminiApiKey })
+          await ai.caches.delete({ name: contextCacheId })
+        } catch { /* TTL will expire it */ }
       }
     } else {
       // per-chunk — concurrent with rate-limit protection
       await processWithPool(
         partialChunks.map((_, idx) => idx),
-        3,
+        config.contextConcurrency ?? 2,
         500,
         async idx => {
           try {
@@ -192,6 +227,16 @@ export async function process(
           }
         }
       )
+    }
+
+    const chunksEnriched = contextSummaries.filter(s => s.length > 0).length
+    contextEnrichmentStats = {
+      model: contextModel,
+      chunksEnriched,
+      chunksSkipped: partialChunks.length - chunksEnriched,
+      batchCalls: contextBatchCallCount,
+      durationMs: Date.now() - contextStartMs,
+      cacheUsed: contextCacheId !== null
     }
   }
 
@@ -241,7 +286,8 @@ export async function process(
     chunks,
     startedAt,
     ocrCacheHit,
-    headingFix: headingFixManifest
+    headingFix: headingFixManifest,
+    contextEnrichment: contextEnrichmentStats
   })
 
   return {

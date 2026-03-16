@@ -13,6 +13,8 @@ export interface ChunkerConfig {
   contextModel?: string
   /** Number of chunks per batch in batch context mode. Default: 10 */
   contextBatchSize?: number
+  /** Max concurrent API calls in per-chunk context mode. Default: 2 */
+  contextConcurrency?: number
   /** Max tokens per chunk. Default: 512 */
   maxChunkTokens?: number
   /** Min tokens for a chunk to be emitted. Default: 50 */
@@ -63,7 +65,7 @@ export interface Chunk {
   chunkId: string
   /** 0-based index in the chunks array */
   index: number
-  /** Final content — rawContent with contextSummary prepended (if any) */
+  /** Final content — contextSummary prepended to rawContent (if any), ready for embedding */
   content: string
   /** Markdown content without context summary */
   rawContent: string

@@ -8,7 +8,7 @@ import { createCliLogger } from '../../logger.js'
 import { MISTRAL_MAX_BYTES } from '../../utils/pdf-splitter.js'
 
 async function confirm(question: string): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr })
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
   return new Promise(resolve => {
     rl.question('  ' + chalk.cyan('?') + '  ' + question + chalk.dim(' [y/N] '), answer => {
       rl.close()
@@ -76,6 +76,17 @@ function printSummary(opts: {
     s.codeChunks  > 0 ? `${s.codeChunks} code`   : null
   ].filter(Boolean).join(chalk.dim('  ·  '))
   printStep(ok, 'Chunk', chunkInfo)
+
+  const ce = result.manifest.contextEnrichment
+  if (ce !== null) {
+    const ceInfo = [
+      `${ce.chunksEnriched} enriched`,
+      ce.chunksSkipped > 0 ? `${ce.chunksSkipped} skipped` : null,
+      ce.cacheUsed ? chalk.cyan('cached') : null,
+      chalk.dim(`${(ce.durationMs / 1000).toFixed(1)}s`)
+    ].filter(Boolean).join(chalk.dim('  ·  '))
+    printStep(ok, 'Context', ceInfo)
+  }
 
   if (outputDir) {
     printStep(ok, 'Saved', chalk.white(outputDir + '/'))
@@ -211,7 +222,7 @@ export function buildProcessCommand(): Command {
 
       const logger = createCliLogger(opts.verbose ?? false)
 
-      const spinnerLabels: Record<string, string | (() => string)> = {
+      const spinnerLabels: Record<string, string> = {
         'Running Mistral OCR':                  'OCR  →  scanning pages…',
         'Running Gemini Vision OCR (fallback)': 'OCR  →  Gemini Vision fallback…',
         'OCR result cached':                    'OCR  →  complete, caching…',
@@ -220,7 +231,10 @@ export function buildProcessCommand(): Command {
         'Heading normalization phase 2: applying corrections': 'Normalize  →  phase 2: correcting headings…',
         'Chunking markdown':                    'Chunk  →  splitting document…',
         'Chunks produced':                      'Chunk  →  finalizing…',
-        'Generating context summaries':         'Context  →  enriching chunks…',
+        'Generating context summaries':         'Context  →  starting…',
+        'Context cache: creating':              'Context  →  creating document cache…',
+        'Context cache: ready':                 'Context  →  cache ready',
+        'Context cache: unavailable — using inline text': 'Context  →  no cache, using inline text',
       }
 
       const trackedLogger = {
@@ -230,7 +244,10 @@ export function buildProcessCommand(): Command {
         info:  (msg: string, meta?: unknown) => {
           const label = spinnerLabels[msg]
           if (label) {
-            spinner.text = chalk.dim(typeof label === 'function' ? label() : label)
+            spinner.text = chalk.dim(label)
+          } else if (msg.startsWith('Context batch ')) {
+            // e.g. "Context batch 3/26 — chunks 21–30"
+            spinner.text = chalk.dim('Context  →  ' + msg)
           }
           if (opts.verbose) logger.info(msg, meta)
         }

@@ -53,4 +53,13 @@ export interface ProcessManifest {
     phase1DurationMs: number
     phase2DurationMs: number
   } | null
+  /** Context enrichment stats. null if contextMode is 'none'. */
+  contextEnrichment: {
+    model: string
+    chunksEnriched: number
+    chunksSkipped: number
+    batchCalls: number
+    durationMs: number
+    cacheUsed: boolean
+  } | null
 }
