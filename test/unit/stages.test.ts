@@ -12,7 +12,12 @@ import { RagChunkerError } from '../../src/errors.js'
 import { extractDocument } from '../../src/ocr/extract.js'
 import { Reporter } from '../../src/pipeline/events.js'
 import { ProviderRegistry } from '../../src/providers/registry.js'
-import { applyHeadingLevels, findHeadings, fixHeadings } from '../../src/structure/heading-fix.js'
+import {
+  applyHeadingLevels,
+  findHeadings,
+  fixHeadings,
+  harmonizeNumberedHeadings,
+} from '../../src/structure/heading-fix.js'
 import { HEADER, PAGE1, SCANNED } from '../fixtures/content.js'
 import { fixture } from '../fixtures/generate.js'
 import { chunkIds, FakeEmbedder, FakeLLM } from '../helpers/fake-llm.js'
@@ -270,6 +275,30 @@ describe('heading normalisation', () => {
     await expect(
       fixHeadings(md, { llm: broken, cache: new CacheStore(null), reporter }),
     ).rejects.toMatchObject({ code: 'MODEL_NOT_FOUND' })
+  })
+
+  it('harmonises numbered headings of the same depth', () => {
+    const doc = [
+      '# Kitap',
+      '',
+      '## 1. Giriş',
+      '',
+      '## 2. Yöntem',
+      '',
+      '# 3. Bulgular',
+      '',
+      '#### 3.1 Alt',
+      '',
+      '## 3.2 Diğer',
+      '',
+      '### 3.3 Son',
+    ].join('\n')
+    const hs = findHeadings(doc)
+    const out = applyHeadingLevels(doc, harmonizeNumberedHeadings(hs, new Map()), hs)
+    expect(out).toContain('\n## 3. Bulgular')
+    expect(out).toContain('\n### 3.1 Alt')
+    expect(out).toContain('\n### 3.2 Diğer')
+    expect(out).toContain('# Kitap')
   })
 
   it('applyHeadingLevels leaves unknown lines alone', () => {

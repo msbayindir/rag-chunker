@@ -1,7 +1,7 @@
 {
   "name": "@msbayindir/rag-chunker",
   "version": "4.0.0",
-  "description": "PDF, Office and Markdown to retrieval-ready chunks — multi-provider (Ollama, Gemini, Claude, OpenAI, OpenRouter, Mistral OCR), works fully local, with contextual retrieval",
+  "description": "PDF, Office and Markdown to retrieval-ready chunks \u2014 multi-provider (Ollama, Gemini, Claude, OpenAI, OpenRouter, Mistral OCR), works fully local, with contextual retrieval",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,7 +25,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/generate-schema.mjs",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp -R src/cli/inspect/static dist/cli/inspect/static && chmod +x dist/cli/index.js && node scripts/generate-schema.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
@@ -77,6 +77,8 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@electric-sql/pglite": "^0.5.10",
+    "@electric-sql/pglite-pgvector": "^0.0.11",
+    "@electric-sql/pglite-socket": "^0.2.13",
     "@lancedb/lancedb": "^0.40.0",
     "@pdf-lib/fontkit": "^1.1.1",
     "@types/mdast": "^4.0.4",

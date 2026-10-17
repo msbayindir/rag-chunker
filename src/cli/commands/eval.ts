@@ -1,0 +1,143 @@
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { Command } from 'commander'
+import pc from 'picocolors'
+import { CacheStore } from '../../cache/store.js'
+import { DEFAULT_CACHE_DIR, findConfigFile, loadConfigFile, resolveConfig } from '../../config/load.js'
+import { embedTexts } from '../../embeddings/embed.js'
+import { RagChunkerError } from '../../errors.js'
+import { type EvalReport, evaluate, generateQuestions, type QuestionSet } from '../../eval/eval.js'
+import { readOutputDir } from '../../output/writer.js'
+import { Reporter } from '../../pipeline/events.js'
+import { ProviderRegistry } from '../../providers/registry.js'
+import { cliEnv } from '../env.js'
+import { err, out, ProgressRenderer, parseIntOption, reportError, sym } from '../ui.js'
+
+interface EvalFlags {
+  model?: string
+  questions?: number
+  questionsFile?: string
+  embedding?: string
+  config?: string
+  json?: boolean
+}
+
+const pct = (n: number) => `${(n * 100).toFixed(1)}%`
+
+function printTable(reports: EvalReport[]): void {
+  err()
+  err(
+    `  ${pc.bold('Output'.padEnd(34))} ${'mode'.padEnd(7)} ${'hit@1'.padStart(7)} ${'hit@5'.padStart(7)} ${'hit@10'.padStart(7)} ${'MRR'.padStart(6)} ${'chunks'.padStart(7)}`,
+  )
+  for (const r of reports) {
+    for (const m of r.metrics) {
+      err(
+        `  ${r.output.slice(-34).padEnd(34)} ${m.mode.padEnd(7)} ${pct(m.hitAt1).padStart(7)} ${pct(m.hitAt5).padStart(7)} ${pct(m.hitAt10).padStart(7)} ${m.mrr.toFixed(3).padStart(6)} ${String(r.chunks).padStart(7)}`,
+      )
+    }
+  }
+  err()
+}
+
+export function evalCommand(): Command {
+  return new Command('eval')
+    .description(
+      'Measure retrieval quality with generated questions (compare several output folders of the same document)',
+    )
+    .argument('<dirs...>', 'output folders written by `rag-chunker process`')
+    .option('--model <model>', 'LLM that writes the questions, e.g. ollama/gemma4:e4b-it-qat')
+    .option('--questions <n>', 'number of questions (default 30)', parseIntOption('questions'))
+    .option('--questions-file <file>', 'reuse a question set instead of generating one')
+    .option(
+      '--embedding <model>',
+      'embedding model for vector/hybrid search (default: the one in the manifest)',
+    )
+    .option('-c, --config <file>', 'config file')
+    .option('--json', 'print the report as JSON')
+    .action(async (dirs: string[], flags: EvalFlags) => {
+      const renderer = new ProgressRenderer(!flags.json)
+      let registry: ProviderRegistry | undefined
+      try {
+        const env = await cliEnv()
+        const configFile = flags.config ?? findConfigFile()
+        const config = resolveConfig(configFile ? await loadConfigFile(configFile) : undefined)
+        registry = new ProviderRegistry({ config, env })
+        const cache = new CacheStore(config.cache.enabled ? (config.cache.dir ?? DEFAULT_CACHE_DIR) : null)
+        const outputs = await Promise.all(dirs.map((d) => readOutputDir(d)))
+        const first = outputs[0]
+        if (!first) throw new RagChunkerError('INPUT_INVALID', 'No output folder given')
+        if (outputs.some((o) => o.manifest.source.documentId !== first.manifest.source.documentId)) {
+          err(
+            `  ${sym.warn} ${pc.yellow('The folders come from different documents; questions follow the first one.')}`,
+          )
+        }
+
+        let set: QuestionSet
+        if (flags.questionsFile) {
+          set = JSON.parse(await readFile(flags.questionsFile, 'utf8')) as QuestionSet
+        } else {
+          const model = flags.model ?? config.models.context
+          if (!model) {
+            throw new RagChunkerError('CONFIG_INVALID', 'eval needs a model to write questions', {
+              hint: 'Pass --model <provider/model> (or set models.context in the config).',
+            })
+          }
+          const res = await generateQuestions(
+            {
+              markdown: first.markdown,
+              documentId: first.manifest.source.documentId,
+              source: first.manifest.source.name,
+            },
+            {
+              llm: registry.llm(model),
+              count: flags.questions ?? 30,
+              cache,
+              reporter: new Reporter(renderer.handle),
+            },
+          )
+          set = res.set
+          const file = join(dirs[0] as string, 'eval-questions.json')
+          await writeFile(file, `${JSON.stringify(set, null, 2)}\n`)
+          renderer.print(`  ${sym.ok} ${set.questions.length} questions ${pc.dim(`→ ${file}`)}`)
+        }
+        if (set.questions.length === 0)
+          throw new RagChunkerError('INPUT_INVALID', 'No usable questions were generated')
+
+        const reports: EvalReport[] = []
+        for (const [i, o] of outputs.entries()) {
+          const embeddingModel = flags.embedding ?? o.manifest.stages.embedding?.model
+          let queryVectors: number[][] | undefined
+          let chunks = o.chunks
+          if (embeddingModel) {
+            const embedder = registry.embedder(embeddingModel)
+            if (
+              !chunks.every((c) => c.embedding.length > 0) ||
+              (flags.embedding && flags.embedding !== o.manifest.stages.embedding?.model)
+            ) {
+              const res = await embedTexts(
+                chunks.map((c) => c.content),
+                { embedder, kind: 'document', cache, dimensions: config.embedding.dimensions },
+              )
+              chunks = chunks.map((c, j) => ({ ...c, embedding: res.vectors[j] as number[] }))
+            }
+            const q = await embedTexts(
+              set.questions.map((x) => x.question),
+              { embedder, kind: 'query', cache, dimensions: config.embedding.dimensions },
+            )
+            queryVectors = q.vectors
+          }
+          const report = evaluate(set, chunks, dirs[i] as string, queryVectors)
+          reports.push(report)
+          await writeFile(join(dirs[i] as string, 'eval.json'), `${JSON.stringify(report, null, 2)}\n`)
+        }
+        renderer.stop()
+        if (flags.json) out(JSON.stringify(reports, null, 2))
+        else printTable(reports)
+      } catch (e) {
+        renderer.stop()
+        process.exitCode = reportError(e)
+      } finally {
+        await registry?.dispose()
+      }
+    })
+}

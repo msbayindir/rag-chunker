@@ -74,6 +74,48 @@ export function findHeadings(markdown: string): HeadingLine[] {
   return out
 }
 
+const NUMBERING_RE = /^((?:\d+\.)*\d+)[.)]?\s+\S/
+
+/**
+ * Deterministic pass: headings with the same numbering depth ("2.", "3." / "2.1", "3.4") get the
+ * level most of them already have, and deeper numbering is never shallower than its parent depth.
+ * Fixes the typical mix of levels when pages come from different OCR engines.
+ */
+export function harmonizeNumberedHeadings(
+  headings: HeadingLine[],
+  changes: Map<number, number>,
+): Map<number, number> {
+  const out = new Map(changes)
+  const level = (h: HeadingLine) => out.get(h.line) ?? h.level
+  const byDepth = new Map<number, HeadingLine[]>()
+  for (const h of headings) {
+    if (level(h) === 0) continue
+    const m = NUMBERING_RE.exec(h.text)
+    if (!m) continue
+    const depth = (m[1] as string).split('.').length
+    const list = byDepth.get(depth) ?? []
+    list.push(h)
+    byDepth.set(depth, list)
+  }
+  let previous = 0
+  for (const depth of [...byDepth.keys()].sort((a, b) => a - b)) {
+    const group = byDepth.get(depth) as HeadingLine[]
+    const votes = new Map<number, number>()
+    for (const h of group) votes.set(level(h), (votes.get(level(h)) ?? 0) + 1)
+    let target = [...votes].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? 1
+    if (target <= previous) target = Math.min(6, previous + 1)
+    if (group.length >= 2) {
+      for (const h of group) if (level(h) !== target) out.set(h.line, target)
+    }
+    previous = group.length >= 2 ? target : Math.max(previous, level(group[0] as HeadingLine))
+  }
+  for (const [line, lvl] of out) {
+    const h = headings.find((x) => x.line === line)
+    if (h && h.level === lvl) out.delete(line)
+  }
+  return out
+}
+
 /** Applies level changes; level 0 turns a heading back into a paragraph. */
 export function applyHeadingLevels(
   markdown: string,
@@ -127,7 +169,7 @@ export async function fixHeadings(markdown: string, opts: HeadingFixOptions): Pr
     key,
   )
   if (cached) {
-    const changes = new Map(cached.changes)
+    const changes = harmonizeNumberedHeadings(headings, new Map(cached.changes))
     return {
       ...base,
       cached: true,
@@ -217,10 +259,11 @@ export async function fixHeadings(markdown: string, opts: HeadingFixOptions): Pr
   opts.reporter.progress('structure', windows.length, windows.length)
 
   await opts.cache.set('structure', key, { changes: [...changes], documentType: structure.documentType })
+  const final = harmonizeNumberedHeadings(headings, changes)
   return {
     ...base,
-    markdown: applyHeadingLevels(markdown, changes, headings),
-    corrections: changes.size,
+    markdown: applyHeadingLevels(markdown, final, headings),
+    corrections: final.size,
     documentType: structure.documentType,
     skipped: null,
   }

@@ -25,6 +25,7 @@ export {
   readDotEnv,
   resolveConfig,
 } from './config/load.js'
+export { detectLocalModels, localPreset, recommendedGemma } from './config/presets.js'
 export { BUILTIN_PROVIDERS } from './config/providers.js'
 export {
   defineConfig,
@@ -35,6 +36,23 @@ export {
 } from './config/schema.js'
 export type { DocumentKind } from './documents/input.js'
 export { type ErrorCode, isRagChunkerError, RagChunkerError } from './errors.js'
+export {
+  type EvalQuestion,
+  type EvalReport,
+  evaluate,
+  generateQuestions,
+  type ModeMetrics,
+  type QuestionSet,
+} from './eval/eval.js'
+export {
+  type ExportResult,
+  type ExportTarget,
+  exportToLanceDb,
+  exportToPgvector,
+  exportToQdrant,
+  type SqlClient,
+} from './export/export.js'
+export { createMcpServer, type McpOptions } from './mcp/server.js'
 export type { Manifest } from './output/manifest.js'
 export type { DocumentStructure } from './output/structure.js'
 export { type LoadedOutput, OUTPUT_FILES, type OutputPaths, readOutputDir } from './output/writer.js'
@@ -50,6 +68,14 @@ export type {
   ModelCapabilities,
   Usage,
 } from './providers/types.js'
+export {
+  Bm25Index,
+  buildSearchIndex,
+  type SearchHit,
+  type SearchIndex,
+  type SearchMode,
+  search,
+} from './search/search.js'
 export type { Chunk } from './types.js'
 
 /**
