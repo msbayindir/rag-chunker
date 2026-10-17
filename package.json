@@ -1,62 +1,120 @@
 {
   "name": "@msbayindir/rag-chunker",
-  "version": "3.1.0",
-  "description": "Mistral OCR + deterministic AST chunker for RAG pipelines",
+  "version": "4.0.0",
+  "description": "PDF, Office and Markdown to retrieval-ready chunks — multi-provider (Ollama, Gemini, Claude, OpenAI, OpenRouter, Mistral OCR), works fully local, with contextual retrieval",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
-  "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "chalk": "^5.6.2",
-    "commander": "^14.0.3",
-    "ora": "^9.3.0",
-    "pino": "^9.0.0",
-    "remark-gfm": "^4.0.1",
-    "remark-parse": "^11.0.0",
-    "remark-stringify": "^11.0.0",
-    "unified": "^11.0.5",
-    "unist-util-visit": "^5.1.0",
-    "pdf-lib": "^1.17.1",
-    "zod": "^3.23.8"
-  },
-  "peerDependencies": {
-    "@google/genai": "^1.44.0",
-    "openai": "^4.0.0"
-  },
-  "peerDependenciesMeta": {
-    "openai": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.4.5"
-  },
-  "engines": {
-    "node": ">=20.0.0"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json",
+    "./schema.json": "./schema/config.schema.json"
   },
   "bin": {
     "rag-chunker": "./dist/cli/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "schema",
+    "README.md",
+    "README.tr.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/generate-schema.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:live": "vitest run --config vitest.live.config.ts",
+    "test:pack": "node scripts/pack-smoke.mjs",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "prepublishOnly": "npm run check && npm run build"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.7.3",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "commander": "^15.0.0",
+    "fast-xml-parser": "^5.11.2",
+    "gpt-tokenizer": "^4.0.3",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
+    "marked": "^18.1.1",
+    "ora": "^9.4.1",
+    "pdf-lib": "^1.17.1",
+    "pg": "^8.23.1",
+    "picocolors": "^1.1.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
+    "unified": "^11.0.5",
+    "unpdf": "^1.9.0",
+    "zod": "^4.6.7"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
+    "@google/genai": "^2.30.0",
+    "@napi-rs/canvas": "^1.0.11",
+    "ollama": "^0.6.4",
+    "openai": "^7.37.0"
+  },
+  "peerDependencies": {
+    "@lancedb/lancedb": ">=0.40.0"
+  },
+  "peerDependenciesMeta": {
+    "@lancedb/lancedb": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@electric-sql/pglite": "^0.5.10",
+    "@lancedb/lancedb": "^0.40.0",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^22.19.0",
+    "@types/pg": "^8.23.1",
+    "@types/turndown": "^5.0.6",
+    "@vitest/coverage-v8": "^5.0.5",
+    "fast-check": "^4.10.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "keywords": [
     "rag",
+    "chunking",
     "pdf",
-    "chunker",
-    "mistral",
+    "ocr",
+    "contextual-retrieval",
+    "ollama",
+    "gemma",
     "gemini",
-    "contextual-retrieval"
+    "claude",
+    "openai",
+    "openrouter",
+    "mistral",
+    "embeddings",
+    "vector-database",
+    "mcp"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/msbayindir/rag-chunker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/msbayindir/rag-chunker/issues"
+  },
+  "homepage": "https://github.com/msbayindir/rag-chunker#readme",
   "license": "MIT"
 }

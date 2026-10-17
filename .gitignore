@@ -1,42 +1,19 @@
-# Dependencies
 node_modules/
-
-# Build output
 dist/
+coverage/
+*.tgz
 
-# Environment variables
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
-# Test artifacts / local example
-example/
-output9/
-test2.pdf
+test/fixtures/generated/
+.rag-chunker-test/
+tmp/
 
-test.pdf
-# OS
 .DS_Store
 Thumbs.db
-
-# IDE
 .vscode/
 .idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-
-# Logs
 *.log
-npm-debug.log*
-
-# Lock file (library, not app)
-package-lock.json
-
-# Local spec & test artifacts
-rag-chunker-spec.md
-*-result.json
-
-# Claude Code session files
 .claude/
