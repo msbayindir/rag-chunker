@@ -84,6 +84,7 @@
     "@types/pg": "^8.23.1",
     "@types/turndown": "^5.0.6",
     "@vitest/coverage-v8": "^5.0.5",
+    "dejavu-fonts-ttf": "^2.37.3",
     "fast-check": "^4.10.2",
     "typescript": "^5.9.3",
     "vitest": "^5.0.5"
