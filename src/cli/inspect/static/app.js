@@ -145,7 +145,7 @@
     if (view === 'rendered')
       $('rendered').innerHTML = text ? renderMarkdown(text) : '<div class="empty">No text on this page</div>'
     if (view === 'raw') $('raw').textContent = text
-    if (view === 'pdf') $('pdf').src = `/api/pdf#page=${p}`
+    if (view === 'pdf') $('pdf-img').src = `/api/page/${p}.png`
     renderList()
   }
 

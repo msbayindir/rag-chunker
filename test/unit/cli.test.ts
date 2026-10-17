@@ -251,6 +251,8 @@ describe('inspect server and cache command', () => {
       expect((await fetch(`${srv.url}/static/marked.js`)).status).toBe(200)
       expect((await fetch(`${srv.url}/static/app.js`)).headers.get('content-type')).toContain('javascript')
       expect((await fetch(`${srv.url}/api/pdf`)).headers.get('content-type')).toBe('application/pdf')
+      const png = new Uint8Array(await (await fetch(`${srv.url}/api/page/1.png`)).arrayBuffer())
+      expect([...png.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47])
       expect((await fetch(`${srv.url}/../../etc/passwd`)).status).toBe(404)
     } finally {
       await srv.close()

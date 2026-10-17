@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import type { AddressInfo } from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { PdfDocumentHandle } from '../../documents/pdf.js'
 import { readOutputDir } from '../../output/writer.js'
 
 const STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), 'static')
@@ -33,6 +34,19 @@ export async function startInspectServer(options: {
 }): Promise<InspectServer> {
   const output = await readOutputDir(options.dir)
   const hasPdf = !!options.pdf && existsSync(options.pdf)
+  // Pages are rendered to PNG on demand so the PDF view works in every browser (no PDF plugin needed).
+  let pdfHandle: Promise<PdfDocumentHandle> | null = null
+  const rendered = new Map<number, Promise<Uint8Array>>()
+  const renderPage = (page: number): Promise<Uint8Array> => {
+    let png = rendered.get(page)
+    if (!png) {
+      pdfHandle ??= readFile(options.pdf as string).then((b) => PdfDocumentHandle.open(new Uint8Array(b)))
+      png = pdfHandle.then((h) => h.renderPng(page, 1400))
+      png.catch(() => rendered.delete(page))
+      rendered.set(page, png)
+    }
+    return png
+  }
   // Vectors are large and not needed in the browser; keep only their length.
   const payload = JSON.stringify({
     manifest: output.manifest,
@@ -51,6 +65,13 @@ export async function startInspectServer(options: {
       if (path === '/api/data') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
         res.end(payload)
+        return
+      }
+      const pageMatch = /^\/api\/page\/(\d+)\.png$/.exec(path)
+      if (pageMatch && hasPdf) {
+        const png = await renderPage(Number(pageMatch[1]))
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=3600' })
+        res.end(png)
         return
       }
       if (path === '/api/pdf' && hasPdf) {
@@ -78,10 +99,12 @@ export async function startInspectServer(options: {
   const { port } = server.address() as AddressInfo
   return {
     url: `http://127.0.0.1:${port}`,
-    close: () =>
-      new Promise<void>((resolve) => {
+    close: async () => {
+      if (pdfHandle) await (await pdfHandle).close()
+      await new Promise<void>((resolve) => {
         server.closeAllConnections()
         server.close(() => resolve())
-      }),
+      })
+    },
   }
 }
