@@ -34,7 +34,12 @@ export function sessionFor(modelPath: string, purpose: string): Promise<ort.Infe
   let s = sessions.get(modelPath)
   if (!s) {
     s = loadOnnxRuntime(purpose).then((rt) =>
-      rt.InferenceSession.create(modelPath, { executionProviders: ['cpu'], graphOptimizationLevel: 'all' }),
+      rt.InferenceSession.create(modelPath, {
+        executionProviders: ['cpu'],
+        graphOptimizationLevel: 'all',
+        // Decoder loops (SLANet) trip shape-inference warnings that are noise for users.
+        logSeverityLevel: 3,
+      }),
     )
     s.catch(() => sessions.delete(modelPath))
     sessions.set(modelPath, s)

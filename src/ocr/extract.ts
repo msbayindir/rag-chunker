@@ -4,9 +4,11 @@ import type { DocumentInput } from '../documents/input.js'
 import type { TextSpan } from '../documents/layout.js'
 import { ocrItems, PdfDocumentHandle, pageFromItems, planPageBatches, subsetPdf } from '../documents/pdf.js'
 import { pptxToMarkdown } from '../documents/pptx.js'
+import type { Rect } from '../documents/tables.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
 import type { PageLayoutProvider, PageLike } from '../local/layout.js'
 import type { OcrResult, PageOcrProvider } from '../local/ocr.js'
+import type { TableStructureProvider } from '../local/table.js'
 import type { Reporter } from '../pipeline/events.js'
 import {
   MISTRAL_MAX_BYTES,
@@ -46,6 +48,8 @@ export interface ExtractOptions {
   layout?: PageLayoutProvider
   /** Required when `engine.type` is "local". */
   localOcr?: LocalOcr
+  /** Table structure model for the table regions the layout model reports. */
+  tables?: TableStructureProvider
   registry: ProviderRegistry
   cache: CacheStore
   reporter: Reporter
@@ -192,7 +196,11 @@ async function ocrImage(
     const size = { width: result.width, height: result.height }
     const asPage: PageLike = { pageCount: 1, renderPng: async () => doc.bytes, pageSize: async () => size }
     const regions = opts.layout ? await opts.layout(asPage, 1) : null
-    const page = pageFromItems(ocrItems(result, size), size, { regions })
+    const tables = opts.tables
+    const page = await pageFromItems(ocrItems(result, size), size, {
+      regions,
+      ...(tables ? { tables: (region: Rect) => tables(asPage, 1, region) } : {}),
+    })
     stats.ocrPages++
     await opts.cache.set('ocr', key, page.markdown)
     opts.reporter.progress('ocr', 1, 1, label)
@@ -249,6 +257,7 @@ async function extractPdf(
     const local = engine.type === 'local' ? localOcrOf(opts) : null
     const textPages = await handle.textLayer({
       layout: opts.layout,
+      tables: opts.tables,
       ...(local
         ? {
             ocr: {

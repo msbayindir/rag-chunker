@@ -1,3 +1,5 @@
+import type { ModelCell, ModelTable } from '../local/table.js'
+
 /**
  * Tables in the PDF text layer. Three detectors run in order: grids drawn with horizontal and
  * vertical lines, tables bounded by horizontal rules only (booktabs-style papers) whose columns
@@ -20,8 +22,11 @@ export interface TableData {
   headerRows: number
   /** One entry per visible cell; positions covered by a span have no entry of their own. */
   cells: TableCell[]
-  /** How the table was recognised: a drawn grid, horizontal rules + alignment, or alignment alone. */
-  source: 'ruled' | 'rules' | 'aligned'
+  /**
+   * How the table was recognised: a drawn grid, the table-structure model, horizontal rules +
+   * alignment, or alignment alone.
+   */
+  source: 'ruled' | 'model' | 'rules' | 'aligned'
   /** True when the table continues one that ended at the bottom of the previous page. */
   continuation?: boolean
 }
@@ -865,6 +870,184 @@ function alignedTables(
 }
 
 /** Finds the tables of a page and returns the text pieces that are not part of any table. */
+/** Regions of the tables drawn as grids on the page (used to skip the structure model there). */
+export function gridRegions(pieces: TextPiece[], rulings: Rulings): Rect[] {
+  return ruledTables(pieces, rulings).regions
+}
+
+/**
+ * Text of the page distributed into the cells the structure model found. With `lineRows`, when
+ * the region has exactly as many text lines as the model has rows, line k is row k and only the
+ * model's columns are used (rows known from rules; the model's row boxes drift).
+ */
+export function tableFromModel(
+  model: ModelTable,
+  pieces: TextPiece[],
+  options: { lineRows?: boolean } = {},
+): { table: DetectedTable; used: Set<TextPiece>; stacked: number } | null {
+  const texts = new Map<number, Array<{ x: number; y: number; line: number; text: string }>>()
+  const used = new Set<TextPiece>()
+  // Rows are bands of y (from the single-row cells); a piece joins the band its centre falls in,
+  // then the cell of that row under its centre x. Cell boxes alone drift by a few points.
+  const bands: Array<{ y0: number; y1: number }> = Array.from({ length: model.rows }, (_, r) => {
+    const own = model.cells.filter((c) => c.row === r && c.rowSpan === 1)
+    const any = own.length > 0 ? own : model.cells.filter((c) => c.row <= r && c.row + c.rowSpan > r)
+    return {
+      y0: Math.min(...any.map((c) => c.bbox.y0)),
+      y1: Math.max(...any.map((c) => c.bbox.y1)),
+    }
+  })
+  const rowAt = (cy: number) => {
+    let best = -1
+    let bestDist = Number.POSITIVE_INFINITY
+    bands.forEach((b, r) => {
+      const d = Math.max(b.y0 - cy, 0, cy - b.y1)
+      if (d < bestDist) {
+        bestDist = d
+        best = r
+      }
+    })
+    return bestDist <= 6 ? best : -1
+  }
+  const cellIn = (r: number, cx: number) => {
+    let best = -1
+    let bestScore = Number.POSITIVE_INFINITY
+    model.cells.forEach((c, i) => {
+      if (c.row > r || c.row + c.rowSpan <= r) return
+      const outside = Math.max(c.bbox.x0 - cx, 0, cx - c.bbox.x1)
+      if (outside > 8) return
+      // Boxes of neighbouring cells overlap by a few points; the nearer centre decides.
+      const score = outside * 1000 + Math.abs(cx - (c.bbox.x0 + c.bbox.x1) / 2)
+      if (score < bestScore) {
+        bestScore = score
+        best = i
+      }
+    })
+    return best
+  }
+  // Text lines of the region, top to bottom, each with the model row its centre falls in.
+  const inRegion = pieces.filter((p) => {
+    const cy = centerY(p)
+    return cy >= model.region.y0 - TOL && cy <= model.region.y1 + TOL
+  })
+  const lines: Array<{ y: number; x0: number; size: number; row: number; pieces: TextPiece[] }> = []
+  for (const p of inRegion.sort((a, b) => b.y - a.y || a.x0 - b.x0)) {
+    const last = lines[lines.length - 1]
+    // Superscripts (footnote marks, units) sit up to half an em above their line.
+    if (last && Math.abs(last.y - p.y) <= Math.max(1, Math.max(last.size, p.size) * 0.5)) {
+      last.pieces.push(p)
+      last.x0 = Math.min(last.x0, p.x0)
+      if (p.size > last.size) {
+        last.size = p.size
+        last.y = p.y
+      }
+    } else lines.push({ y: p.y, x0: p.x0, size: p.size, row: -1, pieces: [p] })
+  }
+  for (const line of lines) line.row = rowAt(line.y + line.size * 0.35)
+  const byLine = options.lineRows && lines.length === model.rows
+  if (options.lineRows && process.env.RAG_CHUNKER_TABLE_DEBUG)
+    console.error(`[table] model lines ${lines.length} rows ${model.rows}`)
+  if (byLine) lines.forEach((line, i) => (line.row = i))
+  // Cell boxes drift by a line at row boundaries of text-heavy cells. A line the model starts a
+  // row with stays with the row above when it is spaced like that row's paragraph (tighter to the
+  // line above than to the one below) and sits in the same column while the next line begins
+  // further left, i.e. it is a wrapped line and the next one is the real first line of the row.
+  for (let i = 1; i < lines.length - 1 && !byLine; i++) {
+    const [above, line, below] = [lines[i - 1], lines[i], lines[i + 1]] as [
+      (typeof lines)[number],
+      (typeof lines)[number],
+      (typeof lines)[number],
+    ]
+    if (line.row < 0 || above.row !== line.row - 1) continue
+    const up = above.y - line.y
+    const down = line.y - below.y
+    if (up < 0.75 * down && Math.abs(line.x0 - above.x0) < line.size && line.x0 >= below.x0 + line.size)
+      line.row = above.row
+  }
+  let parts = 0
+  let straddling = 0
+  lines.forEach((line, lineIndex) => {
+    if (line.row < 0) return
+    for (const p of line.pieces) {
+      for (const part of splitPiece(p, 0.7)) {
+        const cx = (part.x0 + part.x1) / 2
+        if (cx < model.region.x0 - TOL || cx > model.region.x1 + TOL) continue
+        const i = cellIn(line.row, cx)
+        if (i < 0) continue
+        const box = (model.cells[i] as ModelCell).bbox
+        parts++
+        // A part that runs well past its cell on either side is prose cut at a wide word gap,
+        // not a cell: justified paragraphs inside a false "table" region look like this.
+        if (Math.max(0, box.x0 - part.x0) + Math.max(0, part.x1 - box.x1) > p.size * 2) straddling++
+        const list = texts.get(i) ?? []
+        list.push({ x: part.x0, y: p.y, line: lineIndex, text: part.text })
+        texts.set(i, list)
+        used.add(p)
+      }
+    }
+  })
+  const filled = texts.size
+  if (filled === 0 || model.cols < 2 || model.rows < 2 || filled < model.cells.length * 0.2) return null
+  if (straddling > parts * 0.25) return null
+  // Rows the model merged: cells holding short tokens from several text lines (numbers stacked
+  // on top of each other). Wrapped prose and bullet lists in a cell are long and do not count.
+  const stacked = [...texts.values()].filter(
+    (list) => new Set(list.map((t) => t.line)).size >= 2 && list.every((t) => t.text.length <= 12),
+  ).length
+  if (stacked >= filled * 0.3) return null
+  let cells: TableCell[] = model.cells.map((c, i) => {
+    const list = (texts.get(i) ?? []).sort((a, b) => a.line - b.line || a.x - b.x)
+    return {
+      row: c.row,
+      col: c.col,
+      rowSpan: c.rowSpan,
+      colSpan: c.colSpan,
+      text: list
+        .map((t) => t.text)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    }
+  })
+  // Columns with no text at all are dropped (a list the layout model took for a table has one).
+  const emptyCols = new Set(
+    Array.from({ length: model.cols }, (_, c) => c).filter(
+      (c) => !cells.some((cell) => cell.text !== '' && cell.col <= c && c < cell.col + cell.colSpan),
+    ),
+  )
+  const cols = model.cols - emptyCols.size
+  if (cols < 2) return null
+  if (emptyCols.size > 0) {
+    const kept = (c: number) => c - [...emptyCols].filter((e) => e < c).length
+    cells = cells.flatMap((cell) => {
+      const span = Array.from({ length: cell.colSpan }, (_, k) => cell.col + k).filter(
+        (c) => !emptyCols.has(c),
+      )
+      const first = span[0]
+      return first === undefined ? [] : [{ ...cell, col: kept(first), colSpan: span.length }]
+    })
+  }
+  let headerRows = Math.max(1, model.headerRows)
+  while (
+    headerRows < model.rows - 1 &&
+    headerRows < 3 &&
+    cells.some((c) => c.row < headerRows && c.row + c.rowSpan > headerRows)
+  )
+    headerRows++
+  const xs = [...used].flatMap((p) => [p.x0, p.x1])
+  const bbox: Rect = {
+    x0: Math.min(model.region.x0, ...xs),
+    x1: Math.max(model.region.x1, ...xs),
+    y0: Math.min(model.region.y0, ...[...used].map((p) => p.y - p.size * 0.25)),
+    y1: Math.max(model.region.y1, ...[...used].map((p) => p.y + p.size * 0.8)),
+  }
+  return {
+    table: { bbox, data: { rows: model.rows, cols, headerRows, cells, source: 'model' } },
+    used,
+    stacked,
+  }
+}
+
 /** Share of `a` covered by `b`. */
 function coverage(a: Rect, b: Rect): number {
   const inter = overlap(a.x0, a.x1, b.x0, b.x1) * overlap(a.y0, a.y1, b.y0, b.y1)
@@ -880,7 +1063,7 @@ function coverage(a: Rect, b: Rect): number {
 export function detectTables<T extends TextPiece>(
   pieces: T[],
   rulings: Rulings,
-  page: { width: number; hints?: Rect[] },
+  page: { width: number; hints?: Rect[]; models?: ModelTable[] },
 ): { tables: DetectedTable[]; remaining: T[] } {
   const ruled = ruledTables(pieces, rulings)
   let rest = pieces.filter((p) => !ruled.used.has(p))
@@ -891,12 +1074,56 @@ export function detectTables<T extends TextPiece>(
   if (page.hints) {
     const inHint = (t: DetectedTable) => (page.hints as Rect[]).some((h) => coverage(t.bbox, h) >= 0.5)
     aligned.tables = aligned.tables.filter(inHint)
-    const keep = new Set<TextPiece>(aligned.tables.flatMap((t) => rest.filter((p) => inRect(p, t.bbox, TOL))))
-    aligned.used = new Set<TextPiece>([...aligned.used].filter((p) => keep.has(p)))
-    rest = rest.filter((p) => !aligned.used.has(p))
+    const candidates = rest
+    const piecesOf = (t: DetectedTable) => candidates.filter((p) => inRect(p, t.bbox, TOL))
+    aligned.used = new Set<TextPiece>(aligned.tables.flatMap(piecesOf))
     for (const hint of page.hints) {
-      if ([...found, ...aligned.tables].some((t) => coverage(hint, t.bbox) >= 0.5)) continue
-      const inside = rest.filter((p) => inRect(p, hint, 4))
+      const model = page.models?.find(
+        (m) => coverage(hint, m.region) >= 0.5 || coverage(m.region, hint) >= 0.5,
+      )
+      // Lines and rules are exact evidence and win. Between horizontal rules the columns come
+      // from alignment, though, and when the model agrees on the rows but separates columns that
+      // alignment merged (narrow numeric columns), its cells replace them.
+      const exact = found.findIndex((t) => coverage(hint, t.bbox) >= 0.5)
+      if (exact >= 0) {
+        const current = found[exact] as DetectedTable
+        if (
+          model &&
+          current.data.source === 'rules' &&
+          model.rows === current.data.rows &&
+          model.cols > current.data.cols
+        ) {
+          const own = pieces.filter((p) => bounded.used.has(p) && inRect(p, current.bbox, TOL))
+          const built = tableFromModel(model, own, { lineRows: true })
+          if (built && built.stacked === 0 && built.used.size >= own.length) found[exact] = built.table
+          if (process.env.RAG_CHUNKER_TABLE_DEBUG)
+            console.error(
+              `[table] model refine own ${own.length} used ${built?.used.size ?? 'null'} stacked ${built?.stacked ?? '-'} bbox ${JSON.stringify(current.bbox)}`,
+            )
+        }
+        continue
+      }
+      // Between aligned columns and the structure model, whichever places more of the region's
+      // text wins; a tie keeps the alignment (one piece per cell, no drift from the model boxes).
+      // Spanning headers are the usual case where the model explains text that alignment left out.
+      const alignedHere = aligned.tables.filter((t) => coverage(t.bbox, hint) >= 0.5)
+      const alignedUsed = new Set<TextPiece>(alignedHere.flatMap(piecesOf))
+      const built = model
+        ? tableFromModel(
+            model,
+            candidates.filter((p) => !aligned.used.has(p) || alignedUsed.has(p)),
+          )
+        : null
+      if (built && built.used.size > alignedUsed.size) {
+        aligned.tables = aligned.tables.filter((t) => !alignedHere.includes(t))
+        for (const p of alignedUsed) aligned.used.delete(p)
+        for (const p of built.used) aligned.used.add(p)
+        aligned.tables.push(built.table)
+        continue
+      }
+      if (alignedHere.some((t) => coverage(hint, t.bbox) >= 0.5)) continue
+      // Nothing explains the region yet: alignment with relaxed limits.
+      const inside = candidates.filter((p) => !aligned.used.has(p) && inRect(p, hint, 4))
       if (inside.length < 2) continue
       const table = alignTable(inside, {
         gapEm: 0.7,
@@ -911,11 +1138,9 @@ export function detectTables<T extends TextPiece>(
       if (!table) continue
       aligned.tables.push(table)
       for (const p of inside) aligned.used.add(p)
-      rest = rest.filter((p) => !aligned.used.has(p))
     }
-  } else {
-    rest = rest.filter((p) => !aligned.used.has(p))
   }
+  rest = rest.filter((p) => !aligned.used.has(p))
   const tables = [...found, ...aligned.tables]
     .filter((t) => t.data.cells.some((c) => c.text !== ''))
     .sort((a, b) => b.bbox.y1 - a.bbox.y1)

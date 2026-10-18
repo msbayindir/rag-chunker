@@ -13,6 +13,8 @@ import { createLayoutProvider, LAYOUT_MODEL, type PageLayoutProvider } from '../
 import { hasModel } from '../local/models.js'
 import { createOcrProvider, OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../local/ocr.js'
 import { hasOnnxRuntime } from '../local/runtime.js'
+import type { TableStructureProvider } from '../local/table.js'
+import { createTableStructureProvider, TABLE_DICT, TABLE_MODEL } from '../local/table.js'
 import { engineLabel, extractDocument, type LocalOcr, type OcrEngine } from '../ocr/extract.js'
 import { buildDocumentLayout, type DocumentLayout } from '../output/layout.js'
 import { chunkStats, type Manifest, PACKAGE_VERSION, sanitizeConfig } from '../output/manifest.js'
@@ -169,7 +171,8 @@ export async function resolveLayout(config: ResolvedConfig): Promise<LayoutPlan>
   const { engine } = config.layout
   if (engine === 'off') return { engine: null }
   const runtime = await hasOnnxRuntime()
-  const model = await hasModel(LAYOUT_MODEL)
+  const present = await Promise.all([LAYOUT_MODEL, TABLE_MODEL, TABLE_DICT].map((id) => hasModel(id)))
+  const model = present.every(Boolean)
   if (engine === 'pp-doclayout-v3') {
     if (!runtime) {
       throw new RagChunkerError(
@@ -253,8 +256,17 @@ export async function runPipeline(
     }
   }
   let layoutProvider: PageLayoutProvider | undefined
-  const layoutPlan = doc.kind === 'pdf' ? await resolveLayout(config) : { engine: null }
+  let tableProvider: TableStructureProvider | undefined
+  const layoutPlan =
+    doc.kind === 'pdf' || doc.kind === 'image' ? await resolveLayout(config) : { engine: null }
   if (layoutPlan.engine) {
+    tableProvider = await createTableStructureProvider({
+      cache,
+      documentId: doc.documentId,
+      onModelDownload: (file, done, total) =>
+        reporter.progress('ocr', mb(done), mb(total), `downloading ${file} (MB)`),
+      signal,
+    })
     layoutProvider = await createLayoutProvider({
       render: config.layout.render,
       minScore: config.layout.minScore,
@@ -275,6 +287,7 @@ export async function runPipeline(
       removeHeaderFooter: config.ocr.removeHeaderFooter,
       concurrency: config.ocr.concurrency,
       layout: layoutProvider,
+      tables: tableProvider,
       localOcr,
       registry,
       cache,

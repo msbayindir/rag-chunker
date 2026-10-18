@@ -3,12 +3,14 @@ import { getDocumentProxy, renderPageAsImage } from 'unpdf'
 import { RagChunkerError } from '../errors.js'
 import type { LayoutLabel, LayoutRegion, PageLayoutProvider } from '../local/layout.js'
 import type { OcrResult, PageOcrProvider } from '../local/ocr.js'
+import type { ModelTable, TableStructureProvider } from '../local/table.js'
 import { importOptional } from '../util/optional.js'
 import { type Box, type TextSpan, unionBoxes } from './layout.js'
 import {
   type DetectedTable,
   detectTables,
   extractRulings,
+  gridRegions,
   headerTexts,
   type Rect,
   type Rulings,
@@ -96,6 +98,34 @@ export interface TextLayerOptions {
     needed(page: { pageNumber: number; chars: number; garbled: boolean }): boolean
     recognize: PageOcrProvider
   }
+  /** Table structure model, run on the table regions the layout model reports. */
+  tables?: TableStructureProvider
+}
+
+/** Table regions that no drawn grid explains get their structure from the model. */
+async function modelTablesFor(
+  lines: Line[],
+  regions: LayoutRegion[] | null,
+  rulings: Rulings,
+  recognize: ((region: Rect) => Promise<ModelTable | null>) | undefined,
+): Promise<ModelTable[] | undefined> {
+  if (!recognize || !regions) return undefined
+  const hints = regions.filter((r) => r.label === 'table').map((r) => r.bbox)
+  if (hints.length === 0) return []
+  const grids = gridRegions(lines, rulings)
+  const covered = (h: Rect) =>
+    grids.some((g) => {
+      const ix = Math.max(0, Math.min(h.x1, g.x1) - Math.max(h.x0, g.x0))
+      const iy = Math.max(0, Math.min(h.y1, g.y1) - Math.max(h.y0, g.y0))
+      return (ix * iy) / Math.max(1, (h.x1 - h.x0) * (h.y1 - h.y0)) >= 0.5
+    })
+  const out: ModelTable[] = []
+  for (const hint of hints) {
+    if (covered(hint)) continue
+    const t = await recognize(hint)
+    if (t) out.push(t)
+  }
+  return out
 }
 
 /** OCR lines (image pixels, origin top-left) as text items in PDF points. */
@@ -209,9 +239,16 @@ export class PdfDocumentHandle {
       }
       const regions = options.layout ? await options.layout(this, n) : null
       const rulings = await extractRulings(page).catch(() => ({ h: [], v: [] }))
+      const lines0 = toLines(items, width)
+      const models = await modelTablesFor(
+        lines0,
+        regions,
+        rulings,
+        options.tables ? (region) => (options.tables as TableStructureProvider)(this, n, region) : undefined,
+      )
       pages.push({
         pageNumber: n,
-        lines: composePage(items, { width, height }, regions, rulings),
+        lines: composePage(items, { width, height }, regions, rulings, models),
         width,
         height,
         chars,
@@ -281,23 +318,35 @@ function composePage(
   page: { width: number; height: number },
   regions: LayoutRegion[] | null,
   rulings: Rulings,
+  models?: ModelTable[],
 ): Line[] {
   let lines = toLines(items, page.width)
   if (regions) lines = applyLayout(lines, regions)
   const hints = regions?.filter((r) => r.label === 'table').map((r) => r.bbox)
-  const { tables, remaining } = detectTables(lines, rulings, { width: page.width, hints })
+  const { tables, remaining } = detectTables(lines, rulings, { width: page.width, hints, models })
   const tableFlow = tables.flatMap((t) => tableLines(t, regions))
   const withTables = [...remaining, ...tableFlow].sort((a, b) => b.y - a.y || a.x0 - b.x0)
   return regions ? orderByLayout(withTables) : orderColumns(withTables, page.width)
 }
 
 /** A page built from text items alone (OCR of an image): same headings, lists and tables as a PDF page. */
-export function pageFromItems(
+export async function pageFromItems(
   items: TextItem[],
   page: { width: number; height: number },
-  options: { regions?: LayoutRegion[] | null; source?: PdfTextPage['source'] } = {},
-): PdfTextPage {
-  const lines = composePage(items, page, options.regions ?? null, { h: [], v: [] })
+  options: {
+    regions?: LayoutRegion[] | null
+    source?: PdfTextPage['source']
+    tables?: (region: Rect) => Promise<ModelTable | null>
+  } = {},
+): Promise<PdfTextPage> {
+  const none: Rulings = { h: [], v: [] }
+  const models = await modelTablesFor(
+    toLines(items, page.width),
+    options.regions ?? null,
+    none,
+    options.tables,
+  )
+  const lines = composePage(items, page, options.regions ?? null, none, models)
   const prose = [lines.filter((l) => !l.table)]
   const typo = typography(prose)
   typo.levelMap = levelMap(prose, typo)

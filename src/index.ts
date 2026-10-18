@@ -69,6 +69,13 @@ export {
 } from './local/layout.js'
 export { ensureModel, hasModel, MODELS, type ModelId, modelsDir } from './local/models.js'
 export { createOcrProvider, type OcrLine, type OcrResult, recognizeImage } from './local/ocr.js'
+export {
+  createTableStructureProvider,
+  type ModelCell,
+  type ModelTable,
+  recognizeTableStructure,
+  structureToGrid,
+} from './local/table.js'
 export { createMcpServer, type McpOptions } from './mcp/server.js'
 export type { DocumentLayout, LayoutBlock, LayoutPage } from './output/layout.js'
 export type { Manifest } from './output/manifest.js'

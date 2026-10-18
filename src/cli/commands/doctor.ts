@@ -11,6 +11,7 @@ import { errorMessage, RagChunkerError } from '../../errors.js'
 import { LAYOUT_MODEL } from '../../local/layout.js'
 import { hasModel, MODELS, modelsDir } from '../../local/models.js'
 import { OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../../local/ocr.js'
+import { TABLE_DICT, TABLE_MODEL } from '../../local/table.js'
 import { PACKAGE_VERSION } from '../../output/manifest.js'
 import { ollamaListModels } from '../../providers/ollama.js'
 import { ProviderRegistry } from '../../providers/registry.js'
@@ -86,20 +87,22 @@ export async function runChecks(
   })
 
   const onnx = await canImport(() => import('onnxruntime-node'))
-  const layoutModel = await hasModel(LAYOUT_MODEL)
+  const layoutModel = (
+    await Promise.all([LAYOUT_MODEL, TABLE_MODEL, TABLE_DICT].map((id) => hasModel(id)))
+  ).every(Boolean)
   checks.push({
     status: onnx && layoutModel ? 'ok' : 'info',
     label: 'Layout model',
     detail: !onnx
       ? 'onnxruntime-node not installed'
       : layoutModel
-        ? `${MODELS[LAYOUT_MODEL].file} in ${modelsDir(env)}`
+        ? `${MODELS[LAYOUT_MODEL].file} + ${MODELS[TABLE_MODEL].file} in ${modelsDir(env)}`
         : 'onnxruntime-node ready, model not downloaded',
     hint: !onnx
       ? 'Page layout analysis (classes + reading order) needs it: npm install onnxruntime-node'
       : layoutModel
         ? undefined
-        : 'Run `rag-chunker process <pdf> --layout` once to download PP-DocLayoutV3 (130 MB).',
+        : 'Run `rag-chunker process <pdf> --layout` once to download PP-DocLayoutV3 + SLANet_plus (138 MB).',
   })
 
   const ocrFiles = await Promise.all([OCR_DET_MODEL, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)))
