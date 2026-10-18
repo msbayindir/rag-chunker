@@ -7,9 +7,9 @@ import fontkit from '@pdf-lib/fontkit'
 import JSZip from 'jszip'
 import { PDFDocument, type PDFFont, type PDFPage, rgb } from 'pdf-lib'
 import { renderPageAsImage } from 'unpdf'
-import { DOCX, HEADER, PAGE1, PAGE2, PAGE3, PPTX, SCANNED, TWO_COLUMN } from './content.js'
+import { DOCX, HEADER, PAGE1, PAGE2, PAGE3, PPTX, SCANNED, SIDE_BY_SIDE, TWO_COLUMN } from './content.js'
 
-const VERSION = '4'
+const VERSION = '5'
 export const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), 'generated')
 export const fixture = (name: string) => join(FIXTURES_DIR, name)
 
@@ -136,6 +136,18 @@ async function buildTwoColumnPdf(): Promise<Uint8Array> {
   return doc.save()
 }
 
+async function buildSideBySidePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const fonts = await embedFonts(doc)
+  const page = doc.addPage([595, 842])
+  let y = drawWrapped(page, SIDE_BY_SIDE.intro, fonts.regular, 10, 40, 780, 515) - 10
+  const yl = drawWrapped(page, SIDE_BY_SIDE.left, fonts.regular, 10, 40, y, 240)
+  const yr = drawWrapped(page, SIDE_BY_SIDE.right, fonts.regular, 10, 315, y, 240)
+  y = Math.min(yl, yr) - 10
+  drawWrapped(page, SIDE_BY_SIDE.outro, fonts.regular, 10, 40, y, 515)
+  return doc.save()
+}
+
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 
 function wPara(text: string, style?: string): string {
@@ -250,6 +262,7 @@ export async function generateFixtures(): Promise<void> {
   await writeFile(fixture('scan.png'), scan)
   await writeFile(fixture('turkish.pdf'), await buildTurkishPdf(scan))
   await writeFile(fixture('two-column.pdf'), await buildTwoColumnPdf())
+  await writeFile(fixture('side-by-side.pdf'), await buildSideBySidePdf())
   await writeFile(fixture('sample.docx'), await buildDocx())
   await writeFile(fixture('sample.pptx'), await buildPptx())
   await writeFile(fixture('sample.md'), MARKDOWN)

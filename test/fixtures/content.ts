@@ -51,6 +51,16 @@ export const TWO_COLUMN = {
   ],
 }
 
+export const SIDE_BY_SIDE = {
+  intro:
+    'Bu sayfa tek sütunlu bir metindir ve iki farklı yanıtı yan yana gösteren bir karşılaştırma kutusu içerir. Kutunun öncesindeki ve sonrasındaki paragraflar sayfanın tüm genişliğini kaplar, böylece sayfa bütün olarak iki sütunlu görünmez.',
+  left: 'Sol kutudaki yanıt kısa ve doğrudan bir açıklama yapar, kullanıcının sorusunu tek paragrafta yanıtlar ve ek kaynak önermez.',
+  right:
+    'Sağ kutudaki yanıt aynı soruyu daha ayrıntılı ele alır, gerekçelerini sıralar ve okuyucuyu güvenilir kaynaklara yönlendirir.',
+  outro:
+    'Karşılaştırmanın ardından metin yeniden tek sütun olarak devam eder ve iki yanıt arasındaki farkları özetleyen genel bir değerlendirme sunar. Bu paragraf da sayfanın tamamını kaplayacak kadar uzundur.',
+}
+
 export const DOCX = {
   h1: 'Böbrek Fonksiyonları',
   p1: 'Böbrekler sıvı ve elektrolit dengesini düzenleyen başlıca organlardır.',

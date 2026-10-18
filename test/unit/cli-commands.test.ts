@@ -3,7 +3,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { evalCommand } from '../../src/cli/commands/eval.js'
+import { evalCommand, outputLabels } from '../../src/cli/commands/eval.js'
 import { exportCommand } from '../../src/cli/commands/export.js'
 import { inspectCommand } from '../../src/cli/commands/inspect.js'
 import { processDocument } from '../../src/index.js'
@@ -121,6 +121,11 @@ describe('export command', () => {
 })
 
 describe('eval command', () => {
+  it('labels output folders by name, with parent folders only where names repeat', () => {
+    expect(outputLabels(['/x/runs/a-ctx', '/x/runs/a-noctx'])).toEqual(['a-ctx', 'a-noctx'])
+    expect(outputLabels(['/x/gemini/out', '/x/local/out'])).toEqual(['gemini/out', 'local/out'])
+  })
+
   it('generates questions with a model, scores the folder and writes eval.json', async () => {
     server.on('POST', '/api/show', (r, res) => {
       const model = (r.body as any).model

@@ -13,7 +13,7 @@ import {
   stripImages,
   unwrapMarkdownFence,
 } from '../../src/ocr/postprocess.js'
-import { DOCX, HEADER, PAGE1, PAGE2, PAGE3, PPTX, TWO_COLUMN } from '../fixtures/content.js'
+import { DOCX, HEADER, PAGE1, PAGE2, PAGE3, PPTX, SIDE_BY_SIDE, TWO_COLUMN } from '../fixtures/content.js'
 import { fixture } from '../fixtures/generate.js'
 
 const bytes = async (name: string) => new Uint8Array(await readFile(fixture(name)))
@@ -71,6 +71,16 @@ describe('PDF text layer', () => {
     expect(lastLeft).toBeGreaterThan(-1)
     expect(firstRight).toBeGreaterThan(lastLeft)
     expect(md).not.toMatch(/fizyolojisini Sağ/)
+  })
+
+  it('reads side-by-side blocks on single-column pages one block at a time', async () => {
+    const pdf = await PdfDocumentHandle.open(await bytes('side-by-side.pdf'))
+    const md = (await pdf.textLayer())[0]?.markdown ?? ''
+    await pdf.close()
+    const order = [SIDE_BY_SIDE.intro, SIDE_BY_SIDE.left, SIDE_BY_SIDE.right, SIDE_BY_SIDE.outro]
+    const at = order.map((text) => md.indexOf(text))
+    expect(at.every((i) => i > -1)).toBe(true)
+    expect(at).toEqual([...at].sort((a, b) => a - b))
   })
 
   it('renders pages to PNG and builds page subsets', async () => {

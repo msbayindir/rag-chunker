@@ -18,6 +18,8 @@ A rewrite. v4 is not compatible with v3: the API, CLI flags, output fields and c
 - Inspector UI with search, page images of the original PDF and sanitized markdown.
 - MCP server (`search`, `get_chunk`, `get_page`, `list_documents`).
 - JSON Schema for the config file (`schema/config.schema.json`).
+- `QUOTA_EXCEEDED` and `RATE_LIMITED` errors with the provider's retry delay and a console hint; `ocr: auto` falls back from Mistral when the key has no OCR quota.
+- PDF text layer reading order for two-column papers with narrow gutters and for side-by-side blocks (comparison tables, boxed examples) on single-column pages; headings from font size and font style, with filters for tables of contents, running headers and figure labels.
 
 ### Changed
 
@@ -26,6 +28,9 @@ A rewrite. v4 is not compatible with v3: the API, CLI flags, output fields and c
 - `chunkId` is `documentId prefix + content hash` (unique and stable across runs); chunks carry `documentId`, `source` and `ocrSource`.
 - `process()` is now `processDocument(input, config, options)`; configuration is validated with readable errors; API keys come from the environment (or `providers.*.apiKey` in code), never from config files.
 - Requires Node.js 22.
+- Context batches are runs of consecutive chunks across sections, `auto` switches to `hierarchical` above 60k document tokens, and sections that fit in one chunk get no separate summary. On Ollama a long shared prefix is processed once so llama.cpp can reuse it for every batch (Gemma's sliding-window attention otherwise forces a full re-read per request).
+- `--dry-run` estimates context requests and tokens for the strategy that will actually be used.
+- Headings after a reference list (“References”, “Kaynaklar”) are no longer nested under it in `sectionPath`.
 
 ### Removed
 

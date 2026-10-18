@@ -136,7 +136,7 @@ async function runDryRun(
     )
     err(`     Headings   ${plan.structure ? plan.structure.model : pc.dim('off')}`)
     err(
-      `     Context    ${plan.context ? `${plan.context.model}${pc.dim(`  ~${plan.context.estimatedRequests} request(s), ≤${formatNumber(plan.context.fullStrategyInputTokens)} input tokens before caching`)}` : pc.dim('off')}`,
+      `     Context    ${plan.context ? `${plan.context.model}${pc.dim(`  ${plan.context.strategy}, ~${plan.context.estimatedRequests} request(s), ~${formatNumber(plan.context.estimatedInputTokens)} input tokens before caching`)}` : pc.dim('off')}`,
     )
     err(
       `     Embedding  ${plan.embedding ? `${plan.embedding.model}${pc.dim(`  ${plan.embedding.texts} text(s)`)}` : pc.dim('off')}`,

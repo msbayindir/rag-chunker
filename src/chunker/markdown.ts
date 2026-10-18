@@ -82,6 +82,10 @@ function kindOf(node: RootContent): BlockKind {
   }
 }
 
+/** Back-matter headings (references, bibliography) never contain the headings that follow them. */
+const BACK_MATTER_RE =
+  /^(?:\d+(?:\.\d+)*\.?\s+)?(?:kaynaklar|kaynakça|referanslar|references|bibliography|works cited)$/iu
+
 /**
  * Parses markdown into top-level blocks with page numbers and section paths.
  * Page markers (`<!-- page N -->`) are consumed and never appear in block text.
@@ -120,7 +124,11 @@ export function parseBlocks(markdown: string, hardBoundaryDepth: number): Parsed
         group++
         groupHasContent = false
       }
-      while (stack.length > 0 && (stack.at(-1) as { depth: number }).depth >= depth) stack.pop()
+      while (stack.length > 0) {
+        const top = stack.at(-1) as { depth: number; title: string }
+        if (top.depth < depth && !BACK_MATTER_RE.test(top.title)) break
+        stack.pop()
+      }
       stack.push({ depth, title })
     } else {
       groupHasContent = true

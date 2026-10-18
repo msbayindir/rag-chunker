@@ -8,8 +8,8 @@ import { addUsage, emptyUsage, type LLM, type Usage } from '../providers/types.j
 import { batches } from '../util/async.js'
 import { sha256 } from '../util/hash.js'
 
-const PROMPT_VERSION = 'v1'
-const WINDOW = 120
+const PROMPT_VERSION = 'v2'
+const WINDOW = 60
 
 export interface HeadingLine {
   /** 0-based line index in the markdown. */
@@ -187,8 +187,13 @@ export async function fixHeadings(markdown: string, opts: HeadingFixOptions): Pr
 
   let structure: Structure
   try {
-    const outlineText = tok.truncate(outline.join('\n'), Math.floor(budget * 0.5))
-    const opening = tok.truncate(markdown, Math.max(1000, budget - tok.count(outlineText) - 1500))
+    // The outline and the opening pages (title, table of contents) are what structure discovery needs;
+    // keeping the prompt small also keeps local models fast.
+    const outlineText = tok.truncate(outline.join('\n'), Math.min(12_000, Math.floor(budget * 0.5)))
+    const opening = tok.truncate(
+      markdown,
+      Math.max(1000, Math.min(6000, budget - tok.count(outlineText) - 1500)),
+    )
     const res = await generateJson(
       opts.llm,
       {
@@ -197,8 +202,8 @@ export async function fixHeadings(markdown: string, opts: HeadingFixOptions): Pr
           { type: 'text', text: `<headings>\n${outlineText}\n</headings>` },
           { type: 'text', text: `<document_start>\n${opening}\n</document_start>` },
         ],
-        maxOutputTokens: 4096,
-        effort: 'medium',
+        maxOutputTokens: 8192,
+        effort: 'low',
         signal: opts.signal,
       },
       structureSchema,
@@ -213,6 +218,7 @@ export async function fixHeadings(markdown: string, opts: HeadingFixOptions): Pr
   }
 
   const changes = new Map<number, number>()
+  let failedWindows = 0
   const windows = batches(
     headings.map((h, i) => ({ h, i })),
     WINDOW,
@@ -234,8 +240,8 @@ export async function fixHeadings(markdown: string, opts: HeadingFixOptions): Pr
               text: `<headings>\n${[...contextLines, ...win.map(({ i }) => outline[i] as string)].join('\n')}\n</headings>`,
             },
           ],
-          maxOutputTokens: 4096,
-          effort: 'medium',
+          maxOutputTokens: 8192,
+          effort: 'low',
           signal: opts.signal,
         },
         correctionsSchema,
@@ -249,6 +255,7 @@ export async function fixHeadings(markdown: string, opts: HeadingFixOptions): Pr
       }
     } catch (err) {
       if (isFatal(err)) throw err
+      failedWindows++
       opts.reporter.warn(
         'structure',
         `Heading window ${w + 1}/${windows.length} skipped: ${(err as Error).message}`,
@@ -258,7 +265,10 @@ export async function fixHeadings(markdown: string, opts: HeadingFixOptions): Pr
   }
   opts.reporter.progress('structure', windows.length, windows.length)
 
-  await opts.cache.set('structure', key, { changes: [...changes], documentType: structure.documentType })
+  // A partial result is not cached, so the next run retries the windows that failed.
+  if (failedWindows === 0) {
+    await opts.cache.set('structure', key, { changes: [...changes], documentType: structure.documentType })
+  }
   const final = harmonizeNumberedHeadings(headings, changes)
   return {
     ...base,

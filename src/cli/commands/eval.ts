@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { Command } from 'commander'
 import pc from 'picocolors'
 import { CacheStore } from '../../cache/store.js'
@@ -24,18 +24,32 @@ interface EvalFlags {
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`
 
+/** Folder names, with as much of the path as needed to tell folders with the same name apart. */
+export function outputLabels(outputs: string[]): string[] {
+  const parts = outputs.map((o) => resolve(o).split(sep).filter(Boolean))
+  return parts.map((p, i) => {
+    for (let n = 1; n < p.length; n++) {
+      const tail = p.slice(-n).join('/')
+      if (parts.every((q, j) => j === i || q.slice(-n).join('/') !== tail)) return tail
+    }
+    return p.join('/')
+  })
+}
+
 function printTable(reports: EvalReport[]): void {
+  const labels = outputLabels(reports.map((r) => r.output))
+  const width = Math.max(6, ...labels.map((l) => l.length))
   err()
   err(
-    `  ${pc.bold('Output'.padEnd(34))} ${'mode'.padEnd(7)} ${'hit@1'.padStart(7)} ${'hit@5'.padStart(7)} ${'hit@10'.padStart(7)} ${'MRR'.padStart(6)} ${'chunks'.padStart(7)}`,
+    `  ${pc.bold('Output'.padEnd(width))} ${'mode'.padEnd(7)} ${'hit@1'.padStart(7)} ${'hit@5'.padStart(7)} ${'hit@10'.padStart(7)} ${'MRR'.padStart(6)} ${'chunks'.padStart(7)}`,
   )
-  for (const r of reports) {
+  reports.forEach((r, i) => {
     for (const m of r.metrics) {
       err(
-        `  ${r.output.slice(-34).padEnd(34)} ${m.mode.padEnd(7)} ${pct(m.hitAt1).padStart(7)} ${pct(m.hitAt5).padStart(7)} ${pct(m.hitAt10).padStart(7)} ${m.mrr.toFixed(3).padStart(6)} ${String(r.chunks).padStart(7)}`,
+        `  ${(labels[i] as string).padEnd(width)} ${m.mode.padEnd(7)} ${pct(m.hitAt1).padStart(7)} ${pct(m.hitAt5).padStart(7)} ${pct(m.hitAt10).padStart(7)} ${m.mrr.toFixed(3).padStart(6)} ${String(r.chunks).padStart(7)}`,
       )
     }
-  }
+  })
   err()
 }
 

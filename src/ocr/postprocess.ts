@@ -93,11 +93,28 @@ export function removeRepeatedHeaderFooter(pages: string[]): { pages: string[]; 
     }
   })
 
+  // The very first/last line repeating on a few pages is a running header of a chapter or section.
+  const outerThreshold = Math.max(3, Math.ceil(withText * 0.05))
+  const outer = new Map<string, number>()
+  for (const lines of split) {
+    const { top, bottom } = edgeIndexes(lines)
+    const seen = new Set<string>()
+    for (const i of [top[0], bottom.at(-1)]) {
+      if (i === undefined) continue
+      const raw = lines[i] as string
+      const key = normalizeLine(raw)
+      if (raw.length > 120 || key === '' || seen.has(key)) continue
+      seen.add(key)
+      outer.set(key, (outer.get(key) ?? 0) + 1)
+    }
+  }
+  const outerRepeated = new Set([...outer].filter(([, n]) => n >= outerThreshold).map(([k]) => k))
   const repeated = new Set([...exact].filter(([, n]) => n >= threshold).map(([k]) => k))
   const pageNumberLike = new Set(
     [...numbered].filter(([, offsets]) => Math.max(...offsets.values()) >= threshold).map(([k]) => k),
   )
-  if (repeated.size === 0 && pageNumberLike.size === 0) return { pages, removed: 0 }
+  if (repeated.size === 0 && pageNumberLike.size === 0 && outerRepeated.size === 0)
+    return { pages, removed: 0 }
 
   let removed = 0
   const out = split.map((lines) => {
@@ -109,8 +126,10 @@ export function removeRepeatedHeaderFooter(pages: string[]): { pages: string[]; 
     }
     for (const i of [top[0], bottom.at(-1)]) {
       if (i === undefined) continue
-      const pn = pageNumberPattern(lines[i] as string)
+      const raw = lines[i] as string
+      const pn = pageNumberPattern(raw)
       if (pn && pageNumberLike.has(pn.pattern)) drop.add(i)
+      if (raw.length <= 120 && outerRepeated.has(normalizeLine(raw))) drop.add(i)
     }
     removed += drop.size
     return lines

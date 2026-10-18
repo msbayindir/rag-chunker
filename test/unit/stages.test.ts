@@ -342,11 +342,12 @@ describe('context enrichment', () => {
       expect(res.summaries[i]).toBe(isLowQuality(c.text) ? '' : `Bağlam ${i}.`)
     })
     expect(llm.requests.every((r) => r.prefix?.includes('<document>'))).toBe(true)
-    // Batches never mix sections.
-    for (const r of llm.requests) {
-      const groups = new Set(chunkIds(r).map((id) => doc.chunks[id]?.group))
-      expect(groups.size).toBe(1)
-    }
+    // Batches are full runs of consecutive chunks, even across sections.
+    const eligible = doc.chunks.filter((c) => !isLowQuality(c.text)).length
+    expect(llm.requests).toHaveLength(Math.ceil(eligible / 4))
+    expect(llm.requests.some((r) => new Set(chunkIds(r).map((id) => doc.chunks[id]?.group)).size > 1)).toBe(
+      true,
+    )
   })
 
   it('retries missing ids one by one and splits failing batches', async () => {
@@ -368,9 +369,12 @@ describe('context enrichment', () => {
   it('uses section summaries when the document does not fit the model', async () => {
     const llm = new FakeLLM(
       (req) => {
-        if (req.system?.startsWith('Summarise the given part'))
-          return JSON.stringify({ summary: 'Bölüm özeti.' })
-        if (req.system?.startsWith('You get summaries')) return JSON.stringify({ summary: 'Belge özeti.' })
+        if (req.system?.startsWith('Summarise the given part')) {
+          const first = req.parts[0]
+          const title = first?.type === 'text' ? first.text.split('\n')[0] : ''
+          return JSON.stringify({ summary: `${title} özeti.` })
+        }
+        if (req.system?.startsWith('You get the sections')) return JSON.stringify({ summary: 'Belge özeti.' })
         return JSON.stringify({ items: chunkIds(req).map((id) => ({ id, context: `H${id}` })) })
       },
       { contextWindow: 3000 },
@@ -384,8 +388,45 @@ describe('context enrichment', () => {
     expect(reporter.warnings[0]).toMatch(/does not fit/)
     const chunkReqs = llm.requests.filter((r) => r.system?.startsWith('You write contextual'))
     expect(chunkReqs.every((r) => r.prefix?.includes('Belge özeti.'))).toBe(true)
-    expect(chunkReqs.some((r) => JSON.stringify(r.parts).includes('Bölüm özeti.'))).toBe(true)
+    // Every section in a batch brings its own summary.
+    for (const r of chunkReqs) {
+      const text = JSON.stringify(r.parts)
+      for (const id of chunkIds(r)) {
+        const section = doc.sections.find((s) => s.group === doc.chunks[id]?.group)
+        expect(text).toContain(`${section?.path.join(' > ')} özeti.`)
+      }
+    }
     expect(res.enriched).toBe(doc.chunks.length - 1)
+  })
+
+  it('summarises only sections that span several chunks', async () => {
+    const short = [
+      '# Kanun',
+      '',
+      ...[1, 2, 3].flatMap((n) => [
+        `## Madde ${n}`,
+        '',
+        `Madde ${n} metni kısa bir hükümdür ve tek parçaya sığar.`,
+        '',
+      ]),
+    ].join('\n')
+    const shortDoc = chunkMarkdownDocument(short, { maxTokens: 160, minTokens: 0 })
+    const llm = new FakeLLM(
+      (req) => {
+        if (req.system?.startsWith('Summarise the given part')) return JSON.stringify({ summary: 'Özet.' })
+        if (req.system?.startsWith('You get the sections')) return JSON.stringify({ summary: 'Belge özeti.' })
+        return JSON.stringify({ items: chunkIds(req).map((id) => ({ id, context: `K${id}` })) })
+      },
+      { contextWindow: 3000 },
+    )
+    const res = await enrichChunks(
+      { markdown: short, ...shortDoc },
+      { llm, strategy: 'hierarchical', batchSize: 10, cache: new CacheStore(null), reporter: new Reporter() },
+    )
+    expect(llm.requests.filter((r) => r.system?.startsWith('Summarise the given part'))).toHaveLength(0)
+    const docReq = llm.requests.find((r) => r.system?.startsWith('You get the sections'))
+    expect(JSON.stringify(docReq?.parts)).toContain('Kanun > Madde 2')
+    expect(res.enriched).toBe(shortDoc.chunks.length)
   })
 
   it('stops on configuration errors', async () => {
@@ -402,7 +443,8 @@ describe('context enrichment', () => {
 
   it('classifies low-quality chunks', () => {
     expect(isLowQuality('…')).toBe(true)
-    expect(isLowQuality('| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 |')).toBe(true)
+    expect(isLowQuality('| | | | | — | — | — | | | · · · | | | | | | |')).toBe(true)
+    expect(isLowQuality('BoolQ PIQA SIQA 7B 75.0 80.6 48.5 76.4 68.3 70.2 42.6 51.4 21.3 26.8')).toBe(false)
     expect(
       isLowQuality('Hiponatremi serum sodyumunun düşük olmasıdır ve tedavisi nedene göre değişir.'),
     ).toBe(false)

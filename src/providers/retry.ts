@@ -76,7 +76,12 @@ export function retryAfterMs(err: unknown): number | undefined {
   const ms = headerValue(headers, 'retry-after-ms')
   if (ms && Number.isFinite(Number(ms))) return Math.min(60_000, Number(ms))
   const after = headerValue(headers, 'retry-after')
-  if (!after) return undefined
+  if (!after) {
+    // Some APIs (Gemini) put the delay in the error body: "Please retry in 33.7s" / "retryDelay":"33s".
+    const hint = /retry in (\d+(?:\.\d+)?)\s*s|"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/i.exec(errorMessage(err))
+    const secs = hint ? Number(hint[1] ?? hint[2]) : Number.NaN
+    return Number.isFinite(secs) ? Math.min(60_000, Math.ceil(secs * 1000)) : undefined
+  }
   const seconds = Number(after)
   if (Number.isFinite(seconds)) return Math.min(60_000, seconds * 1000)
   const date = Date.parse(after)

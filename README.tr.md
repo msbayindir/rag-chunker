@@ -148,7 +148,7 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 | `chunk.maxTokens` | `512` | Chunk başına kesin üst sınır (o200k token) |
 | `chunk.minTokens` | `64` | Daha küçük chunk'lar aynı bölümdeki komşusuyla birleşir |
 | `chunk.overlapTokens` | `0` | Önceki chunk'ın son cümleleri `content`'in başına eklenir |
-| `context.strategy` | `auto` | `full` (tüm doküman cache'li bağlam olarak), `hierarchical` (özetler), `auto` |
+| `context.strategy` | `auto` | `full` (tüm doküman cache'li bağlam olarak), `hierarchical` (doküman + bölüm özetleri), `auto` (modelin bağlamı yetiyorsa 60 bin token'a kadar `full`, üstünde `hierarchical`) |
 | `providers.<ad>` | — | `type`, `baseURL`, `apiKeyEnv`, `contextWindow`, `maxContext` (Ollama `num_ctx` üst sınırı, varsayılan 32768), `concurrency`, `timeoutMs` |
 
 ## Komutlar

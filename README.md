@@ -161,7 +161,7 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 | `chunk.hardBoundaryDepth` | `2` | H1/H2 always start a new chunk |
 | `chunk.preserveTables` / `preserveCode` | `true` | Keep tables/code in their own chunks |
 | `chunk.tokenizer` | `o200k` | `o200k` (real BPE) or `estimate` (fast approximation) |
-| `context.strategy` | `auto` | `full` (whole document as cached context), `hierarchical` (summaries), `auto` |
+| `context.strategy` | `auto` | `full` (whole document as cached context), `hierarchical` (document + section summaries), `auto` (`full` up to 60k tokens when the model's context allows, otherwise `hierarchical`) |
 | `context.batchSize` | `8` | Chunks per request |
 | `embedding.dimensions` | — | Output size for models that support it |
 | `providers.<name>` | — | `type`, `baseURL`, `apiKeyEnv`, `headers`, `contextWindow`, `maxContext` (Ollama `num_ctx` cap, default 32768), `concurrency`, `timeoutMs`, `maxRetries` |

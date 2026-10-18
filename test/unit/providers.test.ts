@@ -316,7 +316,7 @@ describe('ollama adapter', () => {
       llm,
       {
         system: 's',
-        prefix: 'P'.repeat(9000),
+        prefix: 'P'.repeat(3000),
         parts: [{ type: 'image', data: new Uint8Array([255]), mimeType: 'image/png' }],
       },
       schema,
@@ -324,13 +324,46 @@ describe('ollama adapter', () => {
     )
     await llm.generate({ parts: [{ type: 'text', text: 'small' }] })
     const chats = server.requests.filter((r) => r.path === '/api/chat').map((r) => r.body as any)
+    expect(chats).toHaveLength(2)
     expect(chats[0].format.type).toBe('object')
     expect(chats[0].think).toBe(false)
     expect(chats[0].messages[1].images).toEqual(['/w=='])
-    expect(chats[0].options.num_ctx).toBeGreaterThanOrEqual(8192)
-    expect(chats[0].options.num_ctx % 2048).toBe(0)
+    expect(chats[0].options.num_ctx).toBeGreaterThanOrEqual(4096)
+    expect(chats[0].options.num_ctx % 4096).toBe(0)
     // num_ctx never shrinks (changing it reloads the model).
     expect(chats[1].options.num_ctx).toBe(chats[0].options.num_ctx)
+  })
+
+  it('processes a long shared prefix once on its own so later requests reuse it', async () => {
+    server.on('POST', '/api/show', (_r, res) => json(res, 200, show(['completion'])))
+    server.on('POST', '/api/chat', (_r, res) =>
+      json(res, 200, {
+        model: 'g',
+        message: { role: 'assistant', content: 'ok' },
+        done: true,
+        prompt_eval_count: 7,
+        eval_count: 1,
+      }),
+    )
+    const llm = createLLM('ollama/gemma4:e4b-it-qat', c())
+    const prefix = `<document>\n${'Metin. '.repeat(2000)}\n</document>`
+    const first = await llm.generate({ system: 's', prefix, parts: [{ type: 'text', text: 'chunk 1' }] })
+    await Promise.all([
+      llm.generate({ system: 's', prefix, parts: [{ type: 'text', text: 'chunk 2' }] }),
+      llm.generate({ system: 's', prefix, parts: [{ type: 'text', text: 'chunk 3' }] }),
+    ])
+    const chats = server.requests.filter((r) => r.path === '/api/chat').map((r) => r.body as any)
+    expect(chats).toHaveLength(4)
+    expect(chats[0].messages).toEqual([
+      { role: 'system', content: 's' },
+      { role: 'user', content: prefix },
+    ])
+    expect(chats[0].options.num_predict).toBe(1)
+    expect(chats.slice(1).every((ch) => ch.messages[1].content.startsWith(`${prefix}\n\n`))).toBe(true)
+    expect(new Set(chats.map((ch) => ch.options.num_ctx)).size).toBe(1)
+    // The warm-up is billed to the request that triggered it.
+    expect(first.usage.requests).toBe(2)
+    expect(first.usage.inputTokens).toBe(14)
   })
 
   it('reports a missing model with an ollama pull hint', async () => {
@@ -591,5 +624,16 @@ describe('rate limits and quotas', () => {
     )
     expect(limited).toMatchObject({ code: 'RATE_LIMITED', retryable: false })
     expect(limited.hint).toContain('concurrency')
+  })
+})
+
+describe('retry hints in error bodies', () => {
+  it('reads Gemini-style retry delays from the message', () => {
+    expect(retryAfterMs({ status: 429, message: 'Quota exceeded ... Please retry in 33.718412218s.' })).toBe(
+      33719,
+    )
+    expect(retryAfterMs({ status: 429, message: '{"retryDelay":"12s"}' })).toBe(12000)
+    expect(retryAfterMs({ status: 429, message: 'Please retry in 600s' })).toBe(60000)
+    expect(retryAfterMs({ status: 429, message: 'slow down' })).toBeUndefined()
   })
 })

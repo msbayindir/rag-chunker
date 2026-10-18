@@ -340,3 +340,38 @@ describe('chunker invariants (property-based)', () => {
     )
   })
 })
+
+describe('real-world text', () => {
+  it('does not nest headings that follow a reference list under it', () => {
+    const md = [
+      '# Riskler',
+      '',
+      '## Kaynaklar',
+      '',
+      '1. Bayram F, et al. Prevalence of Hypertension. 2010.',
+      '',
+      '#### 2) Cinsiyet',
+      '',
+      'Kadınlarda sistolik kan basıncı erken yetişkinlikte daha düşüktür.',
+    ].join('\n')
+    const { chunks } = chunkMarkdownDocument(md, { maxTokens: 30, minTokens: 0 })
+    const last = chunks.at(-1)
+    expect(last?.text).toContain('Kadınlarda')
+    expect(last?.sectionPath).toEqual(['Riskler', '2) Cinsiyet'])
+  })
+
+  it('treats special-token look-alikes such as <|im_start|> as plain text', () => {
+    const md =
+      '## Chat format\n\n<|im_start|>user\nMerhaba<|im_end|>\n<|im_start|>assistant\nSelam<|im_end|> <|endoftext|>'
+    expect(tok.count('<|endoftext|>')).toBeGreaterThan(1)
+    expect(tok.truncate('<|im_start|> abc def', 3).length).toBeGreaterThan(0)
+    const { chunks } = chunkMarkdownDocument(md, { minTokens: 0 })
+    expect(chunks.map((c) => c.text).join('\n')).toContain('<|im_start|>assistant')
+  })
+
+  it('does not warn when long list items or paragraphs are split at sentences', () => {
+    const items = Array.from({ length: 3 }, (_, i) => `- Madde ${i}: ${sentences(80, i * 10)}`)
+    const { warnings } = chunkMarkdownDocument(['## Liste', '', ...items].join('\n'), { maxTokens: 256 })
+    expect(warnings).toEqual([])
+  })
+})

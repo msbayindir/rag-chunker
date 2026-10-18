@@ -46,7 +46,9 @@ export interface EvalReport {
 const questionSchema = z.strictObject({ question: z.string(), evidence: z.string() })
 
 const QUESTION_SYSTEM = `You create evaluation questions for a retrieval system.
-Given a passage, write ONE specific question that a reader could ask and that this passage answers.
+Given a passage from a longer document, write ONE specific question that a user of that document could ask and that this passage answers.
+- Phrase it the way a user would, in your own words: do not copy distinctive phrases or rare terms from the passage unless the question cannot be asked without them.
+- Make it self-contained: name the subject it is about so it makes sense without the passage (not "What does the table show?").
 Also copy the shortest exact sentence or phrase from the passage (8-30 words) that contains the answer into "evidence" — copy it character for character.
 Write the question in the same language as the passage. Do not mention "the passage" or "the text".
 Return {"question":"...","evidence":"..."}.`
@@ -134,7 +136,7 @@ export async function generateQuestions(
     passages,
     opts.llm.provider.concurrency,
     async (p, i) => {
-      const key = opts.cache.key('eval', 'v1', opts.llm.ref, sha256(p.text))
+      const key = opts.cache.key('eval', 'v2', opts.llm.ref, sha256(p.text))
       let value = await opts.cache.get<{ question: string; evidence: string }>('eval', key)
       if (!value) {
         try {

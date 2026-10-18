@@ -14,7 +14,12 @@ import { buildStructure, type DocumentStructure } from '../output/structure.js'
 import { type OutputPaths, writeOutputs } from '../output/writer.js'
 import { ProviderRegistry } from '../providers/registry.js'
 import { addUsage, emptyUsage, type Usage } from '../providers/types.js'
-import { fixHeadings } from '../structure/heading-fix.js'
+import {
+  applyHeadingLevels,
+  findHeadings,
+  fixHeadings,
+  harmonizeNumberedHeadings,
+} from '../structure/heading-fix.js'
 import type { Chunk } from '../types.js'
 import { type ProgressListener, Reporter } from './events.js'
 
@@ -218,7 +223,15 @@ export async function runPipeline(
       fixed.skipped ? `skipped: ${fixed.skipped}` : `${fixed.corrections} correction(s)`,
     )
   } else {
-    reporter.end('structure', 'no model', true)
+    // Free deterministic pass: numbered headings of the same depth get the same level.
+    const headings = findHeadings(markdown)
+    const changes = harmonizeNumberedHeadings(headings, new Map())
+    if (changes.size > 0) markdown = applyHeadingLevels(markdown, changes, headings)
+    reporter.end(
+      'structure',
+      changes.size > 0 ? `${changes.size} numbered heading(s) aligned (no model)` : 'no model',
+      true,
+    )
   }
   throwIfAborted(signal)
 
