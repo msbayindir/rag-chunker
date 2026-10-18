@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "note": "The documents are public but under their own licences, so they are fetched from the original addresses by scripts/bench.mjs and verified by sha256; they are not redistributed with rag-chunker.",
+  "documents": [
+    {
+      "name": "anayasa",
+      "file": "anayasa.pdf",
+      "title": "Türkiye Cumhuriyeti Anayasası (2709 sayılı Kanun)",
+      "url": "https://www.mevzuat.gov.tr/MevzuatMetin/1.5.2709.pdf",
+      "sha256": "58de994c36ae00e6dc86c00b886c808d7bee1a2306b9ac35bf8aec9e8d297d1f",
+      "bytes": 685755,
+      "language": "tr",
+      "kind": "law, numbered articles, long single column",
+      "pages": 75,
+      "licence": "official legal text (no copyright protection under Turkish law)",
+      "questions": 50
+    },
+    {
+      "name": "hipertansiyon-2022",
+      "file": "hipertansiyon-2022.pdf",
+      "title": "TEMD Hipertansiyon Tanı ve Tedavi Kılavuzu 2022",
+      "url": "https://file.temd.org.tr/Uploads/publications/guides/documents/Hipertansiyon-Kilavuzu-2022.pdf",
+      "sha256": "f229bece26c4c386f9c25e4b12f4f0143e698e29266610a1f644d849de7d9088",
+      "bytes": 4170991,
+      "language": "tr",
+      "kind": "clinical guideline, tables, charts, two-column parts",
+      "pages": 222,
+      "licence": "© Türkiye Endokrinoloji ve Metabolizma Derneği, free to download from the society's site",
+      "questions": 50
+    },
+    {
+      "name": "diyabet-protokol",
+      "file": "diyabet-protokol.pdf",
+      "title": "Erişkin Diyabetli Bireyler İçin Diyabet Tedavi Protokolü (T.C. Sağlık Bakanlığı)",
+      "url": "https://ekutuphane.saglik.gov.tr/Home/GetDocument/567",
+      "sha256": "cd774a0eecc1450913d219c23c81b133adf7eeebf64a58249d54af7d5f6428a6",
+      "bytes": 1342798,
+      "language": "tr",
+      "kind": "treatment protocol, many ruled tables, lists",
+      "pages": 101,
+      "licence": "© T.C. Sağlık Bakanlığı, free to download from the ministry's e-library",
+      "questions": 0
+    },
+    {
+      "name": "bert",
+      "file": "bert.pdf",
+      "title": "BERT: Pre-training of Deep Bidirectional Transformers (Devlin et al., 2019)",
+      "url": "https://arxiv.org/pdf/1810.04805",
+      "sha256": "5692a5514787a8c6727b4ff3b726a3385798bc68e12138d1d4af83947e2acf6e",
+      "bytes": 775166,
+      "language": "en",
+      "kind": "two-column paper, rule-bounded tables, vector figures",
+      "pages": 16,
+      "licence": "arXiv non-exclusive distribution licence (authors hold copyright)",
+      "questions": 40
+    },
+    {
+      "name": "llama2",
+      "file": "llama2.pdf",
+      "title": "Llama 2: Open Foundation and Fine-Tuned Chat Models (Touvron et al., 2023)",
+      "url": "https://arxiv.org/pdf/2307.09288",
+      "sha256": "1df284ce95f783002074bfe8f21d47c646b396ceb1736ea3ec0ea212fc070d91",
+      "bytes": 13661300,
+      "language": "en",
+      "kind": "long single-column paper, wide tables, charts, prompt/response boxes",
+      "pages": 77,
+      "licence": "arXiv non-exclusive distribution licence (authors hold copyright)",
+      "questions": 50
+    }
+  ]
+}

@@ -117,7 +117,7 @@ export function evalCommand(): Command {
     )
     .option(
       '--rerank [model]',
-      'add a "rerank" mode: a local cross-encoder reorders the top candidates (default model mmarco-minilm, downloads 120 MB once)',
+      'add a "rerank" mode: a reranker reorders the top candidates (default: local mmarco-minilm, downloads 120 MB once; or cohere/rerank-v3.5, jina/…)',
     )
     .option('--no-rerank', 'no reranking even when the model is downloaded')
     .option(
@@ -137,7 +137,8 @@ export function evalCommand(): Command {
         const cache = new CacheStore(config.cache.enabled ? (config.cache.dir ?? DEFAULT_CACHE_DIR) : null)
         const rerankPlan = await resolveReranker(config, flags.rerank)
         let reranker: Reranker | undefined
-        if (rerankPlan.id) {
+        if (rerankPlan.ref) reranker = registry.reranker(rerankPlan.ref)
+        else if (rerankPlan.id) {
           if (rerankPlan.download)
             renderer.print(
               `  ${pc.dim(`downloading reranker ${rerankPlan.id} (${RERANKERS[rerankPlan.id].label})…`)}`,

@@ -100,7 +100,9 @@
               "anthropic",
               "gemini",
               "ollama",
-              "mistral"
+              "mistral",
+              "cohere",
+              "jina"
             ]
           },
           "baseURL": {
@@ -332,15 +334,8 @@
       "properties": {
         "engine": {
           "default": "auto",
-          "description": "Local cross-encoder that reorders the top search candidates (eval, mcp). \"auto\": on when onnxruntime-node and the default model (mmarco-minilm) are present; a model id: on, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, slow on CPU); \"off\".",
-          "type": "string",
-          "enum": [
-            "auto",
-            "off",
-            "mmarco-minilm",
-            "bge-reranker-base",
-            "bge-reranker-v2-m3"
-          ]
+          "description": "Reranker that reorders the top search candidates (eval, mcp). \"auto\": the local mmarco-minilm when onnxruntime-node and the model are present; a local model id, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, slow on CPU); a hosted one as \"provider/model\" (cohere/rerank-v3.5 with COHERE_API_KEY, jina/jina-reranker-v2-base-multilingual with JINA_API_KEY); \"off\".",
+          "type": "string"
         },
         "candidates": {
           "default": 30,

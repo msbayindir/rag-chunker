@@ -14,6 +14,14 @@ export const OCR_REC_MODEL: ModelId = 'pp-ocrv5-rec-latin'
 export const OCR_DICT: ModelId = 'pp-ocrv5-dict-latin'
 
 /** A recognised text line in image pixels, origin top-left. */
+export interface OcrWord {
+  text: string
+  /** Horizontal extent in the pixels of the OCR'd image. */
+  x0: number
+  x1: number
+  confidence: number
+}
+
 export interface OcrLine {
   text: string
   x0: number
@@ -21,6 +29,15 @@ export interface OcrLine {
   x1: number
   y1: number
   /** Mean per-character confidence (0-1). */
+  confidence: number
+  /** The line's words with their horizontal extent, from the CTC time steps; absent for one word. */
+  words?: OcrWord[]
+}
+
+/** A decoded character with the recognition time step it came out of. */
+export interface DecodedChar {
+  char: string
+  step: number
   confidence: number
 }
 
@@ -128,11 +145,9 @@ export function ctcDecode(
   steps: number,
   classes: number,
   table: readonly string[],
-): { text: string; confidence: number } {
-  let text = ''
+): { text: string; confidence: number; chars: DecodedChar[] } {
+  const chars: DecodedChar[] = []
   let last = -1
-  let sum = 0
-  let n = 0
   for (let t = 0; t < steps; t++) {
     let best = 0
     let bestValue = Number.NEGATIVE_INFINITY
@@ -144,14 +159,49 @@ export function ctcDecode(
         best = c
       }
     }
-    if (best !== 0 && best !== last) {
-      text += table[best] ?? ''
-      sum += bestValue
-      n++
-    }
+    if (best !== 0 && best !== last) chars.push({ char: table[best] ?? '', step: t, confidence: bestValue })
     last = best
   }
-  return { text: text.trim(), confidence: n > 0 ? sum / n : 0 }
+  // Leading and trailing blanks carry no text.
+  while (chars.length > 0 && (chars[0] as DecodedChar).char.trim() === '') chars.shift()
+  while (chars.length > 0 && (chars[chars.length - 1] as DecodedChar).char.trim() === '') chars.pop()
+  const text = chars.map((c) => c.char).join('')
+  const confidence = chars.length > 0 ? chars.reduce((s, c) => s + c.confidence, 0) / chars.length : 0
+  return { text, confidence, chars }
+}
+
+/**
+ * Words of a recognised line with their horizontal extent: every CTC step stands for an equal
+ * slice of the line, so a word runs from the slice of its first character to that of its last.
+ */
+export function wordsFromChars(
+  chars: readonly DecodedChar[],
+  steps: number,
+  line: { x0: number; x1: number },
+): OcrWord[] {
+  const width = line.x1 - line.x0
+  if (steps <= 0 || width <= 0) return []
+  const slice = width / steps
+  const words: OcrWord[] = []
+  let current: DecodedChar[] = []
+  const flush = () => {
+    if (current.length === 0) return
+    const first = current[0] as DecodedChar
+    const lastChar = current[current.length - 1] as DecodedChar
+    words.push({
+      text: current.map((c) => c.char).join(''),
+      x0: Math.max(line.x0, line.x0 + first.step * slice),
+      x1: Math.min(line.x1, line.x0 + (lastChar.step + 1) * slice),
+      confidence: current.reduce((s, c) => s + c.confidence, 0) / current.length,
+    })
+    current = []
+  }
+  for (const c of chars) {
+    if (c.char.trim() === '') flush()
+    else current.push(c)
+  }
+  flush()
+  return words
 }
 
 export interface OcrModelPaths {
@@ -226,8 +276,10 @@ export async function recognizeImage(image: Uint8Array, models: OcrModelPaths): 
     if (!logits) continue
     const [, steps = 0, classes = 0] = logits.dims
     const table = tableFor(models.dictionary, classes)
-    const { text, confidence } = ctcDecode(logits.data as ArrayLike<number>, steps, classes, table)
-    if (text !== '') lines.push({ text, x0, y0, x1, y1, confidence })
+    const { text, confidence, chars } = ctcDecode(logits.data as ArrayLike<number>, steps, classes, table)
+    if (text === '') continue
+    const words = wordsFromChars(chars, steps, { x0, x1 })
+    lines.push({ text, x0, y0, x1, y1, confidence, ...(words.length > 1 ? { words } : {}) })
   }
   return { lines, width: img.width, height: img.height }
 }

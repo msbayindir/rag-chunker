@@ -35,7 +35,9 @@
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:pack": "node scripts/pack-smoke.mjs",
     "check": "npm run lint && npm run typecheck && npm test",
-    "prepublishOnly": "npm run check && npm run build"
+    "prepublishOnly": "npm run check && npm run build",
+    "bench": "node scripts/bench.mjs",
+    "hf:mirror": "node scripts/hf-mirror.mjs"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.3",

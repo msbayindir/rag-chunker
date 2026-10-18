@@ -237,12 +237,19 @@ export async function createReranker(
 }
 
 export interface RerankPlan {
-  /** Model to use, null when reranking is off. */
+  /** Local model to use; null when reranking is off or hosted. */
   id: RerankerId | null
-  /** True when the model still has to be downloaded. */
+  /** Hosted reranker as "provider/model" (cohere, jina) when one is configured. */
+  ref?: string
+  /** True when the local model still has to be downloaded. */
   download: boolean
   /** Why it is off, for `--dry-run` and doctor. */
   reason?: string
+}
+
+/** Names the reranker a plan stands for, for messages. */
+export function rerankerName(plan: RerankPlan): string | null {
+  return plan.ref ?? plan.id
 }
 
 /**
@@ -257,16 +264,21 @@ export async function resolveReranker(
   if (override === false) return { id: null, download: false, reason: 'disabled by flag' }
   const engine = config.rerank.engine
   let id: RerankerId | null = null
+  const hosted = (value: string) => value.includes('/')
   if (typeof override === 'string') {
+    if (hosted(override)) return { id: null, ref: override, download: false }
     if (!isRerankerId(override)) {
       throw new RagChunkerError('CONFIG_INVALID', `Unknown reranker: ${override}`, {
-        hint: `Choose one of ${RERANKER_IDS.join(', ')}.`,
+        hint: `Choose one of ${RERANKER_IDS.join(', ')}, or a hosted one as provider/model (cohere/rerank-v3.5).`,
       })
     }
     id = override
-  } else if (override === true) id = engine === 'auto' || engine === 'off' ? DEFAULT_RERANKER : engine
-  else if (engine === 'off') return { id: null, download: false, reason: 'rerank.engine is off' }
-  else if (engine !== 'auto') id = engine
+  } else if (override === true) {
+    if (hosted(engine)) return { id: null, ref: engine, download: false }
+    id = engine === 'auto' || engine === 'off' || !isRerankerId(engine) ? DEFAULT_RERANKER : engine
+  } else if (engine === 'off') return { id: null, download: false, reason: 'rerank.engine is off' }
+  else if (hosted(engine)) return { id: null, ref: engine, download: false }
+  else if (engine !== 'auto' && isRerankerId(engine)) id = engine
   if (!(await hasOnnxRuntime())) {
     if (id) {
       throw new RagChunkerError('PROVIDER_UNAVAILABLE', 'Reranking needs onnxruntime-node', {

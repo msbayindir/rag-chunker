@@ -1,10 +1,12 @@
 import { BUILTIN_PROVIDERS, type ResolvedProvider, resolveProvider } from '../config/providers.js'
 import type { ResolvedConfig } from '../config/schema.js'
 import { RagChunkerError } from '../errors.js'
+import type { Reranker } from '../search/search.js'
 import { AnthropicLLM } from './anthropic.js'
 import { GeminiEmbedder, GeminiLLM } from './gemini.js'
 import { OllamaEmbedder, OllamaLLM } from './ollama.js'
 import { OpenAICompatibleEmbedder, OpenAICompatibleLLM } from './openai-compatible.js'
+import { createApiReranker } from './rerank.js'
 import type { Embedder, LLM } from './types.js'
 
 export interface ProviderContext {
@@ -51,6 +53,15 @@ export function createLLM(ref: string, ctx: ProviderContext): LLM {
       return new GeminiLLM(provider, model)
     case 'ollama':
       return new OllamaLLM(provider, model)
+    case 'cohere':
+    case 'jina':
+      throw new RagChunkerError(
+        'CAPABILITY_MISSING',
+        `${ref} is a reranking provider, not a language model`,
+        {
+          hint: 'Use it in rerank.engine (or --rerank cohere/rerank-v3.5).',
+        },
+      )
     case 'openai':
     case 'openrouter':
     case 'openai-compatible':
@@ -74,6 +85,8 @@ export function createEmbedder(ref: string, ctx: ProviderContext): Embedder {
     case 'openai-compatible':
     case 'mistral':
       return new OpenAICompatibleEmbedder(provider, model, dimensions, batchSize)
+    case 'cohere':
+    case 'jina':
     case 'anthropic':
       throw new RagChunkerError('CAPABILITY_MISSING', `${ref}: Anthropic does not offer an embeddings API`, {
         hint: 'Pick an embedding model from another provider, e.g. ollama/embeddinggemma or openai/text-embedding-3-large.',
@@ -82,9 +95,18 @@ export function createEmbedder(ref: string, ctx: ProviderContext): Embedder {
 }
 
 /** Creates providers on demand and shares instances within one run. */
+/** A hosted reranker (`cohere/rerank-v3.5`, `jina/jina-reranker-v2-base-multilingual`). */
+export function createRerankerClient(ref: string, ctx: ProviderContext): Reranker {
+  const { provider: name, model } = parseModelRef(ref)
+  const provider = getProvider(name, ctx)
+  requireKey(provider, ref)
+  return createApiReranker(ref, model, provider)
+}
+
 export class ProviderRegistry {
   private readonly llms = new Map<string, LLM>()
   private readonly embedders = new Map<string, Embedder>()
+  private readonly rerankers = new Map<string, Reranker>()
 
   constructor(readonly ctx: ProviderContext) {}
 
@@ -104,6 +126,15 @@ export class ProviderRegistry {
       this.embedders.set(ref, e)
     }
     return e
+  }
+
+  reranker(ref: string): Reranker {
+    let r = this.rerankers.get(ref)
+    if (!r) {
+      r = createRerankerClient(ref, this.ctx)
+      this.rerankers.set(ref, r)
+    }
+    return r
   }
 
   provider(name: string): ResolvedProvider {

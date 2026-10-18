@@ -81,6 +81,7 @@ export {
   RERANKERS,
   type RerankerId,
   type RerankPlan,
+  rerankerName,
   resolveReranker,
   UnigramTokenizer,
 } from './local/reranker.js'
@@ -107,7 +108,7 @@ export {
   resolveLayout,
   resolveOcrEngine,
 } from './pipeline/process.js'
-export { createEmbedder, createLLM, parseModelRef } from './providers/registry.js'
+export { createEmbedder, createLLM, createRerankerClient, parseModelRef } from './providers/registry.js'
 export type {
   ContentPart,
   Embedder,

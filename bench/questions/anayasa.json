@@ -1,0 +1,308 @@
+{
+  "version": 1,
+  "documentId": "58de994c36ae00e6dc86c00b886c808d7bee1a2306b9ac35bf8aec9e8d297d1f",
+  "source": "anayasa.pdf",
+  "model": "gemini/gemini-3.8-flash",
+  "questions": [
+    {
+      "id": 0,
+      "question": "Anayasa başlangıç ilkelerine göre laiklik ilkesi çerçevesinde kutsal din duyguları nelerin dışında tutulmalıdır?",
+      "evidence": "laiklik ilkesinin gereği olarak kutsal din duygularının, Devlet işlerine ve politikaya kesinlikle karıştırılamayacağı",
+      "page": 1
+    },
+    {
+      "id": 1,
+      "question": "Anayasa'ya göre Türk Milleti egemenlik hakkını ne şekilde ve kimler aracılığıyla icra eder?",
+      "evidence": "Türk Milleti, egemenliğini, Anayasanın koyduğu esaslara göre, yetkili organları eliyle kullanır.",
+      "page": 3
+    },
+    {
+      "id": 2,
+      "question": "5170 sayılı Kanun kapsamında hangi maddede bulunan ölüm cezalarının yerine getirilmesine ilişkin ibare metinden çıkarılmıştır?",
+      "evidence": "7/5/2004 tarihli ve 5170 sayılı Kanunun 3 üncü maddesiyle, bu fıkranın başında geçen, “Mahkemelerce verilen ölüm cezalarının yerine getirilmesi hali ile” ibaresi madde metninden çıkartılmıştır.",
+      "page": 5
+    },
+    {
+      "id": 3,
+      "question": "Özgürlüğünden mahrum bırakılan bir birey, tutukluluğunun hukuka uygunluğunun denetlenmesi ve salıverilmesi için hangi yola başvurabilir?",
+      "evidence": "hürriyeti kısıtlanan kişi, kısa sürede durumu hakkında karar verilmesini ve bu kısıtlamanın kanuna aykırılığı halinde hemen serbest bırakılmasını sağlamak amacıyla yetkili bir yargı merciine başvurma hakkına sahiptir",
+      "page": 7
+    },
+    {
+      "id": 4,
+      "question": "Bireylerin kişisel verilerinin işlenmesi Anayasa'ya göre hangi şartlarda mümkündür?",
+      "evidence": "Kişisel veriler, ancak kanunda öngörülen hallerde veya kişinin açık rızasıyla işlenebilir.",
+      "page": 7
+    },
+    {
+      "id": 5,
+      "question": "Anayasa'ya göre basın özgürlüğüne kısıtlama getirilirken hangi maddelerin esasları dikkate alınır?",
+      "evidence": "Basın hürriyetinin sınırlanmasında, Anayasanın 26 ve 27 nci maddeleri hükümleri uygulanır.",
+      "page": 9
+    },
+    {
+      "id": 6,
+      "question": "Kanun koyucu süreli yayınlar hakkında düzenleme yaparken hangi tür kısıtlayıcı şartları getiremez?",
+      "evidence": "Kanun, haber, düşünce ve kanaatlerin serbestçe yayımlanmasını engelleyici veya zorlaştırıcı siyasal, ekonomik, mali ve teknik şartlar koyamaz.",
+      "page": 10
+    },
+    {
+      "id": 7,
+      "question": "Bireylerin mahkemelerde davacı ya da davalı olarak adil yargılanma ve hak arama hürriyetini anayasa nasıl düzenlemiştir?",
+      "evidence": "Herkes, meşru vasıta ve yollardan faydalanmak suretiyle yargı mercileri önünde davacı veya davalı olarak iddia ve savunma ile adil yargılanma hakkına sahiptir.",
+      "page": 12
+    },
+    {
+      "id": 8,
+      "question": "Çocukların ebeveynleriyle doğrudan iletişim kurma hakkı hangi durumda sınırlandırılabilir?",
+      "evidence": "yüksek yararına açıkça aykırı olmadıkça, ana ve babasıyla kişisel ve doğrudan ilişki kurma ve sürdürme hakkına sahiptir.",
+      "page": 13
+    },
+    {
+      "id": 9,
+      "question": "Türkiye'de eğitim kurumlarında Türk vatandaşlarına hangi dil dışında başka bir dil ana dil olarak öğretilemez?",
+      "evidence": "Türkçeden başka hiçbir dil, eğitim ve öğretim kurumlarında Türk vatandaşlarına ana dilleri olarak okutulamaz ve öğretilemez.",
+      "page": 14
+    },
+    {
+      "id": 10,
+      "question": "Ödenmemiş kamulaştırma bedelleri veya taksitlendirmeler için hangi oranda faiz yürütülür?",
+      "evidence": "taksitlendirmelerde ve herhangi bir sebeple ödenmemiş kamulaştırma bedellerinde kamu alacakları için öngörülen en yüksek faiz uygulanır.",
+      "page": 15
+    },
+    {
+      "id": 11,
+      "question": "5982 sayılı Kanun'un 6. maddesiyle ilgili anayasa hükmünün kenar başlığı değiştirilmeden önce hangi ifadeyi içermekteydi?",
+      "evidence": "Bu maddenin kenar başlığı “A. Toplu iş sözleşmesi hakkı” iken, 7/5/2010 tarihli ve 5982 sayılı Kanunun 6 ncı maddesiyle metne işlendiği şekilde değiştirilmiştir.",
+      "page": 17
+    },
+    {
+      "id": 12,
+      "question": "Spor federasyonlarının disiplin ve yönetim kararlarına karşı hangi hukuki yola başvurulabilir?",
+      "evidence": "Spor federasyonlarının spor faaliyetlerinin yönetimine ve disiplinine ilişkin kararlarına karşı ancak zorunlu tahkim yoluna başvurulabilir.",
+      "page": 19
+    },
+    {
+      "id": 13,
+      "question": "Devletin sanat ve sanatçılara yönelik anayasal yükümlülükleri nelerdir?",
+      "evidence": "Devlet, sanat faaliyetlerini ve sanatçıyı korur. Sanat eserlerinin ve sanatçının korunması, değerlendirilmesi, desteklenmesi ve sanat sevgisinin yayılması için gereken tedbirleri alır.",
+      "page": 20
+    },
+    {
+      "id": 14,
+      "question": "Türkiye'de bir siyasi partiye üye olabilmek için hangi yaş şartını tamamlamış olmak gerekmektedir?",
+      "evidence": "Parti üyesi olabilmek için onsekiz yaşını doldurmuş olmak gerekir.",
+      "page": 21
+    },
+    {
+      "id": 15,
+      "question": "Siyasi partilerin yabancı kişi veya kurumlardan maddi destek sağlaması durumunda uygulanacak yaptırım nedir?",
+      "evidence": "Yabancı devletlerden, uluslararası kuruluşlardan ve Türk uyrukluğunda olmayan gerçek ve tüzel kişilerden maddi yardım alan siyasi partiler temelli olarak kapatılır.",
+      "page": 22
+    },
+    {
+      "id": 16,
+      "question": "Türkiye'de bir vatandaşın milletvekili adayı olabilmesi için kaç yaşını tamamlamış olması gerekir?",
+      "evidence": "Onsekiz yaşını dolduran her Türk milletvekili seçilebilir.",
+      "page": 24
+    },
+    {
+      "id": 17,
+      "question": "Yüksek Seçim Kurulu toplam kaç asıl ve yedek üyeden meydana gelir?",
+      "evidence": "Yüksek Seçim Kurulu yedi asıl ve dört yedek üyeden oluşur.",
+      "page": 26
+    },
+    {
+      "id": 18,
+      "question": "Türkiye Büyük Millet Meclisi üyeleri hangi kurumların yönetim veya denetim kurullarında görev yapamazlar?",
+      "evidence": "Türkiye Büyük Millet Meclisi üyeleri, Devlet ve diğer kamu tüzel kişilerinde ve bunlara bağlı kuruluşlarda; Devletin veya diğer kamu tüzelkişilerinin doğrudan doğruya ya da dolaylı olarak katıldığı teşebbüs ve ortaklıklarda;",
+      "page": 26
+    },
+    {
+      "id": 19,
+      "question": "Milletvekilliği görevi biten kişilerin emeklilik işlemlerinin Emekli Sandığı üzerinden sürdürülmesi mümkün müdür?",
+      "evidence": "üyeliği sona erenlerin istekleri halinde ilgileri devam eder.",
+      "page": 28
+    },
+    {
+      "id": 20,
+      "question": "TBMM Başkanlık Divanı kimlerden meydana gelir?",
+      "evidence": "Meclis üyeleri arasından seçilen Meclis Başkanı, Başkanvekilleri, Katip üyeler ve İdare Amirlerinden oluşur.",
+      "page": 30
+    },
+    {
+      "id": 21,
+      "question": "6771 sayılı Kanunun 16 ncı maddesi ile ilgili fıkradan hangi ifade çıkarılmıştır?",
+      "evidence": "bu fıkrada yer alan “, doğrudan doğruya veya Bakanlar Kurulunun istemi üzerine,” ibaresi madde metninden çıkarılmıştır.",
+      "page": 30
+    },
+    {
+      "id": 22,
+      "question": "6771 sayılı Kanunun 6 ncı maddesi ile Anayasa metninden çıkarılan kenar başlık hangisidir?",
+      "evidence": "6771 sayılı Kanunun 6 ncı maddesiyle, bu maddenin “A. Genel olarak” şeklindeki kenar başlığı metinden çıkarılmıştır.",
+      "page": 32
+    },
+    {
+      "id": 23,
+      "question": "Türkiye Cumhurbaşkanı göreve başlarken ettiği yeminde hangi ilke ve değerlere bağlı kalacağına söz verir?",
+      "evidence": "Anayasaya, hukukun üstünlüğüne, demokrasiye, Atatürk ilke ve inkılaplarına ve laik Cumhuriyet ilkesine bağlı kalacağıma",
+      "page": 33
+    },
+    {
+      "id": 24,
+      "question": "Cumhurbaşkanlığı makamının boşalması durumunda yeni seçim kaç gün içerisinde gerçekleştirilmelidir?",
+      "evidence": "Cumhurbaşkanlığı makamının herhangi bir nedenle boşalması halinde, kırkbeş gün içinde Cumhurbaşkanı seçimi yapılır.",
+      "page": 35
+    },
+    {
+      "id": 25,
+      "question": "İlgili kişilerin vazife süreleri sona erdikten sonra da görev suçları açısından hangi fıkralardaki kurallar geçerliliğini korur?",
+      "evidence": "görevleri bittikten sonra da beşinci, altıncı ve yedinci fıkra hükümleri uygulanır.",
+      "page": 36
+    },
+    {
+      "id": 26,
+      "question": "Cumhurbaşkanı anayasaya göre en fazla ne kadarlık bir süre için olağanüstü hal kararı alabilir?",
+      "evidence": "yurdun tamamında veya bir bölgesinde, süresi altı ayı geçmemek üzere olağanüstü hal ilan edebilir.",
+      "page": 39
+    },
+    {
+      "id": 27,
+      "question": "Türkiye'de illerin yönetimi hangi temel idare ilkesine göre yürütülmektedir?",
+      "evidence": "İllerin idaresi yetki genişliği esasına dayanır.",
+      "page": 41
+    },
+    {
+      "id": 28,
+      "question": "Yerel yönetimlerin kendi aralarında birlik oluşturabilmesi için hangi makamdan onay alınması gerekir?",
+      "evidence": "kendi aralarında Cumhurbaşkanının izni ile birlik kurmaları",
+      "page": 42
+    },
+    {
+      "id": 29,
+      "question": "Memurlar hakkında isnat edilen suçlar nedeniyle ceza kovuşturması başlatılabilmesi genel olarak hangi şarta bağlanmıştır?",
+      "evidence": "ceza kovuşturması açılması, kanunla belirlenen istisnalar dışında, kanunun gösterdiği idari merciin iznine bağlıdır.",
+      "page": 42
+    },
+    {
+      "id": 30,
+      "question": "Yükseköğretim Kurulu üyeleri kim tarafından atanır veya seçilir?",
+      "evidence": "Cumhurbaşkanınca atanan üyeler ve Cumhurbaşkanınca doğrudan doğruya seçilen üyelerden kurulur.",
+      "page": 44
+    },
+    {
+      "id": 31,
+      "question": "Türkiye'de devam eden davalarla ilgili meclis bünyesinde yapılabilecek işlemler veya kısıtlamalar nelerdir?",
+      "evidence": "Görülmekte olan bir dava hakkında Yasama Meclisinde yargı yetkisinin kullanılması ile ilgili soru sorulamaz, görüşme yapılamaz veya herhangi bir beyanda bulunulamaz.",
+      "page": 46
+    },
+    {
+      "id": 32,
+      "question": "Mahkemelerin aldıkları tüm kararları yazarken uyması gereken temel kural nedir?",
+      "evidence": "Bütün mahkemelerin her türlü kararları gerekçeli olarak yazılır.",
+      "page": 47
+    },
+    {
+      "id": 33,
+      "question": "Genelkurmay Başkanı ile Kuvvet Komutanları görevleriyle ilgili işledikleri suçlar sebebiyle hangi mahkemede yargılanırlar?",
+      "evidence": "Genelkurmay Başkanı, Kara, Deniz ve Hava Kuvvetleri Komutanları (…)89 da görevleriyle ilgili suçlardan dolayı Yüce Divanda yargılanırlar.",
+      "page": 50
+    },
+    {
+      "id": 34,
+      "question": "Siyasi partilerin kapatılması ya da anayasa değişikliğinin iptali durumlarında karar almak için nasıl bir oy çokluğu aranır?",
+      "evidence": "karar verilebilmesi için toplantıya katılan üyelerin üçte iki oy çokluğu şarttır.",
+      "page": 50
+    },
+    {
+      "id": 35,
+      "question": "Anayasa Mahkemesinin iptal kararlarında yürürlük tarihinin ertelenmesi en fazla ne kadarlık bir süreyle sınırlandırılmıştır?",
+      "evidence": "Bu tarih, kararın Resmî Gazetede yayımlandığı günden başlayarak bir yılı geçemez.",
+      "page": 52
+    },
+    {
+      "id": 36,
+      "question": "Yargıtay daire başkanları ve başkanvekilleri hangi usulle ve kaç yıllık bir süre için göreve getirilir?",
+      "evidence": "kendi üyeleri arasından Yargıtay Genel Kurulunca üye tamsayısının salt çoğunluğu ve gizli oyla dört yıl için seçilirler;",
+      "page": 52
+    },
+    {
+      "id": 37,
+      "question": "6771 sayılı Kanunun 16 ncı maddesi doğrultusunda ilgili fıkradaki 'adli, idari ve askeri' ifadesi nasıl revize edilmiştir?",
+      "evidence": "bu fıkrada yer alan “adli, idari ve askeri” ibaresi “adli ve idari” şeklinde değiştirilmiştir.",
+      "page": 53
+    },
+    {
+      "id": 38,
+      "question": "6771 sayılı Kanun ile ilgili fıkradaki 'kanun, tüzük, yönetmeliklere ve genelgelere' ibaresi nasıl değiştirilmiştir?",
+      "evidence": "“kanun, tüzük, yönetmeliklere ve genelgelere” ibaresi “kanun ve diğer mevzuata” şeklinde değiştirilmiştir.",
+      "page": 55
+    },
+    {
+      "id": 39,
+      "question": "Bütçeye ek mali yük getiren veya mevcut yıl ödeneklerinin artırılmasını talep eden tekliflerde neyin belirtilmesi şarttır?",
+      "evidence": "öngörülen giderleri karşılayabilecek malî kaynak gösterilmesi zorunludur.",
+      "page": 57
+    },
+    {
+      "id": 40,
+      "question": "Kalkınma planlarının hazırlanması, onaylanması ve değiştirilmesi süreçleri hangi hukuki düzenleme ile belirlenir?",
+      "evidence": "Kalkınma planlarının hazırlanmasına, Türkiye Büyük Millet Meclisince onaylanmasına, uygulanmasına, değiştirilmesine ve bütünlüğünü bozacak değişikliklerin önlenmesine ilişkin usul ve esaslar kanunla düzenlenir.",
+      "page": 58
+    },
+    {
+      "id": 41,
+      "question": "Anayasa hükümleri, Türkiye'nin laik yapısını muhafaza etmeyi amaçlayan inkılap kanunları karşısında nasıl yorumlanmalıdır?",
+      "evidence": "Anayasanın hiçbir hükmü, Türk toplumunu çağdaş uygarlık seviyesinin üstüne çıkarma ve Türkiye Cumhuriyetinin laiklik niteliğini koruma amacını güden, aşağıda gösterilen inkılap kanunlarının, Anayasanın halkoyu ile kabul edildiği tarihte yürürlükte bulunan hükümlerinin, Anayasaya aykırı olduğu şeklinde anlaşılamaz ve yorumlanamaz",
+      "page": 60
+    },
+    {
+      "id": 42,
+      "question": "Milli Güvenlik Konseyi'nin görev süresi 1982 Anayasası'nın geçici maddesine göre hangi aşamaya kadar sürecektir?",
+      "evidence": "ilk genel seçimler sonucu Türkiye Büyük Millet Meclisi toplanıp Başkanlık Divanını oluşturuncaya kadar 2324 sayılı Anayasa Düzeni Hakkında Kanun ve 2485 sayılı Kurucu Meclis Hakkında Kanunlara göre görevlerini devam ettirir.",
+      "page": 61
+    },
+    {
+      "id": 43,
+      "question": "1982 Anayasası'na göre yeni kurulacak organ ve kurullarla ilgili kanunların Kurucu Meclis döneminde çıkarılamaması durumunda, bu kanunlar için yeni Meclise ne kadar süre tanınmıştır?",
+      "evidence": "seçimle gelen Türkiye Büyük Millet Meclisinin ilk toplantısını izleyen bir yıl sonuna kadar çıkartılır.",
+      "page": 62
+    },
+    {
+      "id": 44,
+      "question": "Anayasa Mahkemesi için yapılacak tamamlama seçimlerinde aday gösteren kurumların hangi mensupları dikkate alınır?",
+      "evidence": "kurumların halen mevcut üyeleri ile kendi kontenjanlarından seçilmiş yedek üyeler, tamamlama seçiminde göz önünde bulundurulur.",
+      "page": 65
+    },
+    {
+      "id": 45,
+      "question": "Hâkimler ve Savcılar Yüksek Kurulu asıl üyeleri gerekli yasal düzenlemeler yapılana dek hangi makamın mali ve emeklilik haklarına sahip olur?",
+      "evidence": "Hâkimler ve Savcılar Yüksek Kuruluna seçilen asıl üyeler, Yargıtay daire başkanı için ilgili mevzuatında öngörülen tüm malî ve sosyal haklar ile emeklilik hakkından aynen yararlanırlar.",
+      "page": 67
+    },
+    {
+      "id": 46,
+      "question": "Hâkimler ve Savcılar Kuruluna yeniden seçilemeyen öğretim üyesi ve avukat kökenli üyelerin görevi bittiğinde atamaları nereye ve kim tarafından yapılır?",
+      "evidence": "öğretim üyeleri ve avukatlar arasından seçilenler ise Danıştay üyeliğine Cumhurbaşkanınca atanır.",
+      "page": 68
+    },
+    {
+      "id": 47,
+      "question": "Yeni anayasa değişiklikleri sonrasında yürürlükte bulunan eski kanun hükmünde kararnameler ve tüzüklerin hukuki geçerliliği nasıl devam eder?",
+      "evidence": "Bu Kanunun yürürlüğe girdiği tarihte yürürlükte bulunan kanun hükmünde kararnameler, tüzükler, Başbakanlık ve Bakanlar Kurulu tarafından çıkarılan yönetmelikler ile diğer düzenleyici işlemler yürürlükten kaldırılmadıkça geçerliliğini sürdürür.",
+      "page": 69
+    },
+    {
+      "id": 48,
+      "question": "Anayasa değişikliği halkoyuna sunulduğunda maddelerin toplu mu yoksa tek tek mi oylanacağına hangi kurum karar verir?",
+      "evidence": "Türkiye Büyük Millet Meclisi Anayasa değişikliklerine ilişkin kanunların kabulü sırasında, bu Kanunun halkoylamasına sunulması halinde, Anayasanın değiştirilen hükümlerinden, hangilerinin birlikte hangilerinin ayrı ayrı oylanacağını da karara bağlar.",
+      "page": 70
+    },
+    {
+      "id": 49,
+      "question": "4709 sayılı Kanun ile Anayasa'nın 67. maddesine getirilen düzenleme ilk ne zaman uygulanmayacaktır?",
+      "evidence": "Bu Kanunun 24 üncü maddesi ile Anayasanın 67 nci maddesine son fıkra olarak eklenen hüküm bu Kanunun yürürlüğe girmesinden sonra yapılacak ilk genel seçimde uygulanmaz.",
+      "page": 71
+    }
+  ]
+}

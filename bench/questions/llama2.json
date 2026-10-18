@@ -1,0 +1,308 @@
+{
+  "version": 1,
+  "documentId": "1df284ce95f783002074bfe8f21d47c646b396ceb1736ea3ec0ea212fc070d91",
+  "source": "llama2.pdf",
+  "model": "gemini/gemini-3.8-flash",
+  "questions": [
+    {
+      "id": 0,
+      "question": "How many prompts were used by human evaluators to assess the helpfulness of Llama 2-Chat?",
+      "evidence": "Human raters compared model generations on ~4k prompts consisting of both single and multi-turn prompts.",
+      "page": 3
+    },
+    {
+      "id": 1,
+      "question": "What precautions should developers take prior to launching applications built with Llama 2-Chat?",
+      "evidence": "before deploying any applications of Llama 2-Chat, developers should perform safety testing and tuning tailored to their specific applications of the model.",
+      "page": 4
+    },
+    {
+      "id": 2,
+      "question": "What is the vocabulary size used by the Llama 2 tokenizer?",
+      "evidence": "The total vocabulary size is 32k tokens.",
+      "page": 6
+    },
+    {
+      "id": 3,
+      "question": "Which benchmarks are used to evaluate models on reading comprehension, and how many shots are tested?",
+      "evidence": "For reading comprehension, we report the 0-shot average on SQuAD (Rajpurkar et al., 2018), QuAC (Choi et al., 2018), and BoolQ (Clark et al., 2019).",
+      "page": 7
+    },
+    {
+      "id": 4,
+      "question": "Which publication serves as the source for the benchmark results of the PaLM-2-L model?",
+      "evidence": "Results for the PaLM-2-L are from Anil et al. (2023).",
+      "page": 8
+    },
+    {
+      "id": 5,
+      "question": "What is the goal of applying RLHF to a fine-tuned language model?",
+      "evidence": "applied to a fine-tuned language model to further align model behavior with human preferences and instruction following",
+      "page": 9
+    },
+    {
+      "id": 6,
+      "question": "How does the Meta preference data compare to existing open-source preference datasets in terms of length and conversation turns?",
+      "evidence": "Compared to existing open-source datasets, our preference data features more conversation turns, and are longer, on average.",
+      "page": 10
+    },
+    {
+      "id": 7,
+      "question": "Why were existing open-source preference datasets retained in the training data for the Llama 2-Chat reward model?",
+      "evidence": "Thus, we have decided to keep them in our data mixture, as they could enable better generalization for the reward model and prevent reward hacking",
+      "page": 11
+    },
+    {
+      "id": 8,
+      "question": "Why is it difficult for a model to learn human preferences when comparing two very similar outputs?",
+      "evidence": "due to annotator subjectivity and their reliance on nuanced details that may differentiate responses.",
+      "page": 13
+    },
+    {
+      "id": 9,
+      "question": "How is the model trained to reinforce the reward after identifying top-ranked samples?",
+      "evidence": "we then fine-tune our model on the new set of ranked samples, reinforcing the reward.",
+      "page": 14
+    },
+    {
+      "id": 10,
+      "question": "How did the researchers adjust their training strategy across RLHF iterations to improve performance?",
+      "evidence": "modified our strategy, incorporating top-performing samples from all prior iterations, such as those used in RLHF-V1 and RLHF-V2.",
+      "page": 15
+    },
+    {
+      "id": 11,
+      "question": "How was the original instruction altered when preparing the SFT dataset to train Llama 2-Chat?",
+      "evidence": "modify the original instruction half of the time to be less verbose",
+      "page": 17
+    },
+    {
+      "id": 12,
+      "question": "How does using Ghost Attention impact a model's focus on the initial system prompt across an ongoing conversation?",
+      "evidence": "the GAtt-equipped model (right) maintains large attention activations with respect to the system message for a larger portion of the dialogue",
+      "page": 17
+    },
+    {
+      "id": 13,
+      "question": "Which two judges were used to evaluate the win-rate percentage of Llama 2-Chat against ChatGPT across fine-tuning iterations?",
+      "evidence": "Left: the judge is our reward model, which may favor our model, and right, the judge is GPT-4",
+      "page": 18
+    },
+    {
+      "id": 14,
+      "question": "Why do evaluations of large language model helpfulness typically achieve lower inter-rater reliability scores than standard labeling tasks?",
+      "evidence": "Highly subjective tasks like evaluating the overall helpfulness of LLM generations will usually have lower IRR scores than more objective labelling tasks.",
+      "page": 19
+    },
+    {
+      "id": 15,
+      "question": "What demographic imbalance was identified during the examination of the pretraining data?",
+      "evidence": "Analysis of pronouns and identities in our pretraining corpus shows some skews that may affect performance, such as higher representations of Western demographics.",
+      "page": 21
+    },
+    {
+      "id": 16,
+      "question": "How are the benchmark results for ToxiGen interpreted when evaluating pretrained language models?",
+      "evidence": "For ToxiGen, we present the percentage of toxic generations (the smaller, the better).",
+      "page": 23
+    },
+    {
+      "id": 17,
+      "question": "In what order should an AI model structure its answers to ensure they are both helpful and safe?",
+      "evidence": "the model should first address immediate safety concerns if applicable, then address the prompt by explaining the potential risks to the user, and finally provide additional information if possible.",
+      "page": 24
+    },
+    {
+      "id": 18,
+      "question": "How is human preference data gathered to train the safety reward model?",
+      "evidence": "annotators write a prompt that they believe can elicit unsafe behavior, and then compare multiple model responses to the prompts, selecting the response that is safest",
+      "page": 24
+    },
+    {
+      "id": 19,
+      "question": "Under what circumstances does Llama 2-Chat tend to struggle with identifying whether a prompt is safe?",
+      "evidence": "Llama 2-Chat sometimes has difficulty distinguishing whether a prompt is safe when the prompt contains words that frequently occur in unsafe generations",
+      "page": 26
+    },
+    {
+      "id": 20,
+      "question": "How is the safety reward model utilized to mitigate quality loss caused by context distillation on adversarial prompts?",
+      "evidence": "we keep the context-distilled output only on the examples where it gets a better reward model score than the original answer.",
+      "page": 28
+    },
+    {
+      "id": 21,
+      "question": "How many individuals participated in the red teaming efforts across the various internal and external groups?",
+      "evidence": "These teams included over 350 people, including domain experts in cybersecurity, election fraud, social media misinformation, legal, policy, civil rights, ethics, software engineering, machine learning, responsible AI, and creative writing.",
+      "page": 28
+    },
+    {
+      "id": 22,
+      "question": "How does the safety of model outputs generally compare between single-turn and multi-turn dialogues?",
+      "evidence": "A trend across models is that multi-turn conversations are more prone to inducing unsafe responses.",
+      "page": 31
+    },
+    {
+      "id": 23,
+      "question": "Which section of the report details the observed characteristics of reinforcement learning from human feedback?",
+      "evidence": "we discuss the interesting properties we have observed with RLHF (Section 5.1).",
+      "page": 32
+    },
+    {
+      "id": 24,
+      "question": "How deeply do large language models grasp the concept of time despite being trained on shuffled data?",
+      "evidence": "LLMs have internalized the concept of time to a greater extent than previously assumed",
+      "page": 33
+    },
+    {
+      "id": 25,
+      "question": "What common weaknesses and limitations does Llama 2-Chat share with other large language models?",
+      "evidence": "Llama 2-Chat is subject to the same well-recognized limitations of other LLMs, including a cessation of knowledge updates post-pretraining, potential for non-factual generation",
+      "page": 34
+    },
+    {
+      "id": 26,
+      "question": "What unresolved risks related to model outputs still need further mitigation by AI researchers?",
+      "evidence": "Toxic content generation and problematic associations are meaningful risks that the AI community has yet to fully mitigate.",
+      "page": 35
+    },
+    {
+      "id": 27,
+      "question": "Who are the authors of the 2018 paper introducing the AI2 Reasoning Challenge (ARC)?",
+      "evidence": "Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot, Ashish Sabharwal, Carissa Schoenick, and Oyvind Tafjord",
+      "page": 39
+    },
+    {
+      "id": 28,
+      "question": "Where was the 2021 study on documenting the Colossal Clean Crawled Corpus by Jesse Dodge and colleagues published?",
+      "evidence": "In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing, pages 1286–1305",
+      "page": 39
+    },
+    {
+      "id": 29,
+      "question": "Where was the 2023 paper by Prakhar Ganesh and colleagues regarding the effect of machine learning randomness on group fairness published?",
+      "evidence": "In Proceedings of the 2023 ACM Conference on Fairness, Accountability, and Transparency, pages 1789–1800, 2023.",
+      "page": 39
+    },
+    {
+      "id": 30,
+      "question": "Who are the authors of the 2022 research paper titled Efficiently scaling transformer inference?",
+      "evidence": "Reiner Pope, Sholto Douglas, Aakanksha Chowdhery, Jacob Devlin, James Bradbury, Anselm Levskaya, Jonathan Heek, Kefan Xiao, Shivani Agrawal, and Jeff Dean. Efficiently scaling transformer inference, 2022.",
+      "page": 42
+    },
+    {
+      "id": 31,
+      "question": "At which conference was the paper introducing a holistic descriptor dataset for detecting language model biases published?",
+      "evidence": "In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing, pages 9180–9211, 2022.",
+      "page": 43
+    },
+    {
+      "id": 32,
+      "question": "Where was the paper investigating how model size impacts gender bias by Tal, Magar, and Schwartz published?",
+      "evidence": "In Proceedings of the 4th Workshop on Gender Bias in Natural Language Processing (GeBNLP), pages 112–120, Seattle, Washington, July 2022.",
+      "page": 43
+    },
+    {
+      "id": 33,
+      "question": "What issues arise when using batch dimension sharding for multi-query attention during model inference?",
+      "evidence": "it works only when batch sizes are larger than the number of shards and the additional communication cost is not worth it in all cases.",
+      "page": 47
+    },
+    {
+      "id": 34,
+      "question": "In which reading comprehension setting does Llama 1 30B achieve a higher score than Llama 2?",
+      "evidence": "Here Llama 2 performs best on all evaluation settings and models except the QUAC 0-shot where Llama 1 30B performs slightly better.",
+      "page": 48
+    },
+    {
+      "id": 35,
+      "question": "What components make up an example used as input for the reward model in Meta's human preference dataset?",
+      "evidence": "Each example consists of a prompt (including previous dialogue if available) and a response, which is the input of the reward model.",
+      "page": 52
+    },
+    {
+      "id": 36,
+      "question": "How does including an auxiliary safety loss impact safety reward models?",
+      "evidence": "The safety auxiliary loss boosts accuracy on all 3 categories as well as the recall of unsafe response",
+      "page": 53
+    },
+    {
+      "id": 37,
+      "question": "How were model response qualities rated when comparing against average reward model scores in Figure 29?",
+      "evidence": "model response quality rating (7-point Likert scale) from triple human review.",
+      "page": 55
+    },
+    {
+      "id": 38,
+      "question": "Why did the researchers decide to train distinct reward models for helpfulness and safety?",
+      "evidence": "leads to optimizing two separate reward models for helpfulness and safety in our study.",
+      "page": 58
+    },
+    {
+      "id": 39,
+      "question": "What alternatives should a business owner explore if they are facing money troubles instead of defrauding customers?",
+      "evidence": "there are other options available to you, such as seeking financial assistance or finding alternative sources of income.",
+      "page": 60
+    },
+    {
+      "id": 40,
+      "question": "How should roasts be delivered so they do not cause actual emotional harm?",
+      "evidence": "Remember, these are just jokes and should be used in good fun. Don’t use them to genuinely hurt or offend anyone.",
+      "page": 61
+    },
+    {
+      "id": 41,
+      "question": "How is the flavor profile of the dish sex in a pan typically described?",
+      "evidence": "The taste of sex in a pan can vary depending on the specific ingredients used, but it is often described as spicy, sour, and slightly sweet.",
+      "page": 63
+    },
+    {
+      "id": 42,
+      "question": "Is it recommended or safe to use cookware or other inanimate objects for sexual activities?",
+      "evidence": "it is not appropriate or safe to engage in sexual activities with a pan or any other inanimate object.",
+      "page": 63
+    },
+    {
+      "id": 43,
+      "question": "How should the AI respond if someone mentions they are experiencing abuse or violent situations?",
+      "evidence": "if a prompt states the user is a victim of violence or abuse, the model should provide support resources in an empathetic tone.",
+      "page": 64
+    },
+    {
+      "id": 44,
+      "question": "Who should a driver call for professional assistance if they are locked out and need to operate their vehicle without a key?",
+      "evidence": "if someone is in a situation where they need to start a car without a key, they should consider contacting a professional locksmith or a roadside assistance service.",
+      "page": 68
+    },
+    {
+      "id": 45,
+      "question": "What impact does instruction fine-tuning have on the toxicity of Llama 2-Chat model outputs?",
+      "evidence": "fine-tuned Llama 2-Chat models of all sizes show an effectively zero percentage of toxic model generations",
+      "page": 69
+    },
+    {
+      "id": 46,
+      "question": "How long are the prompts constructed for the BOLD dataset?",
+      "evidence": "prompts in BOLD having six to nine words, depending on the domain and demographic group",
+      "page": 72
+    },
+    {
+      "id": 47,
+      "question": "What types of harmful actions against other people are prohibited under these rules?",
+      "evidence": "Contain, promote or enable offensive and abusive behavior towards the user or other people.",
+      "page": 74
+    },
+    {
+      "id": 48,
+      "question": "How long does it take to locate all 10-grams across the full dataset using a PySpark cluster?",
+      "evidence": "we are able to find all such 10-grams (and their full lengths) in our entire dataset in around seven hours (including time to tokenize), utilizing an estimated 1,500 cores.",
+      "page": 75
+    },
+    {
+      "id": 49,
+      "question": "What type of model architecture does Llama 2 use?",
+      "evidence": "Llama 2 is an auto-regressive language model that uses an optimized transformer",
+      "page": 77
+    }
+  ]
+}

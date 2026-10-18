@@ -17,3 +17,6 @@ Thumbs.db
 .idea/
 *.log
 .claude/
+
+# Benchmark corpus (fetched by scripts/bench.mjs)
+bench/corpus/
