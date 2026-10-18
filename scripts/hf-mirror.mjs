@@ -16,18 +16,20 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const args = process.argv.slice(2)
-const repo = args.find((a) => !a.startsWith('--'))
+const repoArg = args.find((a) => !a.startsWith('--'))
 const flag = (name) => {
   const i = args.indexOf(name)
   return i >= 0 ? args[i + 1] : undefined
 }
 const dryRun = args.includes('--dry-run')
-if (!repo || !repo.includes('/')) {
+if (!repoArg) {
   console.error(
-    'usage: node scripts/hf-mirror.mjs <user-or-org>/<repo> [--models <dir>] [--only layout,ocr,table] [--dry-run]',
+    'usage: node scripts/hf-mirror.mjs [<user-or-org>/]<repo> [--models <dir>] [--only layout,ocr,table] [--dry-run]',
   )
   process.exit(2)
 }
+/** `<repo>` alone goes under the token owner's account (resolved below). */
+let repo = repoArg.includes('/') ? repoArg : ''
 
 const HUB = 'https://huggingface.co'
 const { MODELS, modelsDir } = await import(pathToFileURL(join(process.cwd(), 'dist/local/models.js')).href)
@@ -136,7 +138,7 @@ const plan = [
   { path: 'NOTICE', size: Buffer.byteLength(notice), lfs: false },
   { path: 'LICENSE', size: Buffer.byteLength(license), lfs: false },
 ]
-console.log(`Mirror → ${HUB}/${repo}`)
+console.log(`Mirror → ${HUB}/${repo || `<you>/${repoArg}`}`)
 for (const p of plan) console.log(`  ${p.lfs ? 'lfs ' : 'file'}  ${p.path.padEnd(44)} ${mb(p.size)}`)
 if (dryRun) {
   console.log('\n--dry-run: nothing uploaded. Model card:\n')
@@ -159,10 +161,11 @@ async function api(path, init = {}) {
   return text ? JSON.parse(text) : null
 }
 
-// Create the repo (409 = exists).
+// Create the repo (409 = exists); a bare name lands under the token owner's account.
+const me = await api('/api/whoami-v2')
+if (!repo) repo = `${me.name}/${repoArg}`
 const [owner, name] = repo.split('/')
 try {
-  const me = await api('/api/whoami-v2')
   await api('/api/repos/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
