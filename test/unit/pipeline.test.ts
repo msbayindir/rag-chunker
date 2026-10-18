@@ -145,6 +145,25 @@ describe('processDocument without providers', () => {
     expect(res.layout.pages[3]?.blocks).toEqual([])
   })
 
+  it('keeps tables as table chunks and records their cells in document.json', async () => {
+    const res = await processDocument(fixture('tables.pdf'), { cache: { enabled: false } }, { env: {} })
+    // A small table travels with its caption (a "mixed" chunk); a long one is a chunk of its own.
+    const tables = res.chunks.filter((c) => c.rawContent.includes('| --- |'))
+    expect(tables.length).toBe(5)
+    expect(tables.every((c) => c.contentType === 'table' || c.contentType === 'mixed')).toBe(true)
+    expect(tables.every((c) => c.boxes.length > 0)).toBe(true)
+    expect(tables[0]?.rawContent.startsWith('Tablo 1. ')).toBe(true)
+    expect(res.structure.tables).toHaveLength(5)
+    const blocks = res.layout.pages.flatMap((p) => p.blocks.map((b) => ({ page: p.number, ...b })))
+    const grid = blocks.find((b) => b.kind === 'table' && b.page === 1)
+    expect(grid?.table).toMatchObject({ rows: 6, cols: 4, headerRows: 2, source: 'ruled' })
+    expect(grid?.table?.cells).toHaveLength(21)
+    expect(grid?.chunkIds.length).toBeGreaterThan(0)
+    const lastOnPage2 = blocks.filter((b) => b.kind === 'table' && b.page === 2).at(-1)
+    const firstOnPage3 = blocks.find((b) => b.page === 3)
+    expect(firstOnPage3).toMatchObject({ kind: 'table', continues: lastOnPage2?.id })
+  })
+
   it('processes markdown, DOCX and PPTX inputs', async () => {
     for (const name of ['sample.md', 'sample.docx', 'sample.pptx']) {
       const res = await processDocument(fixture(name), { cache: { enabled: false } }, { env: {} })

@@ -3,6 +3,8 @@
  * item; chunks and document blocks are located by matching their text against these spans.
  */
 
+import type { TableData } from './tables.js'
+
 /** A rectangle as fractions of the page size (0-1), origin top-left. */
 export interface Box {
   x: number
@@ -15,6 +17,8 @@ export interface Box {
 export interface TextSpan {
   text: string
   box: Box
+  /** Cell structure when the block is a table read from the page. */
+  table?: TableData
 }
 
 /** A box on a given page. */

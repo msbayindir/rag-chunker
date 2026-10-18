@@ -168,6 +168,8 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 
 ## Çıktı
 
+PDF metin katmanındaki tablolar tablo olarak kurulur: çizgili ızgaralar (birleşik hücreler ve iki satırlı başlıklar dahil), yalnızca yatay çizgili makale tabloları ve hiç çizgisi olmayıp hizalı sütunlardan tanınan tablolar. `document.md`'de GFM tablosu, chunk'larda tablo chunk'ı olurlar (kısa tablo başlığıyla birlikte, uzun tablo başlık satırı tekrarlanarak bölünür); `document.json` hücre yapısını birleşmelerle birlikte tutar (`tableToHtml()` ile HTML), sonraki sayfaya taşan tabloya başlık aktarılır ve iki parça bağlanır. `teds()` tanınan tabloyu referansla karşılaştırır.
+
 Her doküman için beş dosya yazılır: `chunks.jsonl` (satır başına bir chunk), `document.md` (sayfa işaretli tam markdown), `structure.json` (başlıklar, tablolar, bölümler), `document.json` (her bloğun sayfası, sayfadaki konumu ve içinde bulunduğu chunk'lar; PDF metin katmanından gelen chunk'lar da `boxes` alanında konumlarını taşır), `manifest.json` (sürüm, aşama başına modeller, istatistikler, token kullanımı, anahtarsız config, uyarılar). Alanların açıklaması [İngilizce README](README.md#output)'de.
 
 **Neyi embed etmeli:** `content` (context özeti ve overlap dahildir). Hibrit aramada vektör tarafına `content`, anahtar kelime tarafına `rawContent` verin. Sorguları aynı modelle ve `embedQuery()` ile embed edin; Gemini ve EmbeddingGemma doküman ve sorgu için farklı prompt kullanır.

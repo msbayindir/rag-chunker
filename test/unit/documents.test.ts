@@ -4,7 +4,9 @@ import { docxToMarkdown } from '../../src/documents/docx.js'
 import { detectKind, readDocument } from '../../src/documents/input.js'
 import { PdfDocumentHandle, planPageBatches, subsetPdf } from '../../src/documents/pdf.js'
 import { pptxToMarkdown } from '../../src/documents/pptx.js'
+import type { TableData } from '../../src/documents/tables.js'
 import { RagChunkerError } from '../../src/errors.js'
+import { teds } from '../../src/eval/teds.js'
 import {
   cleanPageMarkdown,
   joinPages,
@@ -13,7 +15,17 @@ import {
   stripImages,
   unwrapMarkdownFence,
 } from '../../src/ocr/postprocess.js'
-import { DOCX, HEADER, PAGE1, PAGE2, PAGE3, PPTX, SIDE_BY_SIDE, TWO_COLUMN } from '../fixtures/content.js'
+import {
+  DOCX,
+  HEADER,
+  PAGE1,
+  PAGE2,
+  PAGE3,
+  PPTX,
+  SIDE_BY_SIDE,
+  TABLES,
+  TWO_COLUMN,
+} from '../fixtures/content.js'
 import { fixture } from '../fixtures/generate.js'
 
 const bytes = async (name: string) => new Uint8Array(await readFile(fixture(name)))
@@ -105,6 +117,80 @@ describe('PDF text layer', () => {
     expect(at).toEqual([...at].sort((a, b) => a - b))
   })
 
+  it('reads ruled, rule-bounded, aligned and continued tables from the text layer', async () => {
+    const pdf = await PdfDocumentHandle.open(await bytes('tables.pdf'))
+    const pages = await pdf.textLayer()
+    await pdf.close()
+    const tablesOf = (n: number) => (pages[n]?.spans ?? []).flatMap((s) => (s.table ? [s] : []))
+    const plain = (rows: string[][], headerRows: number, source: TableData['source']): TableData => ({
+      rows: rows.length,
+      cols: rows[0]?.length ?? 0,
+      headerRows,
+      source,
+      cells: rows.flatMap((r, row) => r.map((text, col) => ({ row, col, rowSpan: 1, colSpan: 1, text }))),
+    })
+
+    // Page 1: a grid with a two-row header (row spans + a column span), then a booktabs-style table.
+    const [ruled, rules] = tablesOf(0)
+    const ruledGold: TableData = {
+      rows: 6,
+      cols: 4,
+      headerRows: 2,
+      source: 'ruled',
+      cells: [
+        { row: 0, col: 0, rowSpan: 2, colSpan: 1, text: 'Parametre' },
+        { row: 0, col: 1, rowSpan: 2, colSpan: 1, text: 'Birim' },
+        { row: 0, col: 2, rowSpan: 1, colSpan: 2, text: 'Referans aralığı' },
+        { row: 1, col: 2, rowSpan: 1, colSpan: 1, text: 'Alt sınır' },
+        { row: 1, col: 3, rowSpan: 1, colSpan: 1, text: 'Üst sınır' },
+        ...TABLES.ruled.rows.flatMap((r, i) =>
+          r.map((text, col) => ({ row: i + 2, col, rowSpan: 1, colSpan: 1, text })),
+        ),
+      ],
+    }
+    expect(ruled?.table).toMatchObject({ rows: 6, cols: 4, headerRows: 2, source: 'ruled' })
+    expect(teds(ruled?.table as TableData, ruledGold)).toBeGreaterThanOrEqual(0.98)
+    expect(ruled?.text.split('\n')[0]).toBe('| Parametre | Birim | Referans aralığı Alt sınır | Üst sınır |')
+    expect(ruled?.text).toContain('| İyonize kalsiyum | mmol/L | 1,12 | 1,32 |')
+    expect(rules?.table).toMatchObject({ rows: 4, cols: 3, headerRows: 1, source: 'rules' })
+    expect(
+      teds(rules?.table as TableData, plain([TABLES.rules.header, ...TABLES.rules.rows], 1, 'rules')),
+    ).toBe(1)
+    // Captions and the paragraph in between stay ordinary text, in order.
+    const md1 = pages[0]?.markdown ?? ''
+    expect(md1.indexOf(TABLES.caption1)).toBeLessThan(md1.indexOf('| Parametre'))
+    expect(md1.indexOf(TABLES.afterRuled.slice(0, 30))).toBeGreaterThan(md1.indexOf('| İyonize'))
+    expect(md1.indexOf(TABLES.caption3)).toBeLessThan(md1.indexOf('| Ad |'))
+
+    // Page 2: an aligned table without any line, then a grid that runs off the page.
+    const [aligned, firstPart] = tablesOf(1)
+    expect(aligned?.table).toMatchObject({ rows: 6, cols: 3, source: 'aligned' })
+    expect(
+      teds(aligned?.table as TableData, plain([TABLES.aligned.header, ...TABLES.aligned.rows], 1, 'aligned')),
+    ).toBe(1)
+    expect(firstPart?.table).toMatchObject({ rows: 6, cols: 3, source: 'ruled' })
+
+    // Page 3: the continuation gets the header of the table it continues.
+    const [cont] = tablesOf(2)
+    expect(cont?.table?.continuation).toBe(true)
+    expect(pages[2]?.markdown.startsWith('| İlaç | Doz | Sıklık |')).toBe(true)
+    expect(
+      teds(
+        cont?.table as TableData,
+        plain([TABLES.continued.header, ...TABLES.continued.secondPage], 1, 'ruled'),
+      ),
+    ).toBe(1)
+    expect(pages[2]?.markdown).toContain(TABLES.afterContinued.slice(0, 30))
+    // Nothing is lost: every cell text of every table is in the page markdown.
+    for (const [n, t] of [
+      [0, TABLES.ruled.rows],
+      [1, TABLES.aligned.rows],
+      [2, TABLES.continued.secondPage],
+    ] as const) {
+      for (const text of t.flat()) expect(pages[n]?.markdown).toContain(text)
+    }
+  })
+
   it('renders pages to PNG and builds page subsets', async () => {
     const pdfBytes = await bytes('turkish.pdf')
     const pdf = await PdfDocumentHandle.open(pdfBytes)
@@ -170,6 +256,10 @@ describe('OCR post-processing', () => {
       expect(p).toContain(`# Bölüm ${i + 1}`)
     }
     expect(removeRepeatedHeaderFooter(pages.slice(0, 2)).removed).toBe(0)
+    // A table header repeated at the top of every page is part of the table, not a running header.
+    const texts = ['Birinci sayfanın metni.', 'İkinci sayfanın metni.', 'Üçüncü sayfanın metni.']
+    const tablePages = texts.map((b, n) => `| İlaç | Doz |\n| --- | --- |\n| ilaç ${n} | ${n} mg |\n\n${b}`)
+    expect(removeRepeatedHeaderFooter(tablePages)).toEqual({ pages: tablePages, removed: 0 })
   })
 
   it('does not remove lines that only repeat on a few pages', () => {

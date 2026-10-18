@@ -39,7 +39,8 @@ function normalizeLine(line: string): string {
 const EDGE_LINES = 2
 
 function edgeIndexes(lines: string[]): { top: number[]; bottom: number[] } {
-  const nonEmpty = lines.map((l, i) => ({ l, i })).filter(({ l }) => l.trim() !== '')
+  // Table rows are never running headers, even when a long table repeats its header on every page.
+  const nonEmpty = lines.map((l, i) => ({ l, i })).filter(({ l }) => l.trim() !== '' && !/^\s*\|/.test(l))
   return {
     top: nonEmpty.slice(0, EDGE_LINES).map(({ i }) => i),
     bottom: nonEmpty.slice(-EDGE_LINES).map(({ i }) => i),

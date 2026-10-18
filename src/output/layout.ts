@@ -1,5 +1,6 @@
 import { type Block, parseBlocks } from '../chunker/markdown.js'
 import { type Box, matchSpans, type TextSpan, unionBoxes } from '../documents/layout.js'
+import type { TableData } from '../documents/tables.js'
 import type { ExtractedPage } from '../ocr/extract.js'
 import type { Chunk } from '../types.js'
 
@@ -17,6 +18,10 @@ export interface LayoutBlock {
   text: string
   /** Position as fractions of the page (origin top-left), null when unknown. */
   box: Box | null
+  /** Cell structure (with spans) for tables read from a PDF text layer. */
+  table?: TableData
+  /** For a table that continues one from the previous page: that table's block id. */
+  continues?: string
   /** Chunks that contain (part of) this block. */
   chunkIds: string[]
 }
@@ -62,6 +67,7 @@ export function buildDocumentLayout(input: {
   const chunksOnPage = (page: number) => input.chunks.filter((c) => c.pageStart <= page && page <= c.pageEnd)
 
   const { blocks } = parseBlocks(input.markdown, 2)
+  const lastTableOnPage = new Map<number, string>()
   for (const b of blocks) {
     let page = byNumber.get(b.page)
     if (!page) {
@@ -69,18 +75,25 @@ export function buildDocumentLayout(input: {
       byNumber.set(b.page, page)
     }
     const spans = spansOf.get(b.page)
-    const box = spans ? unionBoxes(matchSpans(b.text, spans).map((s) => s.box)) : null
+    const matched = spans ? matchSpans(b.text, spans) : []
+    const box = spans ? unionBoxes(matched.map((s) => s.box)) : null
+    const table = b.kind === 'table' ? matched.find((s) => s.table)?.table : undefined
     const chunkIds = chunksOnPage(b.page)
       .filter((c) => matchSpans(c.rawContent, [{ text: b.text }]).length > 0)
       .map((c) => c.chunkId)
+    const id = `p${b.page}-b${page.blocks.length}`
+    const continues = table?.continuation ? lastTableOnPage.get(b.page - 1) : undefined
     page.blocks.push({
-      id: `p${b.page}-b${page.blocks.length}`,
+      id,
       kind: b.kind,
       ...(b.kind === 'heading' ? { level: b.depth } : {}),
       text: b.text,
       box,
+      ...(table ? { table } : {}),
+      ...(continues ? { continues } : {}),
       chunkIds,
     })
+    if (b.kind === 'table') lastTableOnPage.set(b.page, id)
   }
   const pages = [...byNumber.values()].sort((a, b) => a.number - b.number)
   return {

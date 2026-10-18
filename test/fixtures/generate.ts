@@ -7,9 +7,20 @@ import fontkit from '@pdf-lib/fontkit'
 import JSZip from 'jszip'
 import { PDFDocument, type PDFFont, type PDFPage, rgb } from 'pdf-lib'
 import { renderPageAsImage } from 'unpdf'
-import { DOCX, HEADER, PAGE1, PAGE2, PAGE3, PPTX, SCANNED, SIDE_BY_SIDE, TWO_COLUMN } from './content.js'
+import {
+  DOCX,
+  HEADER,
+  PAGE1,
+  PAGE2,
+  PAGE3,
+  PPTX,
+  SCANNED,
+  SIDE_BY_SIDE,
+  TABLES,
+  TWO_COLUMN,
+} from './content.js'
 
-const VERSION = '5'
+const VERSION = '7'
 export const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), 'generated')
 export const fixture = (name: string) => join(FIXTURES_DIR, name)
 
@@ -148,6 +159,118 @@ async function buildSideBySidePdf(): Promise<Uint8Array> {
   return doc.save()
 }
 
+function hline(page: PDFPage, x0: number, x1: number, y: number): void {
+  page.drawLine({ start: { x: x0, y }, end: { x: x1, y }, thickness: 0.8, color: rgb(0, 0, 0) })
+}
+function vline(page: PDFPage, x: number, y0: number, y1: number): void {
+  page.drawLine({ start: { x, y: y0 }, end: { x, y: y1 }, thickness: 0.8, color: rgb(0, 0, 0) })
+}
+
+/** A grid table: `cols` are the vertical boundaries, rows are `rowHeight` tall from `top` down. */
+function drawGrid(
+  page: PDFPage,
+  font: PDFFont,
+  cols: number[],
+  top: number,
+  rowHeight: number,
+  rows: string[][],
+  options: { bottomAsRect?: boolean } = {},
+): number {
+  const left = cols[0] as number
+  const right = cols.at(-1) as number
+  const bottom = top - rowHeight * rows.length
+  for (let r = 0; r <= rows.length; r++) {
+    const y = top - rowHeight * r
+    if (r === rows.length && options.bottomAsRect) {
+      page.drawRectangle({ x: left, y: y - 0.3, width: right - left, height: 0.6, color: rgb(0, 0, 0) })
+    } else hline(page, left, right, y)
+  }
+  for (const x of cols) vline(page, x, bottom, top)
+  rows.forEach((row, r) => {
+    row.forEach((text, c) => {
+      if (text)
+        page.drawText(text, { x: (cols[c] as number) + 4, y: top - rowHeight * r - 13, size: 10, font })
+    })
+  })
+  return bottom
+}
+
+async function buildTablesPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const fonts = await embedFonts(doc)
+  const f = fonts.regular
+
+  // Page 1: a ruled grid with a two-row header (row spans and a column span), then a rules-only table.
+  const p1 = doc.addPage([595, 842])
+  p1.drawText(TABLES.caption1, { x: 56, y: 720, size: 10, font: fonts.bold })
+  const cols = [56, 200, 290, 380, 470]
+  const top = 700
+  const rh = 18
+  const nRows = 2 + TABLES.ruled.rows.length
+  const bottom = top - rh * nRows
+  for (let r = 0; r <= nRows; r++) {
+    const y = top - rh * r
+    if (r === 1)
+      hline(p1, 290, 470, y) // header rows 0 and 1 merge in the first two columns
+    else hline(p1, 56, 470, y)
+  }
+  for (const x of cols) {
+    if (x === 380)
+      vline(p1, x, bottom, top - rh) // no divider inside the spanning header cell
+    else vline(p1, x, bottom, top)
+  }
+  p1.drawText('Parametre', { x: 60, y: top - 2 * rh + 12, size: 10, font: f })
+  p1.drawText('Birim', { x: 204, y: top - 2 * rh + 12, size: 10, font: f })
+  p1.drawText('Referans aralığı', { x: 294, y: top - 13, size: 10, font: f })
+  p1.drawText('Alt sınır', { x: 294, y: top - rh - 13, size: 10, font: f })
+  p1.drawText('Üst sınır', { x: 384, y: top - rh - 13, size: 10, font: f })
+  TABLES.ruled.rows.forEach((row, i) => {
+    const y = top - rh * (2 + i) - 13
+    row.forEach((text, c) => {
+      if (c === 0 && text.includes(' ')) {
+        // A cell whose text wraps onto two lines.
+        const [a, b] = text.split(' ')
+        p1.drawText(a as string, { x: 60, y: y + 4, size: 8, font: f })
+        p1.drawText(b as string, { x: 60, y: y - 5, size: 8, font: f })
+      } else p1.drawText(text, { x: (cols[c] as number) + 4, y, size: 10, font: f })
+    })
+  })
+  let y = drawWrapped(p1, TABLES.afterRuled, f, 10, 56, 560, 480) - 20
+  p1.drawText(TABLES.caption3, { x: 56, y, size: 10, font: fonts.bold })
+  y -= 15
+  hline(p1, 56, 200, y)
+  const rulesX = [60, 100, 132]
+  const rulesRows = [TABLES.rules.header, ...TABLES.rules.rows]
+  rulesRows.forEach((row, i) => {
+    const base = y - 13 - 14 * i
+    row.forEach((text, c) => p1.drawText(text, { x: rulesX[c] as number, y: base, size: 10, font: f }))
+    if (i === 0) hline(p1, 56, 200, base - 4)
+  })
+  hline(p1, 56, 200, y - 13 - 14 * (rulesRows.length - 1) - 4)
+
+  // Page 2: an aligned table without any lines, a paragraph, then a grid that runs off the page.
+  const p2 = doc.addPage([595, 842])
+  p2.drawText(TABLES.caption2, { x: 56, y: 760, size: 10, font: fonts.bold })
+  const alignedRows = [TABLES.aligned.header, ...TABLES.aligned.rows]
+  alignedRows.forEach((row, i) => {
+    const base = 735 - 16 * i
+    p2.drawText(row[0] as string, { x: 56, y: base, size: 10, font: f })
+    p2.drawText(row[1] as string, { x: 200, y: base, size: 10, font: f })
+    const last = row[2] as string
+    p2.drawText(last, { x: 430 - f.widthOfTextAtSize(last, 10), y: base, size: 10, font: f })
+  })
+  drawWrapped(p2, TABLES.afterAligned, f, 10, 56, 610, 480)
+  drawGrid(p2, f, [56, 220, 380, 480], 200, 18, [TABLES.continued.header, ...TABLES.continued.firstPage])
+
+  // Page 3: the continuation rows at the very top, without a header, then a paragraph.
+  const p3 = doc.addPage([595, 842])
+  const end = drawGrid(p3, f, [56, 220, 380, 480], 810, 18, TABLES.continued.secondPage, {
+    bottomAsRect: true,
+  })
+  drawWrapped(p3, TABLES.afterContinued, f, 10, 56, end - 30, 480)
+  return doc.save()
+}
+
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 
 function wPara(text: string, style?: string): string {
@@ -263,6 +386,7 @@ export async function generateFixtures(): Promise<void> {
   await writeFile(fixture('turkish.pdf'), await buildTurkishPdf(scan))
   await writeFile(fixture('two-column.pdf'), await buildTwoColumnPdf())
   await writeFile(fixture('side-by-side.pdf'), await buildSideBySidePdf())
+  await writeFile(fixture('tables.pdf'), await buildTablesPdf())
   await writeFile(fixture('sample.docx'), await buildDocx())
   await writeFile(fixture('sample.pptx'), await buildPptx())
   await writeFile(fixture('sample.md'), MARKDOWN)

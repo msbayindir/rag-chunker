@@ -35,6 +35,12 @@ export {
   type ResolvedConfig,
 } from './config/schema.js'
 export type { DocumentKind } from './documents/input.js'
+export {
+  type TableCell,
+  type TableData,
+  tableToHtml,
+  tableToMarkdown,
+} from './documents/tables.js'
 export { type ErrorCode, isRagChunkerError, RagChunkerError } from './errors.js'
 export {
   type EvalQuestion,
@@ -44,6 +50,7 @@ export {
   type ModeMetrics,
   type QuestionSet,
 } from './eval/eval.js'
+export { type TreeNode, tableTree, teds, treeEditDistance } from './eval/teds.js'
 export {
   type ExportResult,
   type ExportTarget,

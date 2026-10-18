@@ -18,6 +18,7 @@ A rewrite. v4 is not compatible with v3: the API, CLI flags, output fields and c
 - Inspector UI with search, page images of the original PDF and sanitized markdown.
 - MCP server (`search`, `get_chunk`, `get_page`, `list_documents`).
 - JSON Schema for the config file (`schema/config.schema.json`).
+- Tables from the PDF text layer: drawn grids (merged cells, multi-row headers, title rows), rule-bounded tables with columns from text alignment, and line-less tables from aligned columns; GFM output, cell structure with spans in `document.json` (`tableToMarkdown`, `tableToHtml`), header carry-over and linking for tables that continue on the next page, and a `teds()` scorer.
 - Provenance: chunks from a PDF text layer carry `boxes` (one rectangle per paragraph, heading or list item, as fractions of the page); `document.json` lists every block with its page, position and chunks; the inspector highlights chunks on the page image; `manifest.stages.chunk.located` counts positioned chunks.
 - `QUOTA_EXCEEDED` and `RATE_LIMITED` errors with the provider's retry delay and a console hint; `ocr: auto` falls back from Mistral when the key has no OCR quota.
 - PDF text layer reading order for two-column papers with narrow gutters and for side-by-side blocks (comparison tables, boxed examples) on single-column pages; headings from font size and font style, with filters for tables of contents, running headers and figure labels.

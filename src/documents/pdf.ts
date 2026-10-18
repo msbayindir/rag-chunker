@@ -3,6 +3,16 @@ import { getDocumentProxy, renderPageAsImage } from 'unpdf'
 import { RagChunkerError } from '../errors.js'
 import { importOptional } from '../util/optional.js'
 import { type Box, type TextSpan, unionBoxes } from './layout.js'
+import {
+  type DetectedTable,
+  detectTables,
+  extractRulings,
+  headerTexts,
+  type Rect,
+  type TableData,
+  tableToMarkdown,
+  withHeaderOf,
+} from './tables.js'
 
 export interface PdfTextPage {
   pageNumber: number
@@ -43,6 +53,14 @@ interface Line {
   /** Share of the line's characters written in `font`. */
   fontShare: number
   rotated?: boolean
+  /** Glyph runs the line was built from. */
+  items?: RawItem[]
+  /** Set on the pseudo-line that stands for a table; `text` is then the markdown table. */
+  table?: TableData
+  /** Exact area (PDF points) when known, e.g. a table's grid. */
+  bbox?: Rect
+  /** Never a heading (a table's title row emitted as text). */
+  plain?: boolean
 }
 
 /** Document-wide typography used to recognise headings. */
@@ -122,21 +140,26 @@ export class PdfDocumentHandle {
         })
       }
       const raw = items.map((it) => it.str).join('')
+      const lines = toLines(items, width)
+      // Tables leave the text flow; a pseudo-line at the table's top keeps its place in reading order.
+      const rulings = await extractRulings(page).catch(() => ({ h: [], v: [] }))
+      const { tables, remaining } = detectTables(lines, rulings, { width })
+      const withTables = [...remaining, ...tables.flatMap(tableLines)].sort(
+        (a, b) => b.y - a.y || a.x0 - b.x0,
+      )
       pages.push({
         pageNumber: n,
-        lines: orderColumns(toLines(items, width), width),
+        lines: orderColumns(withTables, width),
         width,
         height,
         chars: raw.replace(/\s+/g, '').length,
         garbled: isGarbled(raw),
       })
     }
-    const typo = typography(pages.map((p) => p.lines))
-    typo.levelMap = levelMap(
-      pages.map((p) => p.lines),
-      typo,
-    )
-    return pages.map((p) => {
+    const prose = pages.map((p) => p.lines.filter((l) => !l.table))
+    const typo = typography(prose)
+    typo.levelMap = levelMap(prose, typo)
+    const out = pages.map((p) => {
       const { markdown, spans } = linesToMarkdown(p.lines, typo, p)
       return {
         pageNumber: p.pageNumber,
@@ -148,6 +171,8 @@ export class PdfDocumentHandle {
         garbled: p.garbled,
       }
     })
+    carryTableHeaders(out)
+    return out
   }
 
   /** Renders a page to PNG with its longer side at `longSide` pixels. Needs @napi-rs/canvas. */
@@ -336,6 +361,10 @@ function toLines(all: RawItem[], pageWidth: number): Line[] {
       size: sizeWeight > 0 ? sizeSum / sizeWeight : first.size,
       font,
       fontShare: sizeWeight > 0 ? Math.max(0, best) / sizeWeight : 1,
+      // pdf.js reports a gap wider than 0.6 em as a whitespace item of that width. Prose keeps
+      // those items (they bridge label/value pairs into one line); table detection uses the real
+      // runs and measures the gaps itself.
+      items: its.filter((it) => it.str.trim() !== ''),
     })
   }
   return [...out.sort((a, b) => b.y - a.y || a.x0 - b.x0), ...rotated]
@@ -606,6 +635,7 @@ function rawHeadingLevel(
   gapAbove: number,
   following: Line[],
 ): number | undefined {
+  if (line.table || line.plain) return undefined
   if (isSizeHeading(line, typo.body)) return typo.sizeLevels.get(roundSize(line.size))
   if (isStyleHeading(line, prev, typo, gapAbove, following)) return styleLevel(line.text, typo)
   return undefined
@@ -657,8 +687,16 @@ function joinLine(paragraph: string, next: string): string {
 
 /** The area a line of text covers, as fractions of the page (ascent above and descent below the baseline). */
 function lineBox(line: Line, page: { width: number; height: number }): Box {
-  const top = line.y + line.size * 0.8
-  const bottom = line.y - line.size * 0.25
+  const top = line.bbox ? line.bbox.y1 : line.y + line.size * 0.8
+  const bottom = line.bbox ? line.bbox.y0 : line.y - line.size * 0.25
+  if (line.bbox) {
+    return {
+      x: line.bbox.x0 / page.width,
+      y: (page.height - top) / page.height,
+      w: (line.bbox.x1 - line.bbox.x0) / page.width,
+      h: (top - bottom) / page.height,
+    }
+  }
   return {
     x: line.x0 / page.width,
     y: (page.height - top) / page.height,
@@ -673,7 +711,7 @@ function linesToMarkdown(
   page: { width: number; height: number },
 ): { markdown: string; spans: TextSpan[] } {
   const { body, lineGap } = typo
-  const blocks: Array<{ text: string; lines: Line[] }> = []
+  const blocks: Array<{ text: string; lines: Line[]; table?: TableData }> = []
   let para: string | null = null
   let paraLines: Line[] = []
   let paraKind: 'p' | 'li' = 'p'
@@ -694,6 +732,13 @@ function linesToMarkdown(
   const repeated = repeatedOnPage(lines)
   for (const [i, line] of lines.entries()) {
     const gap = prev ? prev.y - line.y : 0
+    if (line.table) {
+      flushPara()
+      flushHeading()
+      blocks.push({ text: line.text, lines: [line], table: line.table })
+      prev = line
+      continue
+    }
     const raw = repeated.has(line.text)
       ? undefined
       : rawHeadingLevel(line, prev, typo, gap, lines.slice(i + 1, i + 4))
@@ -750,9 +795,61 @@ function linesToMarkdown(
   const spans: TextSpan[] = []
   for (const b of blocks) {
     const box = unionBoxes(b.lines.map((l) => lineBox(l, page)))
-    if (box) spans.push({ text: b.text, box })
+    if (box) spans.push(b.table ? { text: b.text, box, table: b.table } : { text: b.text, box })
   }
   return { markdown: out, spans }
+}
+
+/** The pseudo-lines that stand for a table in the text flow: its title row, if any, then the table. */
+function tableLines(t: DetectedTable): Line[] {
+  const base = { size: 6, font: '', fontShare: 1 }
+  const lines: Line[] = []
+  if (t.caption) {
+    const c = t.caption
+    lines.push({
+      ...base,
+      text: c.text,
+      y: c.bbox.y1 - 3,
+      x0: c.bbox.x0,
+      x1: c.bbox.x1,
+      bbox: c.bbox,
+      plain: true,
+    })
+  }
+  lines.push({
+    ...base,
+    text: tableToMarkdown(t.data),
+    y: t.bbox.y1 - 3,
+    x0: t.bbox.x0,
+    x1: t.bbox.x1,
+    table: t.data,
+    bbox: t.bbox,
+  })
+  return lines
+}
+
+/**
+ * A table that ends at the bottom of a page and continues at the top of the next with the same
+ * number of columns gets the first table's header, so every part reads on its own; a header the
+ * document repeats itself is recognised and kept.
+ */
+function carryTableHeaders(pages: PdfTextPage[]): void {
+  for (let i = 1; i < pages.length; i++) {
+    const prevPage = pages[i - 1] as PdfTextPage
+    const page = pages[i] as PdfTextPage
+    const prev = prevPage.spans.at(-1)
+    const cur = page.spans[0]
+    if (!prev?.table || !cur?.table || prev.table.cols !== cur.table.cols) continue
+    if (prev.box.y + prev.box.h < 0.8 || cur.box.y > 0.2) continue
+    const same = headerTexts(prev.table).join('|') === headerTexts(cur.table).join('|')
+    const data: TableData = same
+      ? { ...cur.table, headerRows: prev.table.headerRows, continuation: true }
+      : withHeaderOf(prev.table, cur.table)
+    const markdown = tableToMarkdown(data)
+    page.markdown = page.markdown.replace(cur.text, () => markdown)
+    cur.text = markdown
+    cur.table = data
+  }
 }
 
 /** Builds a new PDF that contains only `pageNumbers` (1-based), in order. */
