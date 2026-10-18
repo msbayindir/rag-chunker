@@ -38,6 +38,9 @@ export interface ProcessFlags {
   minTokens?: number
   overlap?: number
   cache?: boolean
+  layout?: boolean
+  figures?: boolean
+  describeFigures?: boolean
   dryRun?: boolean
   json?: boolean
   verbose?: boolean
@@ -61,6 +64,10 @@ export function flagsToConfig(flags: ProcessFlags): RagChunkerConfig {
   }
   if (flags.contextStrategy) cfg.context = { strategy: flags.contextStrategy }
   if (flags.cache === false) cfg.cache = { enabled: false }
+  if (flags.layout === true) cfg.layout = { engine: 'pp-doclayout-v3' }
+  if (flags.layout === false) cfg.layout = { engine: 'off' }
+  if (flags.figures === false) cfg.figures = { extract: false }
+  if (flags.describeFigures) cfg.figures = { ...cfg.figures, describe: true }
   return cfg
 }
 
@@ -134,9 +141,12 @@ async function runDryRun(
     err(
       `     Chunks     ~${plan.estimatedChunks} ${pc.dim(`(${formatNumber(plan.documentTokens)} document tokens)`)}`,
     )
+    err(
+      `     Layout     ${plan.layout.engine ? `${plan.layout.engine}${plan.layout.download ? pc.dim('  (downloads the model, 130 MB)') : ''}` : pc.dim(plan.layout.reason ? `off (${plan.layout.reason})` : 'off')}`,
+    )
     err(`     Headings   ${plan.structure ? plan.structure.model : pc.dim('off')}`)
     err(
-      `     Context    ${plan.context ? `${plan.context.model}${pc.dim(`  ~${plan.context.estimatedRequests} request(s), ≤${formatNumber(plan.context.fullStrategyInputTokens)} input tokens before caching`)}` : pc.dim('off')}`,
+      `     Context    ${plan.context ? `${plan.context.model}${pc.dim(`  ${plan.context.strategy}, ~${plan.context.estimatedRequests} request(s), ~${formatNumber(plan.context.estimatedInputTokens)} input tokens before caching`)}` : pc.dim('off')}`,
     )
     err(
       `     Embedding  ${plan.embedding ? `${plan.embedding.model}${pc.dim(`  ${plan.embedding.texts} text(s)`)}` : pc.dim('off')}`,
@@ -201,6 +211,13 @@ export async function runProcess(inputs: string[], flags: ProcessFlags): Promise
             for (const w of res.warnings.slice(0, flags.verbose ? undefined : 5)) err(`     ${pc.dim(w)}`)
             if (!flags.verbose && res.warnings.length > 5) err(pc.dim('     … run with --verbose to see all'))
           }
+          const findings = res.manifest.quality?.flags ?? []
+          if (findings.length > 0) {
+            err(`  ${sym.dot} ${pc.bold('Quality')} ${pc.dim(`${findings.length} finding(s)`)}`)
+            for (const f of findings.slice(0, flags.verbose ? undefined : 3)) err(`     ${pc.dim(f)}`)
+            if (!flags.verbose && findings.length > 3)
+              err(pc.dim(`     … rag-chunker inspect ${dir} shows all`))
+          }
           err()
         }
       } catch (error) {
@@ -237,7 +254,7 @@ export function processCommand(): Command {
     .option('-o, --output <dir>', `output folder (default: ./${DEFAULT_OUTPUT_DIR}/<name>)`)
     .option('-c, --config <file>', 'config file (default: ./rag-chunker.config.{json,mjs,js})')
     .option('--local', 'run every stage on Ollama (Gemma 4 vision + embeddings), nothing leaves the machine')
-    .option('--ocr <engine>', 'auto | text-layer | mistral | <provider/model>')
+    .option('--ocr <engine>', 'auto | text-layer | pp-ocr (local, no keys) | mistral | <provider/model>')
     .addOption(
       new Option('--ocr-pages <mode>', 'which PDF pages go to the OCR engine').choices([
         'auto',
@@ -253,6 +270,10 @@ export function processCommand(): Command {
     .option('--max-tokens <n>', 'max tokens per chunk (default 512)', int('max-tokens'))
     .option('--min-tokens <n>', 'merge chunks smaller than this (default 64)', int('min-tokens'))
     .option('--overlap <n>', 'tokens of previous-chunk overlap (default 0)', int('overlap'))
+    .option('--layout', 'analyse page layout with the local PP-DocLayoutV3 model (downloads 130 MB once)')
+    .option('--no-layout', 'position heuristics only, no layout model')
+    .option('--no-figures', 'do not cut figures out of PDF pages')
+    .option('--describe-figures', 'describe every figure with the vision model (needs --vision or --local)')
     .option('--no-cache', 'do not read or write the cache')
     .option('--dry-run', 'show what would happen without calling any model')
     .option('--json', 'print a JSON summary to stdout')
@@ -262,7 +283,8 @@ export function processCommand(): Command {
       `
 Examples:
   $ rag-chunker process book.pdf                       # text layer only, no keys
-  $ rag-chunker process book.pdf --local               # everything on Ollama
+  $ rag-chunker process book.pdf --local               # everything on Ollama (+ local layout model)
+  $ rag-chunker process paper.pdf --layout             # page layout model, no keys (downloads 130 MB once)
   $ rag-chunker process docs/ --context gemini/gemini-3.5-flash-lite --embedding gemini/gemini-embedding-001
   $ rag-chunker process scan.pdf --ocr mistral -o out/  # needs MISTRAL_API_KEY`,
     )

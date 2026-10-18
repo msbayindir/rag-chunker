@@ -47,6 +47,14 @@ async function printSummary(dir: string): Promise<void> {
       `  Structure  ${structure.headings.length} headings, ${structure.tables.length} tables, ${formatNumber(structure.totalTokens)} tokens`,
     )
   }
+  const q = m.quality
+  if (q) {
+    err(
+      `  Quality    ${q.pages.textLayer} text-layer / ${q.pages.ocr} OCR page(s)${q.ocr ? `, OCR confidence ${q.ocr.meanConfidence.toFixed(2)}` : ''}; ${q.tables.count} table(s), ${q.figures.count} figure(s)${q.figures.captioned ? ` (${q.figures.captioned} captioned)` : ''}; ${q.chunks.located}/${q.chunks.count} chunks located`,
+    )
+    if (q.flags.length === 0) err(pc.dim('             no findings'))
+    for (const f of q.flags) err(`             ${sym.warn} ${pc.yellow(f)}`)
+  }
   err(
     `  Usage      ${formatNumber(m.usage.total.requests)} requests, ${formatNumber(m.usage.total.inputTokens)} in / ${formatNumber(m.usage.total.outputTokens)} out`,
   )

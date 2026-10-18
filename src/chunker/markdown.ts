@@ -1,9 +1,9 @@
-import type { Heading, List, Root, RootContent } from 'mdast'
+import type { Heading, List, Paragraph, Root, RootContent } from 'mdast'
 import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 
-export type BlockKind = 'heading' | 'text' | 'list' | 'table' | 'code' | 'other'
+export type BlockKind = 'heading' | 'text' | 'list' | 'table' | 'code' | 'figure' | 'other'
 
 /** A top-level markdown block, sliced verbatim from the source. */
 export interface Block {
@@ -69,8 +69,11 @@ function kindOf(node: RootContent): BlockKind {
   switch (node.type) {
     case 'heading':
       return 'heading'
-    case 'paragraph':
-      return 'text'
+    case 'paragraph': {
+      // A paragraph that is one image reference is a figure.
+      const kids = (node as Paragraph).children.filter((c) => !(c.type === 'text' && c.value.trim() === ''))
+      return kids.length === 1 && kids[0]?.type === 'image' ? 'figure' : 'text'
+    }
     case 'list':
       return 'list'
     case 'table':
@@ -81,6 +84,10 @@ function kindOf(node: RootContent): BlockKind {
       return 'other'
   }
 }
+
+/** Back-matter headings (references, bibliography) never contain the headings that follow them. */
+const BACK_MATTER_RE =
+  /^(?:\d+(?:\.\d+)*\.?\s+)?(?:kaynaklar|kaynakça|referanslar|references|bibliography|works cited)$/iu
 
 /**
  * Parses markdown into top-level blocks with page numbers and section paths.
@@ -120,7 +127,11 @@ export function parseBlocks(markdown: string, hardBoundaryDepth: number): Parsed
         group++
         groupHasContent = false
       }
-      while (stack.length > 0 && (stack.at(-1) as { depth: number }).depth >= depth) stack.pop()
+      while (stack.length > 0) {
+        const top = stack.at(-1) as { depth: number; title: string }
+        if (top.depth < depth && !BACK_MATTER_RE.test(top.title)) break
+        stack.pop()
+      }
       stack.push({ depth, title })
     } else {
       groupHasContent = true

@@ -7,15 +7,21 @@ export interface Tokenizer {
   truncate(text: string, maxTokens: number): string
 }
 
+/**
+ * Documents may contain strings such as "<|im_start|>" or "<|endoftext|>" (papers about LLMs, chat
+ * logs). They are ordinary text here, so special-token checks are switched off.
+ */
+const PLAIN_TEXT = { disallowedSpecial: new Set<string>() }
+
 const o200k: Tokenizer = {
   name: 'o200k',
   count(text) {
     if (text.length === 0) return 0
-    return o200kCount(text)
+    return o200kCount(text, PLAIN_TEXT)
   },
   truncate(text, maxTokens) {
     if (maxTokens <= 0) return ''
-    const ids = o200kEncode(text)
+    const ids = o200kEncode(text, PLAIN_TEXT)
     if (ids.length <= maxTokens) return text
     return o200kDecode(ids.slice(0, maxTokens))
   },

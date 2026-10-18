@@ -5,18 +5,34 @@ import { getTokenizer } from '../chunker/tokenizer.js'
 import { DEFAULT_CACHE_DIR, resolveConfig } from '../config/load.js'
 import type { RagChunkerConfig, ResolvedConfig } from '../config/schema.js'
 import { enrichChunks } from '../context/enrich.js'
+import type { FigureFile } from '../documents/figures.js'
 import { type DocumentInput, readDocument } from '../documents/input.js'
+import { locateChunk, type TextSpan } from '../documents/layout.js'
 import { embedTexts } from '../embeddings/embed.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
-import { extractDocument, type OcrEngine } from '../ocr/extract.js'
+import { createLayoutProvider, LAYOUT_MODEL, type PageLayoutProvider } from '../local/layout.js'
+import { hasModel } from '../local/models.js'
+import { createOcrProvider, OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../local/ocr.js'
+import { hasOnnxRuntime } from '../local/runtime.js'
+import type { TableStructureProvider } from '../local/table.js'
+import { createTableStructureProvider, TABLE_DICT, TABLE_MODEL } from '../local/table.js'
+import { engineLabel, extractDocument, type LocalOcr, type OcrEngine } from '../ocr/extract.js'
+import { buildDocumentLayout, type DocumentLayout } from '../output/layout.js'
 import { chunkStats, type Manifest, PACKAGE_VERSION, sanitizeConfig } from '../output/manifest.js'
+import { assessQuality } from '../output/quality.js'
 import { buildStructure, type DocumentStructure } from '../output/structure.js'
 import { type OutputPaths, writeOutputs } from '../output/writer.js'
 import { ProviderRegistry } from '../providers/registry.js'
 import { addUsage, emptyUsage, type Usage } from '../providers/types.js'
-import { fixHeadings } from '../structure/heading-fix.js'
+import {
+  applyHeadingLevels,
+  findHeadings,
+  fixHeadings,
+  harmonizeNumberedHeadings,
+} from '../structure/heading-fix.js'
 import type { Chunk } from '../types.js'
 import { type ProgressListener, Reporter } from './events.js'
+import { createFigureSink, type FigureCollector, type FigureSinkOptions } from './figures.js'
 
 export interface ProcessOptions {
   /** Label stored as `source` in chunks (defaults to the file name, or "document" for bytes). */
@@ -32,9 +48,13 @@ export interface ProcessResult {
   /** Full document markdown with `<!-- page N -->` markers (after heading normalisation). */
   markdown: string
   structure: DocumentStructure
+  /** Every block of the document with its page, position and chunks (`document.json`). */
+  layout: DocumentLayout
   manifest: Manifest
+  /** Figures cut out of the pages (PNG bytes); `save()` writes them under `figures/`. */
+  figures: FigureFile[]
   warnings: string[]
-  /** Writes chunks.jsonl, document.md, structure.json and manifest.json to `dir`. */
+  /** Writes chunks.jsonl, document.md, structure.json, document.json, manifest.json and figures/ to `dir`. */
   save(dir: string): Promise<OutputPaths>
 }
 
@@ -67,11 +87,29 @@ export interface OcrPlan {
   fallback?: { engine: OcrEngine; pages: 'all' | 'scanned' }
 }
 
-export function resolveOcrEngine(ctx: PipelineContext): OcrPlan {
+/** True when onnxruntime-node and the three PP-OCR files are on this machine. */
+export async function hasLocalOcr(): Promise<boolean> {
+  if (!(await hasOnnxRuntime())) return false
+  const present = await Promise.all([OCR_DET_MODEL, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)))
+  return present.every(Boolean)
+}
+
+export async function resolveOcrEngine(ctx: PipelineContext): Promise<OcrPlan> {
   const { engine, pages } = ctx.config.ocr
   let resolved: OcrEngine
   if (engine === 'text-layer') resolved = { type: 'text-layer' }
-  else if (engine === 'mistral') {
+  else if (engine === 'pp-ocr') {
+    if (!(await hasOnnxRuntime())) {
+      throw new RagChunkerError(
+        'OPTIONAL_DEPENDENCY_MISSING',
+        'ocr.engine is "pp-ocr" but "onnxruntime-node" is not installed',
+        {
+          hint: 'Install it with: npm install onnxruntime-node',
+        },
+      )
+    }
+    resolved = { type: 'local' }
+  } else if (engine === 'mistral') {
     const mistral = ctx.registry.provider('mistral')
     if (!mistral.apiKey) {
       throw new RagChunkerError('MISSING_API_KEY', 'ocr.engine is "mistral" but no Mistral API key is set', {
@@ -81,30 +119,84 @@ export function resolveOcrEngine(ctx: PipelineContext): OcrPlan {
     resolved = { type: 'mistral' }
   } else if (engine === 'auto') {
     const vision = ctx.config.models.vision
-    if (ctx.registry.provider('mistral').apiKey) resolved = { type: 'mistral' }
+    if (await hasLocalOcr()) resolved = { type: 'local' }
+    else if (ctx.registry.provider('mistral').apiKey) resolved = { type: 'mistral' }
     else if (vision) resolved = { type: 'vision', ref: vision }
     else resolved = { type: 'text-layer' }
   } else {
     resolved = { type: 'vision', ref: engine }
   }
   const mode = pages === 'auto' ? (resolved.type === 'mistral' ? 'all' : 'scanned') : pages
-  if (engine === 'auto' && resolved.type === 'mistral') {
+  // An automatically chosen engine that turns out unusable hands over to the next one in line.
+  if (engine === 'auto' && (resolved.type === 'mistral' || resolved.type === 'local')) {
     const vision = ctx.config.models.vision
-    const fallback: OcrEngine = vision ? { type: 'vision', ref: vision } : { type: 'text-layer' }
-    return {
-      engine: resolved,
-      pages: mode,
-      fallback: { engine: fallback, pages: pages === 'auto' ? 'scanned' : pages },
-    }
+    const fallback: OcrEngine =
+      resolved.type === 'local' && ctx.registry.provider('mistral').apiKey
+        ? { type: 'mistral' }
+        : vision
+          ? { type: 'vision', ref: vision }
+          : { type: 'text-layer' }
+    const fallbackPages = pages === 'auto' ? (fallback.type === 'mistral' ? 'all' : 'scanned') : pages
+    return { engine: resolved, pages: mode, fallback: { engine: fallback, pages: fallbackPages } }
   }
   return { engine: resolved, pages: mode }
 }
 
-/** Errors that make Mistral OCR unusable for this account; "auto" then moves on to the next engine. */
-const OCR_FALLBACK_CODES = new Set(['QUOTA_EXCEEDED', 'MISSING_API_KEY'])
+/** Errors that make an automatically chosen OCR engine unusable; "auto" then moves on to the next one. */
+const OCR_FALLBACK_CODES = new Set([
+  'QUOTA_EXCEEDED',
+  'MISSING_API_KEY',
+  'PROVIDER_UNAVAILABLE',
+  'PROVIDER_ERROR',
+])
 
-function engineName(engine: OcrEngine): string {
-  return engine.type === 'vision' ? engine.ref : engine.type
+const engineName = engineLabel
+/** How an engine is called in warnings. */
+function engineTitle(engine: OcrEngine): string {
+  if (engine.type === 'mistral') return 'Mistral OCR'
+  if (engine.type === 'local') return 'Local OCR (PP-OCR)'
+  if (engine.type === 'vision') return engine.ref
+  return 'the text layer'
+}
+
+export interface LayoutPlan {
+  /** Model that will analyse PDF pages, or null. */
+  engine: string | null
+  /** Why "auto" stays off: what is missing. */
+  reason?: string
+  /** True when the model file still has to be downloaded. */
+  download?: boolean
+}
+
+/**
+ * Whether PDF pages get layout analysis: "off" never, "pp-doclayout-v3" always (downloading the
+ * model on first use), "auto" only when the runtime and the model are already on the machine.
+ */
+export async function resolveLayout(config: ResolvedConfig): Promise<LayoutPlan> {
+  const { engine } = config.layout
+  if (engine === 'off') return { engine: null }
+  const runtime = await hasOnnxRuntime()
+  const present = await Promise.all([LAYOUT_MODEL, TABLE_MODEL, TABLE_DICT].map((id) => hasModel(id)))
+  const model = present.every(Boolean)
+  if (engine === 'pp-doclayout-v3') {
+    if (!runtime) {
+      throw new RagChunkerError(
+        'OPTIONAL_DEPENDENCY_MISSING',
+        'Layout analysis needs the "onnxruntime-node" package',
+        {
+          hint: 'Install it with: npm install onnxruntime-node  (or set layout.engine to "off")',
+        },
+      )
+    }
+    return { engine: LAYOUT_MODEL, download: !model }
+  }
+  if (runtime && model) return { engine: LAYOUT_MODEL }
+  return {
+    engine: null,
+    reason: !runtime
+      ? 'onnxruntime-node is not installed'
+      : 'the layout model is not downloaded (run once with --layout)',
+  }
 }
 
 /**
@@ -142,10 +234,83 @@ export async function runPipeline(
   reporter.end('read', `${doc.kind}, ${doc.bytes.length} bytes`)
 
   // ── OCR ────────────────────────────────────────────────────────────────
-  const plan = resolveOcrEngine(ctx)
+  const plan = await resolveOcrEngine(ctx)
   let { engine } = plan
   let t = Date.now()
   reporter.start('ocr', engineName(engine))
+  const mb = (n: number) => Math.round(n / 1024 / 1024)
+  let localOcr: LocalOcr | undefined
+  if (engine.type === 'local') {
+    try {
+      localOcr = await createOcrProvider({
+        cache,
+        documentId: doc.documentId,
+        onModelDownload: (file, done, total) =>
+          reporter.progress('ocr', mb(done), mb(total), `downloading ${file} (MB)`),
+        signal,
+      })
+    } catch (err) {
+      if (!plan.fallback || !(err instanceof RagChunkerError) || !OCR_FALLBACK_CODES.has(err.code)) throw err
+      reporter.warn(
+        'ocr',
+        `Local OCR (PP-OCR) is not usable (${err.message}); using ${engineTitle(plan.fallback.engine)} instead. ${err.hint ?? ''}`.trim(),
+      )
+      engine = plan.fallback.engine
+      plan.pages = plan.fallback.pages
+      plan.fallback = undefined
+    }
+  }
+  let layoutProvider: PageLayoutProvider | undefined
+  let tableProvider: TableStructureProvider | undefined
+  const layoutPlan =
+    doc.kind === 'pdf' || doc.kind === 'image' ? await resolveLayout(config) : { engine: null }
+  if (layoutPlan.engine) {
+    tableProvider = await createTableStructureProvider({
+      cache,
+      documentId: doc.documentId,
+      onModelDownload: (file, done, total) =>
+        reporter.progress('ocr', mb(done), mb(total), `downloading ${file} (MB)`),
+      signal,
+    })
+    layoutProvider = await createLayoutProvider({
+      render: config.layout.render,
+      minScore: config.layout.minScore,
+      cache,
+      documentId: doc.documentId,
+      onModelDownload: (done, total) =>
+        reporter.progress('ocr', mb(done), mb(total), 'downloading PP-DocLayoutV3 (MB)'),
+      onPage: (page, total) => reporter.progress('ocr', page, total, 'layout'),
+      signal,
+    })
+  }
+  let figureSink: FigureCollector | undefined
+  let describeModel: string | null = null
+  if (config.figures.extract && (doc.kind === 'pdf' || doc.kind === 'image')) {
+    let describe: FigureSinkOptions['describe']
+    if (config.figures.describe) {
+      if (!config.models.vision) {
+        reporter.warn('ocr', 'figures.describe needs models.vision; figures are saved without descriptions.')
+      } else {
+        const llm = registry.llm(config.models.vision)
+        if ((await llm.capabilities()).vision) {
+          describe = { llm, model: config.models.vision }
+          describeModel = config.models.vision
+        } else {
+          reporter.warn(
+            'ocr',
+            `${config.models.vision} cannot read images; figures are saved without descriptions.`,
+          )
+        }
+      }
+    }
+    figureSink = createFigureSink({
+      cache,
+      documentId: doc.documentId,
+      describe,
+      onWarn: (m) => reporter.warn('ocr', m),
+      signal,
+    })
+  }
   const extract = (e: OcrEngine, p: 'all' | 'scanned') =>
     extractDocument(doc, {
       engine: e,
@@ -154,6 +319,10 @@ export async function runPipeline(
       stripImages: config.ocr.stripImages,
       removeHeaderFooter: config.ocr.removeHeaderFooter,
       concurrency: config.ocr.concurrency,
+      layout: layoutProvider,
+      tables: tableProvider,
+      figures: figureSink ? { save: figureSink.save, minSize: config.figures.minSize } : undefined,
+      localOcr,
       registry,
       cache,
       reporter,
@@ -166,12 +335,16 @@ export async function runPipeline(
     if (!plan.fallback || !(err instanceof RagChunkerError) || !OCR_FALLBACK_CODES.has(err.code)) throw err
     reporter.warn(
       'ocr',
-      `Mistral OCR is not usable with this key (${err.message}); using ${engineName(plan.fallback.engine)} instead. ${err.hint ?? ''}`.trim(),
+      `${engineTitle(engine)} is not usable (${err.message}); using ${engineTitle(plan.fallback.engine)} instead. ${err.hint ?? ''}`.trim(),
     )
     engine = plan.fallback.engine
     extracted = await extract(engine, plan.fallback.pages)
   }
   byStage.ocr = extracted.usage
+  if (figureSink && figureSink.usage.requests > 0) byStage.figures = figureSink.usage
+  const figuresStage: Manifest['stages']['figures'] = figureSink
+    ? { ...figureSink.stats, model: describeModel }
+    : null
   const ocrStage: Manifest['stages']['ocr'] = {
     engine: engineName(engine),
     model: extracted.ocrModel,
@@ -182,9 +355,18 @@ export async function runPipeline(
     scannedPages: extracted.stats.scannedPages,
     emptyPages: extracted.stats.emptyPages,
     headerFooterLinesRemoved: extracted.stats.headerFooterLinesRemoved,
+    layout: layoutPlan.engine,
+    layoutPages: extracted.stats.layoutPages,
     durationMs: Date.now() - t,
   }
-  reporter.end('ocr', `${extracted.pageCount} page(s), ${extracted.ocrModel}`)
+  reporter.end(
+    'ocr',
+    `${extracted.pageCount} page(s), ${extracted.ocrModel}${layoutPlan.engine ? ' + layout' : ''}${
+      figureSink && figureSink.stats.extracted > 0
+        ? `, ${figureSink.stats.extracted} figure(s)${figureSink.stats.described > 0 ? ' described' : ''}`
+        : ''
+    }`,
+  )
   if (extracted.pages.every((p) => p.markdown.trim() === '')) {
     reporter.warn('ocr', `No text could be extracted from ${doc.name}.`)
   }
@@ -218,7 +400,15 @@ export async function runPipeline(
       fixed.skipped ? `skipped: ${fixed.skipped}` : `${fixed.corrections} correction(s)`,
     )
   } else {
-    reporter.end('structure', 'no model', true)
+    // Free deterministic pass: numbered headings of the same depth get the same level.
+    const headings = findHeadings(markdown)
+    const changes = harmonizeNumberedHeadings(headings, new Map())
+    if (changes.size > 0) markdown = applyHeadingLevels(markdown, changes, headings)
+    reporter.end(
+      'structure',
+      changes.size > 0 ? `${changes.size} numbered heading(s) aligned (no model)` : 'no model',
+      true,
+    )
   }
   throwIfAborted(signal)
 
@@ -275,6 +465,10 @@ export async function runPipeline(
     contextSummaries: summaries,
     countTokens: (text) => tok.count(text),
   })
+  // Text-layer pages know where each paragraph sits; chunks inherit those boxes.
+  const spansByPage = new Map<number, readonly TextSpan[]>()
+  for (const p of extracted.pages) if (p.spans && p.spans.length > 0) spansByPage.set(p.pageNumber, p.spans)
+  for (const c of chunks) c.boxes = locateChunk(c, spansByPage)
 
   // ── Embeddings ─────────────────────────────────────────────────────────
   let embeddingStage: Manifest['stages']['embedding'] = null
@@ -309,6 +503,20 @@ export async function runPipeline(
   }
 
   const structure = buildStructure(markdown, chunks, chunked.sections, extracted.pageCount)
+  const layout = buildDocumentLayout({
+    documentId: doc.documentId,
+    source: doc.name,
+    markdown,
+    pages: extracted.pages,
+    chunks,
+  })
+  const quality = assessQuality({
+    layout,
+    chunks,
+    stages: { ocr: ocrStage },
+    chunk: config.chunk,
+    kind: doc.kind,
+  })
   const total = emptyUsage()
   for (const u of Object.values(byStage)) addUsage(total, u)
   const manifest: Manifest = {
@@ -320,11 +528,13 @@ export async function runPipeline(
     stages: {
       ocr: ocrStage,
       structure: structureStage,
+      figures: figuresStage,
       chunk: { tokenizer: config.chunk.tokenizer, ...chunkStats(chunks), durationMs: chunkMs },
       context: contextStage,
       embedding: embeddingStage,
     },
     usage: { total, byStage },
+    quality,
     warnings: reporter.warnings,
   }
 
@@ -332,11 +542,20 @@ export async function runPipeline(
     chunks,
     markdown,
     structure,
+    layout,
     manifest,
+    figures: figureSink?.files ?? [],
     warnings: reporter.warnings,
     async save(dir: string) {
       reporter.start('write', dir)
-      const paths = await writeOutputs(dir, { chunks, markdown, structure, manifest })
+      const paths = await writeOutputs(dir, {
+        chunks,
+        markdown,
+        structure,
+        layout,
+        manifest,
+        figures: figureSink?.files,
+      })
       reporter.end('write', dir)
       return paths
     },

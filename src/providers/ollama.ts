@@ -1,6 +1,7 @@
 import type { Ollama } from 'ollama'
 import type { ResolvedProvider } from '../config/providers.js'
 import { RagChunkerError } from '../errors.js'
+import { sha256 } from '../util/hash.js'
 import { importOptional } from '../util/optional.js'
 import { isRetryable, statusOf, timeoutSignal, toProviderError, withRetry } from './retry.js'
 import {
@@ -14,6 +15,12 @@ import {
   textOf,
   toBase64,
 } from './types.js'
+
+interface ChatMessage {
+  role: string
+  content: string
+  images?: string[]
+}
 
 interface ModelInfo {
   contextLength: number
@@ -94,11 +101,22 @@ export async function ollamaListModels(provider: ResolvedProvider): Promise<stri
 }
 
 const roundUp = (n: number, step: number) => Math.ceil(n / step) * step
+/** Shared prefixes at least this long are processed once on their own first (see `warmed`). */
+const WARM_PREFIX_CHARS = 8000
 
 export class OllamaLLM implements LLM {
   readonly ref: string
   /** Sticky num_ctx: changing it makes Ollama reload the model, so it only ever grows. */
   private numCtx = 0
+  /**
+   * Shared prefixes already processed at the current num_ctx. llama.cpp can reuse a cached prefix
+   * of a sliding-window model (Gemma) only from a checkpoint that ends before the point where two
+   * prompts diverge, and it takes checkpoints ~512 tokens before the end of each prompt. After a
+   * request with a large batch of chunks that point lies past the shared document, so every later
+   * request would process the whole document again. A one-token request carrying only the prefix
+   * leaves a checkpoint just before the prefix ends, which all later requests restore.
+   */
+  private warmed = new Map<string, Promise<void>>()
 
   constructor(
     readonly provider: ResolvedProvider,
@@ -130,42 +148,58 @@ export class OllamaLLM implements LLM {
     const images = req.parts.filter((p) => p.type === 'image')
     // Conservative estimate (~3 chars/token) plus ~1.3k tokens per image.
     const needed = Math.ceil(promptChars / 3) + images.length * 1300 + maxOut + 256
-    this.numCtx = Math.min(caps.contextWindow, Math.max(this.numCtx, roundUp(Math.max(needed, 4096), 2048)))
+    // Grow with 25% headroom in 4k steps so slightly larger requests later do not force another reload.
+    if (needed > this.numCtx) {
+      this.numCtx = Math.min(caps.contextWindow, roundUp(Math.max(needed * 1.25, 4096), 4096))
+    }
 
     const userText = [req.prefix, textOf(req.parts)].filter(Boolean).join('\n\n')
-    const messages: Array<{ role: string; content: string; images?: string[] }> = []
+    const messages: ChatMessage[] = []
     if (req.system) messages.push({ role: 'system', content: req.system })
     messages.push({
       role: 'user',
       content: userText,
       ...(images.length > 0 ? { images: images.map((p) => toBase64((p as { data: Uint8Array }).data)) } : {}),
     })
-
-    try {
-      const res = await withRetry(
+    const call = (msgs: ChatMessage[], numPredict: number) =>
+      withRetry(
         async () => {
           const c = await client(this.provider, timeoutSignal(this.provider.timeoutMs, req.signal))
           return c.chat({
             model: this.model,
-            messages,
+            messages: msgs,
             stream: false,
             keep_alive: '10m',
             ...(req.json ? { format: req.json.schema } : {}),
             ...(info.capabilities.includes('thinking') ? { think: false } : {}),
-            options: { num_ctx: this.numCtx, num_predict: maxOut, temperature: req.json ? 0 : 0.2 },
+            options: { num_ctx: this.numCtx, num_predict: numPredict, temperature: req.json ? 0 : 0.2 },
           })
         },
         { maxRetries: this.provider.maxRetries, signal: req.signal },
       )
-      return {
-        text: res.message?.content ?? '',
-        usage: {
-          ...emptyUsage(),
-          inputTokens: res.prompt_eval_count ?? 0,
-          outputTokens: res.eval_count ?? 0,
-          requests: 1,
-        },
+
+    try {
+      const usage = { ...emptyUsage() }
+      if (req.prefix && req.prefix.length >= WARM_PREFIX_CHARS) {
+        const key = sha256(`${this.numCtx}\u0000${req.system ?? ''}\u0000${req.prefix}`)
+        let warm = this.warmed.get(key)
+        if (!warm) {
+          const prefixOnly = [...messages.slice(0, -1), { role: 'user', content: req.prefix }]
+          warm = call(prefixOnly, 1).then((res) => {
+            usage.inputTokens += res.prompt_eval_count ?? 0
+            usage.outputTokens += res.eval_count ?? 0
+            usage.requests++
+          })
+          this.warmed.set(key, warm)
+          warm.catch(() => this.warmed.delete(key))
+        }
+        await warm
       }
+      const res = await call(messages, maxOut)
+      usage.inputTokens += res.prompt_eval_count ?? 0
+      usage.outputTokens += res.eval_count ?? 0
+      usage.requests++
+      return { text: res.message?.content ?? '', usage }
     } catch (err) {
       throw ollamaError(err, this.provider, this.model)
     }

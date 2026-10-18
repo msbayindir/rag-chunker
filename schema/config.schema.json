@@ -12,12 +12,12 @@
       "properties": {
         "engine": {
           "default": "auto",
-          "description": "\"auto\" (Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), \"text-layer\", \"mistral\", or a vision model such as \"ollama/gemma4:e4b-it-qat\".",
+          "description": "\"auto\" (local PP-OCR when its models are downloaded, else Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), \"text-layer\", \"pp-ocr\" (local PP-OCRv5 on onnxruntime-node; downloads 13 MB once), \"mistral\", or a vision model such as \"ollama/gemma4:e4b-it-qat\".",
           "type": "string"
         },
         "pages": {
           "default": "auto",
-          "description": "PDF pages sent to the OCR engine. \"auto\": all pages for Mistral, scanned pages for vision models.",
+          "description": "PDF pages sent to the OCR engine. \"auto\": all pages for Mistral, scanned pages for local and vision models.",
           "type": "string",
           "enum": [
             "auto",
@@ -264,6 +264,90 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 2048
+        }
+      },
+      "additionalProperties": false
+    },
+    "layout": {
+      "description": "Local page layout analysis (PDF).",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "engine": {
+          "default": "auto",
+          "description": "Page layout analysis for PDFs with a local ONNX model (block classes + reading order). \"auto\": on when onnxruntime-node and the downloaded model are present; \"pp-doclayout-v3\": on, downloading the model (130 MB) on first use; \"off\": position heuristics only.",
+          "type": "string",
+          "enum": [
+            "auto",
+            "off",
+            "pp-doclayout-v3"
+          ]
+        },
+        "minScore": {
+          "default": 0.5,
+          "description": "Minimum detection confidence.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "render": {
+          "default": 1024,
+          "description": "Longer page side, in pixels, of the render the model sees.",
+          "type": "integer",
+          "minimum": 512,
+          "maximum": 2048
+        }
+      },
+      "additionalProperties": false
+    },
+    "figures": {
+      "description": "Figure extraction (PDF, images).",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "extract": {
+          "default": true,
+          "description": "Cut the figures of PDF pages and images (embedded pictures; with layout analysis also charts and drawings) out as PNG files under figures/ and reference them from the markdown.",
+          "type": "boolean"
+        },
+        "describe": {
+          "default": false,
+          "description": "Have models.vision describe every extracted figure (two to five sentences stored under the image, for retrieval). One vision request per figure.",
+          "type": "boolean"
+        },
+        "minSize": {
+          "default": 0.015,
+          "description": "Smallest figure kept, as a share of the page area; icons and logos fall below it.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "rerank": {
+      "description": "Reranking of search results (eval, mcp).",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "engine": {
+          "default": "auto",
+          "description": "Local cross-encoder that reorders the top search candidates (eval, mcp). \"auto\": on when onnxruntime-node and the default model (mmarco-minilm) are present; a model id: on, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, slow on CPU); \"off\".",
+          "type": "string",
+          "enum": [
+            "auto",
+            "off",
+            "mmarco-minilm",
+            "bge-reranker-base",
+            "bge-reranker-v2-m3"
+          ]
+        },
+        "candidates": {
+          "default": 30,
+          "description": "First-stage results (hybrid or BM25) handed to the reranker.",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 200
         }
       },
       "additionalProperties": false

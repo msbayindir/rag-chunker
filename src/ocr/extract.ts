@@ -1,9 +1,17 @@
 import type { CacheStore } from '../cache/store.js'
 import { docxToMarkdown } from '../documents/docx.js'
+import type { FigureSink } from '../documents/figures.js'
+import { htmlToMarkdown } from '../documents/html.js'
 import type { DocumentInput } from '../documents/input.js'
-import { PdfDocumentHandle, planPageBatches, subsetPdf } from '../documents/pdf.js'
+import type { TextSpan } from '../documents/layout.js'
+import { ocrItems, PdfDocumentHandle, pageFromItems, planPageBatches, subsetPdf } from '../documents/pdf.js'
 import { pptxToMarkdown } from '../documents/pptx.js'
+import type { Rect } from '../documents/tables.js'
+import { xlsxToMarkdown } from '../documents/xlsx.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
+import type { PageLayoutProvider, PageLike } from '../local/layout.js'
+import type { OcrResult, PageOcrProvider } from '../local/ocr.js'
+import type { TableStructureProvider } from '../local/table.js'
 import type { Reporter } from '../pipeline/events.js'
 import {
   MISTRAL_MAX_BYTES,
@@ -19,7 +27,17 @@ import { VISION_PROMPT_VERSION, visionOcrPage } from './vision.js'
 
 const OCR_CACHE_VERSION = 1
 
-export type OcrEngine = { type: 'text-layer' } | { type: 'mistral' } | { type: 'vision'; ref: string }
+export type OcrEngine =
+  | { type: 'text-layer' }
+  | { type: 'local' }
+  | { type: 'mistral' }
+  | { type: 'vision'; ref: string }
+
+/** Local OCR (PP-OCRv5): per PDF page, or for a whole image. */
+export interface LocalOcr {
+  page: PageOcrProvider
+  image: (bytes: Uint8Array) => Promise<OcrResult>
+}
 
 export interface ExtractOptions {
   engine: OcrEngine
@@ -29,6 +47,14 @@ export interface ExtractOptions {
   stripImages: boolean
   removeHeaderFooter: boolean
   concurrency?: number
+  /** Layout analysis for PDF pages (classes + reading order). */
+  layout?: PageLayoutProvider
+  /** Required when `engine.type` is "local". */
+  localOcr?: LocalOcr
+  /** Table structure model for the table regions the layout model reports. */
+  tables?: TableStructureProvider
+  /** Saves the figures of PDF pages and images; without it none are extracted. */
+  figures?: { save: FigureSink; minSize?: number }
   registry: ProviderRegistry
   cache: CacheStore
   reporter: Reporter
@@ -38,8 +64,13 @@ export interface ExtractOptions {
 export interface ExtractedPage {
   pageNumber: number
   markdown: string
-  /** text-layer | mistral | <provider/model> | markdown | docx | pptx */
+  /** text-layer | pp-ocr | mistral | <provider/model> | markdown | docx | pptx | xlsx | html */
   source: string
+  /** Page size in PDF points (PDF input only). */
+  width?: number
+  height?: number
+  /** Positions of the page's text blocks (text-layer pages only). */
+  spans?: TextSpan[]
 }
 
 export interface ExtractStats {
@@ -50,6 +81,8 @@ export interface ExtractStats {
   scannedPages: number
   emptyPages: number
   headerFooterLinesRemoved: number
+  /** PDF pages that went through layout analysis. */
+  layoutPages: number
 }
 
 export interface ExtractResult {
@@ -62,12 +95,20 @@ export interface ExtractResult {
   usage: Usage
 }
 
-function engineLabel(engine: OcrEngine): string {
-  return engine.type === 'vision' ? engine.ref : engine.type
+export function engineLabel(engine: OcrEngine): string {
+  if (engine.type === 'vision') return engine.ref
+  if (engine.type === 'local') return 'pp-ocr'
+  return engine.type
 }
 
 function needsOcrHint(): string {
-  return 'Set MISTRAL_API_KEY, pass --local (Ollama vision model) or --ocr <provider/model>.'
+  return 'Run with --ocr pp-ocr (local OCR, downloads 13 MB once) or --local, set MISTRAL_API_KEY, or pass --ocr <provider/model>.'
+}
+
+function localOcrOf(opts: ExtractOptions): LocalOcr {
+  if (!opts.localOcr)
+    throw new RagChunkerError('INPUT_INVALID', 'Local OCR engine selected without an OCR provider')
+  return opts.localOcr
 }
 
 /** Reads any supported document into page markdown using the configured OCR engine. */
@@ -81,6 +122,7 @@ export async function extractDocument(doc: DocumentInput, opts: ExtractOptions):
     scannedPages: 0,
     emptyPages: 0,
     headerFooterLinesRemoved: 0,
+    layoutPages: 0,
   }
   let pages: ExtractedPage[]
 
@@ -101,6 +143,17 @@ export async function extractDocument(doc: DocumentInput, opts: ExtractOptions):
       pages = splitPages(markdown).map((p) => ({ ...p, source: 'pptx' }))
       break
     }
+    case 'xlsx': {
+      const { markdown, warnings } = await xlsxToMarkdown(doc.bytes)
+      for (const w of warnings) opts.reporter.warn('ocr', w)
+      pages = splitPages(markdown).map((p) => ({ ...p, source: 'xlsx' }))
+      break
+    }
+    case 'html': {
+      const text = new TextDecoder('utf-8').decode(doc.bytes).replace(/^\uFEFF/, '')
+      pages = [{ pageNumber: 1, markdown: htmlToMarkdown(text).markdown, source: 'html' }]
+      break
+    }
     case 'image':
       pages = [await ocrImage(doc, opts, usage, stats)]
       break
@@ -112,7 +165,10 @@ export async function extractDocument(doc: DocumentInput, opts: ExtractOptions):
   if (doc.kind === 'pdf' || doc.kind === 'image') {
     pages = pages.map((p) => ({
       ...p,
-      markdown: cleanPageMarkdown(p.markdown, { stripImages: opts.stripImages }),
+      // Placeholders come from OCR engines; the text layer's image references are real figures.
+      markdown: cleanPageMarkdown(p.markdown, {
+        stripImages: opts.stripImages && p.source !== 'text-layer' && p.source !== 'pp-ocr',
+      }),
     }))
     if (opts.removeHeaderFooter && pages.length >= 3) {
       const res = removeRepeatedHeaderFooter(pages.map((p) => p.markdown))
@@ -154,6 +210,30 @@ async function ocrImage(
     return { pageNumber: 1, markdown: cached, source: label }
   }
   opts.reporter.progress('ocr', 0, 1, label)
+  if (engine.type === 'local') {
+    const result = await localOcrOf(opts).image(doc.bytes)
+    const size = { width: result.width, height: result.height }
+    const asPage: PageLike = { pageCount: 1, renderPng: async () => doc.bytes, pageSize: async () => size }
+    const regions = opts.layout ? await opts.layout(asPage, 1) : null
+    const tables = opts.tables
+    const figures = opts.figures
+    const page = await pageFromItems(ocrItems(result, size), size, {
+      regions,
+      ...(tables ? { tables: (region: Rect) => tables(asPage, 1, region) } : {}),
+      ...(figures ? { figures: { save: (f) => figures.save(asPage, 1, f), minSize: figures.minSize } } : {}),
+    })
+    stats.ocrPages++
+    await opts.cache.set('ocr', key, page.markdown)
+    opts.reporter.progress('ocr', 1, 1, label)
+    return {
+      pageNumber: 1,
+      markdown: page.markdown,
+      source: label,
+      width: size.width,
+      height: size.height,
+      spans: page.spans,
+    }
+  }
   let markdown: string
   if (engine.type === 'mistral') {
     const res = await mistralOcr({
@@ -194,11 +274,39 @@ async function extractPdf(
 ): Promise<ExtractedPage[]> {
   const handle = await PdfDocumentHandle.open(doc.bytes)
   try {
-    const textPages = await handle.textLayer()
-    const scanned = textPages.filter((p) => p.chars < opts.minTextChars || p.garbled).map((p) => p.pageNumber)
-    stats.scannedPages = scanned.length
     const engine = opts.engine
+    const local = engine.type === 'local' ? localOcrOf(opts) : null
+    const textPages = await handle.textLayer({
+      layout: opts.layout,
+      tables: opts.tables,
+      figures: opts.figures,
+      ...(local
+        ? {
+            ocr: {
+              needed: (p) => opts.pages === 'all' || p.chars < opts.minTextChars || p.garbled,
+              recognize: local.page,
+            },
+          }
+        : {}),
+    })
+    if (opts.layout) stats.layoutPages = textPages.length
+    const scanned = textPages
+      .filter((p) => (p.source === 'ocr' ? p.scanned : p.chars < opts.minTextChars || p.garbled))
+      .map((p) => p.pageNumber)
+    stats.scannedPages = scanned.length
     const all = textPages.map((p) => p.pageNumber)
+    if (local) {
+      stats.ocrPages = textPages.filter((p) => p.source === 'ocr').length
+      stats.textLayerPages = textPages.length - stats.ocrPages
+      return textPages.map((p) => ({
+        pageNumber: p.pageNumber,
+        markdown: p.markdown,
+        source: p.source === 'ocr' ? 'pp-ocr' : 'text-layer',
+        width: p.width,
+        height: p.height,
+        spans: p.spans,
+      }))
+    }
     const targets = engine.type === 'text-layer' ? [] : opts.pages === 'all' ? all : scanned
     const targetSet = new Set(targets)
     const label = engineLabel(engine)
@@ -206,7 +314,14 @@ async function extractPdf(
 
     for (const p of textPages) {
       if (!targetSet.has(p.pageNumber)) {
-        result.set(p.pageNumber, { pageNumber: p.pageNumber, markdown: p.markdown, source: 'text-layer' })
+        result.set(p.pageNumber, {
+          pageNumber: p.pageNumber,
+          markdown: p.markdown,
+          source: 'text-layer',
+          width: p.width,
+          height: p.height,
+          spans: p.spans,
+        })
         stats.textLayerPages++
       }
     }
@@ -317,7 +432,12 @@ async function extractPdf(
       )
     }
 
-    return all.map((p) => result.get(p) ?? { pageNumber: p, markdown: '', source: 'text-layer' })
+    // OCR'd pages have no text positions, but their size is still known from the PDF.
+    const sizes = new Map(textPages.map((p) => [p.pageNumber, { width: p.width, height: p.height }]))
+    return all.map((p) => ({
+      ...sizes.get(p),
+      ...(result.get(p) ?? { pageNumber: p, markdown: '', source: 'text-layer' }),
+    }))
   } finally {
     await handle.close()
   }

@@ -8,6 +8,11 @@ import { recommendedGemma } from '../../config/presets.js'
 import { BUILTIN_PROVIDERS, resolveProvider } from '../../config/providers.js'
 import type { ResolvedConfig } from '../../config/schema.js'
 import { errorMessage, RagChunkerError } from '../../errors.js'
+import { LAYOUT_MODEL } from '../../local/layout.js'
+import { hasModel, MODELS, modelsDir } from '../../local/models.js'
+import { OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../../local/ocr.js'
+import { hasReranker, RERANKER_IDS, type RerankerId } from '../../local/reranker.js'
+import { TABLE_DICT, TABLE_MODEL } from '../../local/table.js'
 import { PACKAGE_VERSION } from '../../output/manifest.js'
 import { ollamaListModels } from '../../providers/ollama.js'
 import { ProviderRegistry } from '../../providers/registry.js'
@@ -80,6 +85,60 @@ export async function runChecks(
     label: 'Page rendering',
     detail: canvas ? '@napi-rs/canvas' : 'not available',
     hint: canvas ? undefined : 'Vision OCR of scanned PDF pages needs it: npm install @napi-rs/canvas',
+  })
+
+  const onnx = await canImport(() => import('onnxruntime-node'))
+  const layoutModel = (
+    await Promise.all([LAYOUT_MODEL, TABLE_MODEL, TABLE_DICT].map((id) => hasModel(id)))
+  ).every(Boolean)
+  checks.push({
+    status: onnx && layoutModel ? 'ok' : 'info',
+    label: 'Layout model',
+    detail: !onnx
+      ? 'onnxruntime-node not installed'
+      : layoutModel
+        ? `${MODELS[LAYOUT_MODEL].file} + ${MODELS[TABLE_MODEL].file} in ${modelsDir(env)}`
+        : 'onnxruntime-node ready, model not downloaded',
+    hint: !onnx
+      ? 'Page layout analysis (classes + reading order) needs it: npm install onnxruntime-node'
+      : layoutModel
+        ? undefined
+        : 'Run `rag-chunker process <pdf> --layout` once to download PP-DocLayoutV3 + SLANet_plus (138 MB).',
+  })
+
+  const ocrFiles = await Promise.all([OCR_DET_MODEL, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)))
+  const ocrReady = ocrFiles.every(Boolean)
+  checks.push({
+    status: onnx && ocrReady ? 'ok' : 'info',
+    label: 'Local OCR',
+    detail: !onnx
+      ? 'onnxruntime-node not installed'
+      : ocrReady
+        ? `PP-OCRv5 (Latin) in ${modelsDir(env)}`
+        : 'onnxruntime-node ready, models not downloaded',
+    hint: !onnx
+      ? 'Scanned pages without keys need it: npm install onnxruntime-node'
+      : ocrReady
+        ? undefined
+        : 'Run `rag-chunker process <pdf> --ocr pp-ocr` once to download PP-OCRv5 (13 MB); "auto" then uses it.',
+  })
+
+  const rerankers = (
+    await Promise.all(RERANKER_IDS.map(async (id) => ((await hasReranker(id)) ? id : null)))
+  ).filter((id): id is RerankerId => id !== null)
+  checks.push({
+    status: onnx && rerankers.length > 0 ? 'ok' : 'info',
+    label: 'Reranker',
+    detail: !onnx
+      ? 'onnxruntime-node not installed'
+      : rerankers.length > 0
+        ? `${rerankers.join(', ')} in ${modelsDir(env)}`
+        : 'onnxruntime-node ready, model not downloaded',
+    hint: !onnx
+      ? 'Reranking search results needs it: npm install onnxruntime-node'
+      : rerankers.length > 0
+        ? undefined
+        : 'Run `rag-chunker eval <dir> --rerank` or `rag-chunker mcp <dir> --rerank` once to download mmarco-minilm (120 MB).',
   })
 
   for (const [name, def] of Object.entries(BUILTIN_PROVIDERS)) {

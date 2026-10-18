@@ -138,7 +138,6 @@ export function atomize(block: Block, maxTokens: number, reserve: number, tok: T
   let tail = ''
   let parts: string[]
   let sep: string
-  let preSplit = false
 
   switch (block.kind) {
     case 'table': {
@@ -174,7 +173,6 @@ export function atomize(block: Block, maxTokens: number, reserve: number, tok: T
     case 'text': {
       parts = splitSentences(block.text)
       sep = ''
-      preSplit = true
       break
     }
     case 'heading': {
@@ -192,8 +190,8 @@ export function atomize(block: Block, maxTokens: number, reserve: number, tok: T
   const tailTokens = tail ? tok.count(tail) : 0
   const budget = Math.max(8, maxTokens - headTokens - tailTokens - reserve)
   const { atoms, forced } = atomsFrom(parts, sep, budget, tok)
-  // Sentence atoms of a paragraph are not "forced" splits; rows/lines/items are.
-  const forcedSplit = forced && !(preSplit && block.kind === 'text')
+  // Only tables and code lose structure when a row/line is cut; long sentences or list items do not.
+  const forcedSplit = forced && (block.kind === 'table' || block.kind === 'code')
   return { head, headSep, tail, headTokens, tailTokens, atoms, forcedSplit }
 }
 

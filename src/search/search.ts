@@ -81,7 +81,13 @@ function rank(scores: number[]): number[] {
     .map((s) => s.index)
 }
 
-export type SearchMode = 'bm25' | 'vector' | 'hybrid'
+export type SearchMode = 'bm25' | 'vector' | 'hybrid' | 'rerank'
+
+/** Scores (query, text) pairs with a cross-encoder; higher is more relevant. */
+export interface Reranker {
+  id: string
+  score(query: string, texts: string[], signal?: AbortSignal): Promise<number[]>
+}
 
 export interface SearchHit {
   chunk: Chunk
@@ -116,6 +122,7 @@ export function search(
   const topK = options.topK ?? 10
   const canVector = index.hasVectors && !!options.queryVector && options.queryVector.length > 0
   const mode: SearchMode = options.mode ?? (canVector ? 'hybrid' : 'bm25')
+  if (mode === 'rerank') throw new Error('Reranking is asynchronous: use rerank()')
   if ((mode === 'vector' || mode === 'hybrid') && !canVector) {
     throw new Error('Vector search needs chunk embeddings and a query vector')
   }
@@ -145,4 +152,49 @@ export function search(
   return order
     .slice(0, topK)
     .map((o, i) => ({ chunk: index.chunks[o.index] as Chunk, score: o.score, rank: i + 1 }))
+}
+
+/** What the reranker reads for a chunk: its place in the document, its context and its text. */
+export function rerankText(chunk: Chunk, maxChars = 4000): string {
+  const head = chunk.sectionPath.join(' › ')
+  return `${head ? `${head}\n` : ''}${chunk.contextSummary ? `${chunk.contextSummary}\n` : ''}${chunk.rawContent}`.slice(
+    0,
+    maxChars,
+  )
+}
+
+/**
+ * Two-stage search: the first stage (hybrid when vectors exist, else BM25) picks `candidates`
+ * chunks, the cross-encoder reorders them and the best `topK` are returned with its scores.
+ */
+export async function rerank(
+  index: SearchIndex,
+  query: string,
+  options: {
+    reranker: Reranker
+    topK?: number
+    candidates?: number
+    firstStage?: Exclude<SearchMode, 'rerank'>
+    queryVector?: number[]
+    signal?: AbortSignal
+  },
+): Promise<SearchHit[]> {
+  const topK = options.topK ?? 10
+  const candidates = Math.max(topK, options.candidates ?? 30)
+  const first = search(index, query, {
+    topK: candidates,
+    mode: options.firstStage,
+    queryVector: options.queryVector,
+  })
+  if (first.length === 0) return first
+  const scores = await options.reranker.score(
+    query,
+    first.map((h) => rerankText(h.chunk)),
+    options.signal,
+  )
+  return first
+    .map((h, i) => ({ chunk: h.chunk, score: scores[i] ?? 0, first: h.rank }))
+    .sort((a, b) => b.score - a.score || a.first - b.first)
+    .slice(0, topK)
+    .map((h, i) => ({ chunk: h.chunk, score: h.score, rank: i + 1 }))
 }

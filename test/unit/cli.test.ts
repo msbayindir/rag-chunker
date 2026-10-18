@@ -76,6 +76,8 @@ describe('process command helpers', () => {
       cache: { enabled: false },
     })
     expect(flagsToConfig({})).toEqual({})
+    expect(flagsToConfig({ layout: true })).toEqual({ layout: { engine: 'pp-doclayout-v3' } })
+    expect(flagsToConfig({ layout: false })).toEqual({ layout: { engine: 'off' } })
   })
 
   it('expands folders recursively and names output folders uniquely', async () => {
@@ -156,7 +158,10 @@ describe('local preset', () => {
     expect((await detectLocalModels(env, {}, 64)).llm).toBe('gemma4:26b-a4b-it-qat')
     const preset = await localPreset(env)
     expect(preset.models?.embedding).toBe('ollama/embeddinggemma:latest')
-    expect(preset.ocr?.engine).toBe(preset.models?.vision)
+    // Scanned pages go to the local PP-OCR models first; the vision model stays as the fallback.
+    expect(preset.ocr?.engine).toBe('pp-ocr')
+    expect(preset.models?.vision).toMatch(/^ollama\/gemma4:/)
+    expect(preset.layout?.engine).toBe('pp-doclayout-v3')
   })
 
   it('explains how to install a model when none is present', async () => {

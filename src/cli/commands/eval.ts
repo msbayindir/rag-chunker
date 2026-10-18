@@ -1,15 +1,24 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { Command } from 'commander'
 import pc from 'picocolors'
 import { CacheStore } from '../../cache/store.js'
 import { DEFAULT_CACHE_DIR, findConfigFile, loadConfigFile, resolveConfig } from '../../config/load.js'
 import { embedTexts } from '../../embeddings/embed.js'
 import { RagChunkerError } from '../../errors.js'
-import { type EvalReport, evaluate, generateQuestions, type QuestionSet } from '../../eval/eval.js'
+import {
+  type Comparison,
+  compareReports,
+  type EvalReport,
+  evaluate,
+  generateQuestions,
+  type QuestionSet,
+} from '../../eval/eval.js'
+import { createReranker, RERANKERS, resolveReranker } from '../../local/reranker.js'
 import { readOutputDir } from '../../output/writer.js'
 import { Reporter } from '../../pipeline/events.js'
 import { ProviderRegistry } from '../../providers/registry.js'
+import type { Reranker } from '../../search/search.js'
 import { cliEnv } from '../env.js'
 import { err, out, ProgressRenderer, parseIntOption, reportError, sym } from '../ui.js'
 
@@ -18,24 +27,78 @@ interface EvalFlags {
   questions?: number
   questionsFile?: string
   embedding?: string
+  rerank?: string | boolean
+  compare?: boolean
   config?: string
   json?: boolean
 }
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`
 
+/** Folder names, with as much of the path as needed to tell folders with the same name apart. */
+export function outputLabels(outputs: string[]): string[] {
+  const parts = outputs.map((o) => resolve(o).split(sep).filter(Boolean))
+  return parts.map((p, i) => {
+    for (let n = 1; n < p.length; n++) {
+      const tail = p.slice(-n).join('/')
+      if (parts.every((q, j) => j === i || q.slice(-n).join('/') !== tail)) return tail
+    }
+    return p.join('/')
+  })
+}
+
+const signed = (n: number, digits: number, suffix = '') =>
+  `${n >= 0 ? '+' : ''}${(suffix === '%' ? n * 100 : n).toFixed(digits)}${suffix}`
+
+/** Per-question view: which output (or mode) finds the answer earlier, and where the ranks moved. */
+function printComparison(cmp: Comparison): void {
+  const [base, ...others] = cmp.columns
+  if (!base) return
+  const width = Math.max(8, ...cmp.columns.map((c) => c.label.length))
+  err(
+    `  ${pc.bold('Compare')} ${pc.dim(`baseline ${base.label}${others.length > 0 && others.every((c) => c.mode === base.mode) ? ` (mode ${base.mode})` : ''}`)}`,
+  )
+  for (const c of others) {
+    err(
+      `  ${c.label.padEnd(width)} MRR ${c.metrics.mrr.toFixed(3)} ${pc.dim(`(${signed(c.deltaMrr, 3)})`)}  hit@5 ${pct(c.metrics.hitAt5)} ${pc.dim(`(${signed(c.metrics.hitAt5 - base.metrics.hitAt5, 1, '%')})`)}  ${pc.green(`↑${c.improved}`)} ${pc.red(`↓${c.regressed}`)}`,
+    )
+  }
+  const changed = cmp.questions
+    .map((q, i) => ({ q, ranks: cmp.columns.map((c) => c.ranks[i] as number) }))
+    .filter(({ ranks }) => ranks.some((r) => r !== ranks[0]))
+  if (changed.length === 0) {
+    err(pc.dim('  Every question ranks the same.'))
+    err()
+    return
+  }
+  err(
+    pc.dim(
+      `  Questions whose rank changed (${cmp.columns.map((c) => c.label).join(' → ')}; 0 = not in top 10):`,
+    ),
+  )
+  for (const { q, ranks } of changed) {
+    const text = q.question.length > 70 ? `${q.question.slice(0, 69)}…` : q.question
+    err(
+      `   ${pc.dim(`#${String(q.id).padStart(2)}`)}  ${ranks.join(' → ').padEnd(cmp.columns.length * 4)}  ${text}`,
+    )
+  }
+  err()
+}
+
 function printTable(reports: EvalReport[]): void {
+  const labels = outputLabels(reports.map((r) => r.output))
+  const width = Math.max(6, ...labels.map((l) => l.length))
   err()
   err(
-    `  ${pc.bold('Output'.padEnd(34))} ${'mode'.padEnd(7)} ${'hit@1'.padStart(7)} ${'hit@5'.padStart(7)} ${'hit@10'.padStart(7)} ${'MRR'.padStart(6)} ${'chunks'.padStart(7)}`,
+    `  ${pc.bold('Output'.padEnd(width))} ${'mode'.padEnd(7)} ${'hit@1'.padStart(7)} ${'hit@5'.padStart(7)} ${'hit@10'.padStart(7)} ${'MRR'.padStart(6)} ${'chunks'.padStart(7)}`,
   )
-  for (const r of reports) {
+  reports.forEach((r, i) => {
     for (const m of r.metrics) {
       err(
-        `  ${r.output.slice(-34).padEnd(34)} ${m.mode.padEnd(7)} ${pct(m.hitAt1).padStart(7)} ${pct(m.hitAt5).padStart(7)} ${pct(m.hitAt10).padStart(7)} ${m.mrr.toFixed(3).padStart(6)} ${String(r.chunks).padStart(7)}`,
+        `  ${(labels[i] as string).padEnd(width)} ${m.mode.padEnd(7)} ${pct(m.hitAt1).padStart(7)} ${pct(m.hitAt5).padStart(7)} ${pct(m.hitAt10).padStart(7)} ${m.mrr.toFixed(3).padStart(6)} ${String(r.chunks).padStart(7)}`,
       )
     }
-  }
+  })
   err()
 }
 
@@ -52,6 +115,15 @@ export function evalCommand(): Command {
       '--embedding <model>',
       'embedding model for vector/hybrid search (default: the one in the manifest)',
     )
+    .option(
+      '--rerank [model]',
+      'add a "rerank" mode: a local cross-encoder reorders the top candidates (default model mmarco-minilm, downloads 120 MB once)',
+    )
+    .option('--no-rerank', 'no reranking even when the model is downloaded')
+    .option(
+      '--compare',
+      'show which questions each output (or, with one output, each mode) answers better; writes eval-compare.json',
+    )
     .option('-c, --config <file>', 'config file')
     .option('--json', 'print the report as JSON')
     .action(async (dirs: string[], flags: EvalFlags) => {
@@ -63,6 +135,15 @@ export function evalCommand(): Command {
         const config = resolveConfig(configFile ? await loadConfigFile(configFile) : undefined)
         registry = new ProviderRegistry({ config, env })
         const cache = new CacheStore(config.cache.enabled ? (config.cache.dir ?? DEFAULT_CACHE_DIR) : null)
+        const rerankPlan = await resolveReranker(config, flags.rerank)
+        let reranker: Reranker | undefined
+        if (rerankPlan.id) {
+          if (rerankPlan.download)
+            renderer.print(
+              `  ${pc.dim(`downloading reranker ${rerankPlan.id} (${RERANKERS[rerankPlan.id].label})…`)}`,
+            )
+          reranker = await createReranker(rerankPlan.id)
+        }
         const outputs = await Promise.all(dirs.map((d) => readOutputDir(d)))
         const first = outputs[0]
         if (!first) throw new RagChunkerError('INPUT_INVALID', 'No output folder given')
@@ -126,13 +207,26 @@ export function evalCommand(): Command {
             )
             queryVectors = q.vectors
           }
-          const report = evaluate(set, chunks, dirs[i] as string, queryVectors)
+          const report = await evaluate(set, chunks, dirs[i] as string, queryVectors, {
+            reranker,
+            candidates: config.rerank.candidates,
+          })
           reports.push(report)
           await writeFile(join(dirs[i] as string, 'eval.json'), `${JSON.stringify(report, null, 2)}\n`)
         }
         renderer.stop()
-        if (flags.json) out(JSON.stringify(reports, null, 2))
-        else printTable(reports)
+        const comparison = flags.compare ? compareReports(reports, outputLabels(dirs)) : null
+        if (comparison) {
+          await writeFile(
+            join(dirs[0] as string, 'eval-compare.json'),
+            `${JSON.stringify(comparison, null, 2)}\n`,
+          )
+        }
+        if (flags.json) out(JSON.stringify(comparison ? { reports, comparison } : reports, null, 2))
+        else {
+          printTable(reports)
+          if (comparison) printComparison(comparison)
+        }
       } catch (e) {
         renderer.stop()
         process.exitCode = reportError(e)

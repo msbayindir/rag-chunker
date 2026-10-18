@@ -74,6 +74,15 @@ export async function startInspectServer(options: {
         res.end(png)
         return
       }
+      const figureMatch = /^\/figures\/(p\d+-\d+\.png)$/.exec(path)
+      if (figureMatch) {
+        const png = await readFile(join(output.dir, 'figures', figureMatch[1] as string)).catch(() => null)
+        if (png) {
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=3600' })
+          res.end(png)
+          return
+        }
+      }
       if (path === '/api/pdf' && hasPdf) {
         res.writeHead(200, { 'Content-Type': 'application/pdf' })
         res.end(await readFile(options.pdf as string))

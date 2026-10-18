@@ -10,8 +10,13 @@ import { isFatal } from '../structure/heading-fix.js'
 import { mapPool } from '../util/async.js'
 import { sha256 } from '../util/hash.js'
 
-const PROMPT_VERSION = 'v1'
+const PROMPT_VERSION = 'v2'
 const MAX_SUMMARY_CHARS = 600
+/**
+ * "auto" sends the whole document only up to this size. Above it every request would carry a huge
+ * prefix: slow, expensive even with caching, and quickly over per-minute token quotas.
+ */
+export const FULL_STRATEGY_MAX_TOKENS = 60_000
 
 export type ContextStrategy = 'full' | 'hierarchical'
 
@@ -50,16 +55,16 @@ Return {"items":[{"id":<chunk id>,"context":"..."}]} with exactly one item per c
 
 const SECTION_SYSTEM = `Summarise the given part of a document in 2-4 sentences: its topic, the key entities and its purpose. Write in the same language as the text. No preamble. Return {"summary":"..."}.`
 
-const DOCUMENT_SYSTEM = `You get summaries of the sections of one document, in order. Summarise the whole document in 3-5 sentences: what it is, who it is for and what it covers. Write in the same language as the summaries. Return {"summary":"..."}.`
+const DOCUMENT_SYSTEM = `You get the sections of one document in order: each title, followed by a summary for longer sections. Summarise the whole document in 3-5 sentences: what it is, who it is for and what it covers. Write in the same language as the sections. Return {"summary":"..."}.`
 
 const MARKER_RE = /<!--\s*page\s+\d+\s*-->\n*/gi
 
-/** Very short or symbol-heavy chunks (OCR noise, figure debris) get no context. */
+/** Very short or symbol-heavy chunks (OCR noise, figure debris) get no context. Numeric tables do. */
 export function isLowQuality(text: string): boolean {
   const t = text.replace(/\s+/g, ' ').trim()
   if (t.length < 40) return true
-  const letters = (t.match(/\p{L}/gu) ?? []).length
-  return letters / t.length < 0.3
+  const meaningful = (t.match(/[\p{L}\p{N}]/gu) ?? []).length
+  return meaningful / t.length < 0.45
 }
 
 function clampSummary(text: string): string {
@@ -111,7 +116,7 @@ export async function enrichChunks(
     )
     strategy = 'hierarchical'
   } else if (opts.strategy === 'auto') {
-    strategy = docTokens <= prefixBudget * 0.9 ? 'full' : 'hierarchical'
+    strategy = docTokens <= Math.min(prefixBudget * 0.9, FULL_STRATEGY_MAX_TOKENS) ? 'full' : 'hierarchical'
   } else {
     strategy = opts.strategy
   }
@@ -121,11 +126,13 @@ export async function enrichChunks(
       ? { strategy, prefix: `<document>\n${docText}\n</document>`, groupNotes: new Map() }
       : await hierarchicalPlan(
           input.sections,
+          input.chunks,
           opts,
           Math.max(2000, Math.floor(caps.contextWindow * 0.5)),
           usage,
         )
 
+  const sectionPaths = new Map(input.sections.map((s) => [s.group, s.path]))
   const eligible = input.chunks
     .map((draft, id) => ({ id, draft }))
     .filter(({ draft }) => draft.mustPreserve || !isLowQuality(draft.text))
@@ -156,18 +163,14 @@ export async function enrichChunks(
     }
   }
 
-  // Batches never cross a section boundary so per-section notes stay accurate.
+  // Batches are runs of consecutive chunks. They may span sections (each chunk carries its section
+  // path and, in hierarchical mode, every section in the batch gets its summary), so documents with
+  // many short sections still use full batches.
   const groups: Array<Array<{ id: number; draft: ChunkDraft }>> = []
   for (const item of pending) {
     const last = groups.at(-1)
     const lastItem = last?.at(-1)
-    if (
-      last &&
-      lastItem &&
-      last.length < opts.batchSize &&
-      lastItem.draft.group === item.draft.group &&
-      lastItem.id === item.id - 1
-    ) {
+    if (last && lastItem && last.length < opts.batchSize && lastItem.id === item.id - 1) {
       last.push(item)
     } else {
       groups.push([item])
@@ -182,12 +185,15 @@ export async function enrichChunks(
   const runBatch = async (batch: Array<{ id: number; draft: ChunkDraft }>): Promise<void> => {
     const first = batch[0] as { id: number; draft: ChunkDraft }
     const parts: Array<{ type: 'text'; text: string }> = []
-    const note = plan.groupNotes.get(first.draft.group)
-    if (note)
-      parts.push({
-        type: 'text',
-        text: `<section_summary path="${first.draft.sectionPath.join(' > ')}">\n${note}\n</section_summary>`,
-      })
+    const seen = new Set<number>()
+    for (const { draft } of batch) {
+      if (seen.has(draft.group)) continue
+      seen.add(draft.group)
+      const note = plan.groupNotes.get(draft.group)
+      if (!note) continue
+      const path = (sectionPaths.get(draft.group) ?? draft.sectionPath).join(' > ').replace(/"/g, "'")
+      parts.push({ type: 'text', text: `<section_summary path="${path}">\n${note}\n</section_summary>` })
+    }
     if (plan.strategy === 'hierarchical') {
       const before = input.chunks[first.id - 1]
       if (before && before.group === first.draft.group) {
@@ -202,7 +208,7 @@ export async function enrichChunks(
           system: CHUNK_SYSTEM,
           prefix: plan.prefix,
           parts,
-          maxOutputTokens: batch.length * 200 + 400,
+          maxOutputTokens: batch.length * 300 + 1024,
           effort: 'low',
           signal: opts.signal,
         },
@@ -296,24 +302,32 @@ async function summarize(
   return summary
 }
 
-/** Section summaries (map-reduce for long sections) and a document summary built from them. */
+/**
+ * Section summaries (map-reduce for long sections) and a document summary built from them. A
+ * section that fits in one chunk gets no summary of its own (the chunk is the whole section), only
+ * its title in the document summary input. Documents made of many short sections (laws, FAQs)
+ * would otherwise need one extra request per section.
+ */
 async function hierarchicalPlan(
   sections: Section[],
+  chunks: ChunkDraft[],
   opts: ContextOptions,
   budget: number,
   usage: Usage,
 ): Promise<Plan> {
   const tok = getTokenizer('o200k')
   const groupNotes = new Map<number, string>()
+  const chunksPerGroup = new Map<number, number>()
+  for (const c of chunks) chunksPerGroup.set(c.group, (chunksPerGroup.get(c.group) ?? 0) + 1)
+  const toSummarize = sections.filter((s) => s.text.trim() !== '' && (chunksPerGroup.get(s.group) ?? 0) > 1)
   let done = 0
-  opts.reporter.progress('context', 0, sections.length, 'summarising sections')
+  opts.reporter.progress('context', 0, toSummarize.length, 'summarising sections')
   await mapPool(
-    sections,
+    toSummarize,
     opts.concurrency ?? opts.llm.provider.concurrency,
     async (section) => {
       const title = section.path.join(' > ')
       const body = section.text.trim()
-      if (body === '') return
       try {
         let summary: string
         if (tok.count(body) <= budget) {
@@ -346,13 +360,17 @@ async function hierarchicalPlan(
         )
       }
       done++
-      opts.reporter.progress('context', done, sections.length, 'summarising sections')
+      opts.reporter.progress('context', done, toSummarize.length, 'summarising sections')
     },
     opts.signal,
   )
   const ordered = sections
-    .filter((s) => groupNotes.has(s.group))
-    .map((s) => `- ${s.path.join(' > ') || 'Introduction'}: ${groupNotes.get(s.group)}`)
+    .filter((s) => groupNotes.has(s.group) || s.path.length > 0)
+    .map((s) => {
+      const note = groupNotes.get(s.group)
+      const title = s.path.join(' > ') || 'Introduction'
+      return note ? `- ${title}: ${note}` : `- ${title}`
+    })
   let docSummary = ''
   if (ordered.length > 0) {
     try {

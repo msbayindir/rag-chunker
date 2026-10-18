@@ -19,7 +19,7 @@ npx @msbayindir/rag-chunker process kitap.pdf --local    # her şey Ollama'da, h
 
 - **Dokümana saygılı chunk'lar.** Deterministik, AST tabanlı chunker başlıkları içerikleriyle birlikte tutar, mecbur kalmadıkça cümle ortasından bölmez, büyük tabloları *başlık satırını tekrarlayarak* satır satır böler, kod bloklarının çitlerini korur ve hiçbir kelimeyi kaybetmez (property testleriyle doğrulanır).
 - **Doğru kaynak gösterimi.** Her chunk'ta `pageStart`/`pageEnd`, başlık yolu (`sectionPath`) ve çakışmayan, kalıcı bir `chunkId` bulunur.
-- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar Mistral OCR'a veya bir vision modeline (Gemma 4, Gemini, Claude, GPT…) gider. Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir.
+- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar OCR'a gider: yerel PP-OCRv5 modelleri (13 MB, anahtarsız, Türkçe dahil Latin alfabeleri), Mistral OCR ya da bir vision modeli (Gemma 4, Gemini, Claude, GPT…). Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir.
 - **Contextual retrieval** ([Anthropic'in yöntemi](https://www.anthropic.com/news/contextual-retrieval)): her chunk'a, dokümandaki yerini anlatan 1–2 cümlelik bir özet eklenir. Modele sığmayan büyük dokümanlarda doküman ve bölüm özetleri kullanılır, böylece küçük yerel modellerle de çalışır.
 - **Başlık onarımı.** OCR sayfaları tek tek okuduğu için başlık seviyelerini karıştırır; bir LLM adımı ve deterministik bir numaralandırma adımı bunu düzeltir.
 - **Her aşamada her sağlayıcı.** Her yerde `sağlayıcı/model`: `ollama/gemma4:e4b-it-qat`, `gemini/gemini-3.5-flash-lite`, `anthropic/claude-haiku-5-5`, `openrouter/…` ya da kendi OpenAI-uyumlu sunucunuz. Her sağlayıcı için yerleşik prompt cache desteği.
@@ -70,7 +70,7 @@ npx @msbayindir/rag-chunker process kitap.pdf \
 ## Nasıl çalışır
 
 ```
-oku ─▶ OCR ─▶ başlıklar ─▶ chunk ─▶ context ─▶ embedding ─▶ chunks.jsonl, document.md, structure.json, manifest.json
+oku ─▶ OCR ─▶ başlıklar ─▶ chunk ─▶ context ─▶ embedding ─▶ chunks.jsonl, document.md, structure.json, document.json, manifest.json
        │       (isteğe bağlı)          (isteğe bağlı) (isteğe bağlı)
        ├─ metin katmanı (dijital sayfalar, ücretsiz)
        ├─ Mistral OCR (tüm sayfalar)        ← MISTRAL_API_KEY varsa
@@ -84,6 +84,8 @@ Modeli tanımlanmayan aşama atlanır. Hiç ayar yapmazsanız metin katmanı ve 
 | PDF | Metin katmanı (font boyutundan başlıklar, listeler, iki sütunlu düzen, tire birleştirme); taranmış sayfalar OCR motoruyla |
 | DOCX | Word başlıkları, paragraflar ve tablolar |
 | PPTX | Her slayt bir sayfa: başlık, iç içe maddeler, tablolar, konuşmacı notları |
+| XLSX | Her görünür sayfa bir sayfa: hücre blokları GFM tablosu olur (boş satırlar böler, üstteki tek hücre başlıktır); tarih, yüzde, mantıksal değer ve formül sonuçları çözülür, birleşik hücreler tekrarlanır |
+| HTML | Ana içerik (`<main>`, tek `<article>`, yoksa gövde); betikler, gezinme, site üst/alt bilgisi ve gizli öğeler atılır; her biçimde tablo, kod blokları, alt metinler |
 | PNG / JPEG / WebP | OCR motoru (Mistral ya da vision model) |
 | Markdown / metin | Olduğu gibi; `<!-- page N -->` işaretleri sayfa numarasını belirler |
 
@@ -143,12 +145,12 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 
 | Seçenek | Varsayılan | Anlamı |
 |---|---|---|
-| `ocr.engine` | `auto` | `auto` (`MISTRAL_API_KEY` varsa Mistral, yoksa `models.vision`, yoksa metin katmanı), `text-layer`, `mistral` ya da vision `sağlayıcı/model` |
+| `ocr.engine` | `auto` | `auto` (modelleri indirilmişse yerel PP-OCR, yoksa `MISTRAL_API_KEY` varsa Mistral, yoksa `models.vision`, yoksa metin katmanı), `text-layer`, `pp-ocr`, `mistral` ya da vision `sağlayıcı/model` |
 | `models.*` | — | Aşama başına model; boş bırakılan aşama atlanır |
 | `chunk.maxTokens` | `512` | Chunk başına kesin üst sınır (o200k token) |
 | `chunk.minTokens` | `64` | Daha küçük chunk'lar aynı bölümdeki komşusuyla birleşir |
 | `chunk.overlapTokens` | `0` | Önceki chunk'ın son cümleleri `content`'in başına eklenir |
-| `context.strategy` | `auto` | `full` (tüm doküman cache'li bağlam olarak), `hierarchical` (özetler), `auto` |
+| `context.strategy` | `auto` | `full` (tüm doküman cache'li bağlam olarak), `hierarchical` (doküman + bölüm özetleri), `auto` (modelin bağlamı yetiyorsa 60 bin token'a kadar `full`, üstünde `hierarchical`) |
 | `providers.<ad>` | — | `type`, `baseURL`, `apiKeyEnv`, `contextWindow`, `maxContext` (Ollama `num_ctx` üst sınırı, varsayılan 32768), `concurrency`, `timeoutMs` |
 
 ## Komutlar
@@ -168,7 +170,21 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 
 ## Çıktı
 
-Her doküman için dört dosya yazılır: `chunks.jsonl` (satır başına bir chunk), `document.md` (sayfa işaretli tam markdown), `structure.json` (başlıklar, tablolar, bölümler), `manifest.json` (sürüm, aşama başına modeller, istatistikler, token kullanımı, anahtarsız config, uyarılar). Alanların açıklaması [İngilizce README](README.md#output)'de.
+**Yerel OCR (anahtarsız).** `--ocr pp-ocr` (ve `--local`) taranmış sayfaları ve görselleri `onnxruntime-node` üzerinde PP-OCRv5 mobile ile okur: 5 MB'lık metin tespit modeli ve 8 MB'lık Latin alfabesi tanıma modeli (Türkçe, İngilizce, Almanca, Fransızca, İspanyolca…; diğer alfabeler planda). OCR satırları metin katmanı satırlarıyla aynı hatta girer; başlıklar, listeler, hizalamayla bulunan tablolar, layout bölgeleri ve konumlar taranmış sayfada da çalışır; her satırın güven skoru `document.json`'a (`confidence`) ulaşır. Dizüstü işlemcide sayfa başına 0,3–1 sn, sayfa bazında cache'lenir. Modeller bir kez indirildikten sonra `auto` yerel OCR'ı Mistral'a tercih eder.
+
+**Şekiller.** PDF sayfalarına gömülü resimler sayfa görüntüsünden kesilip PNG olarak kaydedilir (`figures/p<sayfa>-<n>.png`, diğer çıktıların yanında) ve `document.md`'de okuma sırasındaki yerinden referans verilir: `![açıklama](figures/p3-1.png)`. Açıklama, yerleşim analizi çalıştıysa `figure_title` bölgesinden, yoksa resmin altında ya da üstünde açıklama gibi başlayan en yakın satırdan ("Şekil 1", "Figure 3", "Fig. 2a", "Grafik 4"…) alınır; açıklama metni akışta kalır. `--layout` ile vektör çizimli grafikler ve şemalar da şekil olur (`image` ve `chart` bölgeleri) — makalelerdeki şekillerin çoğu böyledir; onsuz yalnızca gömülü resimler bulunur. Simgeler, logolar, tam sayfa taramalar ve üzerine paragraf yazılmış resimler atlanır. `document.json` her şekli kutusu, dosyası, açıklaması ve (`--describe-figures` ile) bir görsel modelin yazdığı betimlemeyle `figure` bloğu olarak listeler — `--local` bunun için Gemma 4'ü kullanır; böylece bir grafiğin eksenleri, göstergesi ve eğilimi resmin altında aranabilir metin olur. `rag-chunker inspect --ui` şekilleri satır içinde gösterir. `figures.extract`, `figures.describe` ve `figures.minSize` ayarlarıyla yönetilir.
+
+**Yeniden sıralama (yerel, anahtarsız).** `rag-chunker eval <klasör> --rerank` ve `rag-chunker mcp <klasör> --rerank` aramaya ikinci bir aşama ekler: hibrit (ya da BM25) aramanın en iyi 30 adayı, sorguyla parçayı birlikte okuyup parçanın soruyu ne kadar yanıtladığını puanlayan bir cross-encoder'dan geçer. Varsayılan model mMARCO mMiniLMv2-L12 (118M parametre, int8 ONNX, 120 MB, Apache-2.0; 14 dilde eğitilmiş, Türkçe gibi dillere de aktarılıyor), `onnxruntime-node` üzerinde ve SentencePiece tokenizer'ı paketin içinde; dizüstü işlemcide çift başına ~20 ms. Bir kez indirildikten sonra `auto` onu kullanır; `rerank.engine` ile başka model (`bge-reranker-base`, `bge-reranker-v2-m3`) seçilir ya da kapatılır. `eval`, `bm25`/`vector`/`hybrid` yanında `rerank` modunu da raporlar; kazanç kendi belgelerinizde görünür.
+
+**Kalite raporu.** Her çalışma `manifest.json`'a `quality` yazar: kaynağına göre sayfalar ve OCR güveni, metne benzemeyen bloklar, başlık derinliği ve atlanan seviyeler, dedektöre göre tablolar ve seyrek olanlar, açıklamalı/açıklamasız şekiller, chunk boyutları ve konumu bilinenler — ayrıca `flags`: "3 sayfada metin yok — taranmış sayfalar için OCR motoru gerekir" ya da "2 tabloda hücrelerin çoğu boş" gibi düz dille bulgular. `rag-chunker process` ilk bulguları, `rag-chunker inspect <klasör>` hepsini yazdırır.
+
+**Çalışmaları karşılaştırma.** `rag-chunker eval <A> <B> --compare` aynı belgenin birden çok çıktısını tek soru kümesiyle (ilk klasörün `eval-questions.json`'ı ya da `--questions-file`) değerlendirir; her çıktı için MRR ve hit@5'i ilkine göre farkıyla, kaç sorunun iyileşip kaçının gerilediğini ve sırası değişen her soruyu gösterir; tek klasörde arama modlarını aynı biçimde karşılaştırır. Sonuç `eval-compare.json`'a yazılır.
+
+**Sayfa düzeni analizi (yerel, anahtarsız).** `--layout` (veya `--local`) ile her PDF sayfası ayrıca PP-DocLayoutV3'ten (130 MB'lık ONNX modeli) geçer: model sayfadaki blokları etiketler (başlık, bölüm başlığı, metin, tablo, şekil, altyazı, dipnot, üst/alt bilgi, sayfa numarası, formül, kaynakça…) ve okuma sırasını verir. Metin yine metin katmanından alınır; model bloğun ne olduğuna ve hangi sırada okunduğuna karar verir: üst/alt bilgi, sayfa numaraları ve şekil içindeki etiketler düşer, altyazı ve dipnotlar asla başlık olmaz, başlıklar olur (satıra sarılan başlıklar birleşir), tablolar modelin gösterdiği yerde aranır, çok sütunlu sayfalar modelin sırasını izler. `document.json`'daki bloklar sınıfı `label` olarak taşır. Opsiyonel `onnxruntime-node` paketi gerekir (`npm install onnxruntime-node`); modeller (PP-DocLayoutV3 + SLANet_plus, 138 MB) ilk kullanımda `~/.rag-chunker/models` altına indirilir (`RAG_CHUNKER_MODELS_DIR` ile değiştirilebilir) ve hash ile doğrulanır. Maliyet dizüstü işlemcide sayfa başına yaklaşık bir saniye, sayfa bazında cache'lenir. `rag-chunker doctor` hazır olup olmadığını, `--dry-run` çalışmada ne kullanılacağını gösterir.
+
+PDF metin katmanındaki tablolar tablo olarak kurulur: çizgili ızgaralar (birleşik hücreler ve iki satırlı başlıklar dahil), yalnızca yatay çizgili makale tabloları ve hiç çizgisi olmayıp hizalı sütunlardan tanınan tablolar. `--layout` ile, çizilmiş bir ızgaranın açıklamadığı tablo bölgeleri ayrıca SLANet_plus'tan (8 MB'lık tablo yapısı modeli) geçer: model görüntüden satır, sütun ve birleşmeleri tahmin eder, sayfa metni hücrelere yerleştirilir ve metnin daha büyük kısmını hizalamadan iyi açıkladığı yerde kullanılır; taranmış sayfalar, görseller ve çok seviyeli başlıklı tablolar yapısını böyle alır (çizgiler arasında hizalamanın birleştirdiği dar sütunları da ayırır). `document.json`'daki `table.source` hangi dedektörün bulduğunu söyler (`ruled`, `rules`, `aligned`, `model`). `document.md`'de GFM tablosu, chunk'larda tablo chunk'ı olurlar (kısa tablo başlığıyla birlikte, uzun tablo başlık satırı tekrarlanarak bölünür); `document.json` hücre yapısını birleşmelerle birlikte tutar (`tableToHtml()` ile HTML), sonraki sayfaya taşan tabloya başlık aktarılır ve iki parça bağlanır. `teds()` tanınan tabloyu referansla karşılaştırır.
+
+Her doküman için beş dosya yazılır: `chunks.jsonl` (satır başına bir chunk), `document.md` (sayfa işaretli tam markdown), `structure.json` (başlıklar, tablolar, bölümler), `document.json` (her bloğun sayfası, sayfadaki konumu ve içinde bulunduğu chunk'lar; PDF metin katmanından gelen chunk'lar da `boxes` alanında konumlarını taşır), `manifest.json` (sürüm, aşama başına modeller, istatistikler, token kullanımı, anahtarsız config, uyarılar). Alanların açıklaması [İngilizce README](README.md#output)'de.
 
 **Neyi embed etmeli:** `content` (context özeti ve overlap dahildir). Hibrit aramada vektör tarafına `content`, anahtar kelime tarafına `rawContent` verin. Sorguları aynı modelle ve `embedQuery()` ile embed edin; Gemini ve EmbeddingGemma doküman ve sorgu için farklı prompt kullanır.
 

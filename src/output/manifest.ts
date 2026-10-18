@@ -3,6 +3,7 @@ import type { ResolvedConfig } from '../config/schema.js'
 import type { DocumentKind } from '../documents/input.js'
 import type { Usage } from '../providers/types.js'
 import type { Chunk, ContentType } from '../types.js'
+import type { QualityReport } from './quality.js'
 
 const require = createRequire(import.meta.url)
 export const PACKAGE_VERSION: string = (require('../../package.json') as { version: string }).version
@@ -26,6 +27,9 @@ export interface Manifest {
       scannedPages: number
       emptyPages: number
       headerFooterLinesRemoved: number
+      /** Layout model used for PDF pages, null when layout analysis was off. */
+      layout: string | null
+      layoutPages: number
       durationMs: number
     }
     structure: {
@@ -37,6 +41,13 @@ export interface Manifest {
       cached: boolean
       durationMs: number
     } | null
+    figures: {
+      extracted: number
+      described: number
+      cached: number
+      /** Vision model that wrote the descriptions, null when figures.describe was off. */
+      model: string | null
+    } | null
     chunk: {
       tokenizer: string
       count: number
@@ -44,6 +55,8 @@ export interface Manifest {
       minTokens: number
       maxTokens: number
       byType: Record<ContentType, number>
+      /** Chunks whose position on the page is known (`boxes` non-empty). */
+      located: number
       durationMs: number
     }
     context: {
@@ -64,6 +77,8 @@ export interface Manifest {
     } | null
   }
   usage: { total: Usage; byStage: Record<string, Usage> }
+  /** Quality signals and findings (absent in outputs written by older versions). */
+  quality?: QualityReport
   warnings: string[]
 }
 
@@ -86,5 +101,6 @@ export function chunkStats(chunks: Chunk[]): Omit<Manifest['stages']['chunk'], '
     minTokens: chunks.length ? Math.min(...tokens) : 0,
     maxTokens: chunks.length ? Math.max(...tokens) : 0,
     byType,
+    located: chunks.filter((c) => c.boxes.length > 0).length,
   }
 }

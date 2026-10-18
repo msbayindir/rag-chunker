@@ -7,9 +7,23 @@ import fontkit from '@pdf-lib/fontkit'
 import JSZip from 'jszip'
 import { PDFDocument, type PDFFont, type PDFPage, rgb } from 'pdf-lib'
 import { renderPageAsImage } from 'unpdf'
-import { DOCX, HEADER, PAGE1, PAGE2, PAGE3, PPTX, SCANNED, TWO_COLUMN } from './content.js'
+import {
+  DOCX,
+  FIGURES,
+  HEADER,
+  HTML,
+  PAGE1,
+  PAGE2,
+  PAGE3,
+  PPTX,
+  SCANNED,
+  SIDE_BY_SIDE,
+  TABLES,
+  TWO_COLUMN,
+  XLSX,
+} from './content.js'
 
-const VERSION = '4'
+const VERSION = '10'
 export const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), 'generated')
 export const fixture = (name: string) => join(FIXTURES_DIR, name)
 
@@ -136,6 +150,132 @@ async function buildTwoColumnPdf(): Promise<Uint8Array> {
   return doc.save()
 }
 
+async function buildSideBySidePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const fonts = await embedFonts(doc)
+  const page = doc.addPage([595, 842])
+  let y = drawWrapped(page, SIDE_BY_SIDE.intro, fonts.regular, 10, 40, 780, 515) - 10
+  const yl = drawWrapped(page, SIDE_BY_SIDE.left, fonts.regular, 10, 40, y, 240)
+  const yr = drawWrapped(page, SIDE_BY_SIDE.right, fonts.regular, 10, 315, y, 240)
+  y = Math.min(yl, yr) - 10
+  drawWrapped(page, SIDE_BY_SIDE.outro, fonts.regular, 10, 40, y, 515)
+  return doc.save()
+}
+
+function hline(page: PDFPage, x0: number, x1: number, y: number): void {
+  page.drawLine({ start: { x: x0, y }, end: { x: x1, y }, thickness: 0.8, color: rgb(0, 0, 0) })
+}
+function vline(page: PDFPage, x: number, y0: number, y1: number): void {
+  page.drawLine({ start: { x, y: y0 }, end: { x, y: y1 }, thickness: 0.8, color: rgb(0, 0, 0) })
+}
+
+/** A grid table: `cols` are the vertical boundaries, rows are `rowHeight` tall from `top` down. */
+function drawGrid(
+  page: PDFPage,
+  font: PDFFont,
+  cols: number[],
+  top: number,
+  rowHeight: number,
+  rows: string[][],
+  options: { bottomAsRect?: boolean } = {},
+): number {
+  const left = cols[0] as number
+  const right = cols.at(-1) as number
+  const bottom = top - rowHeight * rows.length
+  for (let r = 0; r <= rows.length; r++) {
+    const y = top - rowHeight * r
+    if (r === rows.length && options.bottomAsRect) {
+      page.drawRectangle({ x: left, y: y - 0.3, width: right - left, height: 0.6, color: rgb(0, 0, 0) })
+    } else hline(page, left, right, y)
+  }
+  for (const x of cols) vline(page, x, bottom, top)
+  rows.forEach((row, r) => {
+    row.forEach((text, c) => {
+      if (text)
+        page.drawText(text, { x: (cols[c] as number) + 4, y: top - rowHeight * r - 13, size: 10, font })
+    })
+  })
+  return bottom
+}
+
+async function buildTablesPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const fonts = await embedFonts(doc)
+  const f = fonts.regular
+
+  // Page 1: a ruled grid with a two-row header (row spans and a column span), then a rules-only table.
+  const p1 = doc.addPage([595, 842])
+  p1.drawText(TABLES.caption1, { x: 56, y: 720, size: 10, font: fonts.bold })
+  const cols = [56, 200, 290, 380, 470]
+  const top = 700
+  const rh = 18
+  const nRows = 2 + TABLES.ruled.rows.length
+  const bottom = top - rh * nRows
+  for (let r = 0; r <= nRows; r++) {
+    const y = top - rh * r
+    if (r === 1)
+      hline(p1, 290, 470, y) // header rows 0 and 1 merge in the first two columns
+    else hline(p1, 56, 470, y)
+  }
+  for (const x of cols) {
+    if (x === 380)
+      vline(p1, x, bottom, top - rh) // no divider inside the spanning header cell
+    else vline(p1, x, bottom, top)
+  }
+  p1.drawText('Parametre', { x: 60, y: top - 2 * rh + 12, size: 10, font: f })
+  p1.drawText('Birim', { x: 204, y: top - 2 * rh + 12, size: 10, font: f })
+  p1.drawText('Referans aralığı', { x: 294, y: top - 13, size: 10, font: f })
+  p1.drawText('Alt sınır', { x: 294, y: top - rh - 13, size: 10, font: f })
+  p1.drawText('Üst sınır', { x: 384, y: top - rh - 13, size: 10, font: f })
+  TABLES.ruled.rows.forEach((row, i) => {
+    const y = top - rh * (2 + i) - 13
+    row.forEach((text, c) => {
+      if (c === 0 && text.includes(' ')) {
+        // A cell whose text wraps onto two lines.
+        const [a, b] = text.split(' ')
+        p1.drawText(a as string, { x: 60, y: y + 4, size: 8, font: f })
+        p1.drawText(b as string, { x: 60, y: y - 5, size: 8, font: f })
+      } else p1.drawText(text, { x: (cols[c] as number) + 4, y, size: 10, font: f })
+    })
+  })
+  let y = drawWrapped(p1, TABLES.afterRuled, f, 10, 56, 560, 480) - 20
+  p1.drawText(TABLES.caption3, { x: 56, y, size: 10, font: fonts.bold })
+  y -= 15
+  hline(p1, 56, 200, y)
+  const rulesX = [60, 100, 132]
+  const rulesRows = [TABLES.rules.header, ...TABLES.rules.rows]
+  rulesRows.forEach((row, i) => {
+    const base = y - 13 - 14 * i
+    row.forEach((text, c) => {
+      p1.drawText(text, { x: rulesX[c] as number, y: base, size: 10, font: f })
+    })
+    if (i === 0) hline(p1, 56, 200, base - 4)
+  })
+  hline(p1, 56, 200, y - 13 - 14 * (rulesRows.length - 1) - 4)
+
+  // Page 2: an aligned table without any lines, a paragraph, then a grid that runs off the page.
+  const p2 = doc.addPage([595, 842])
+  p2.drawText(TABLES.caption2, { x: 56, y: 760, size: 10, font: fonts.bold })
+  const alignedRows = [TABLES.aligned.header, ...TABLES.aligned.rows]
+  alignedRows.forEach((row, i) => {
+    const base = 735 - 16 * i
+    p2.drawText(row[0] as string, { x: 56, y: base, size: 10, font: f })
+    p2.drawText(row[1] as string, { x: 200, y: base, size: 10, font: f })
+    const last = row[2] as string
+    p2.drawText(last, { x: 430 - f.widthOfTextAtSize(last, 10), y: base, size: 10, font: f })
+  })
+  drawWrapped(p2, TABLES.afterAligned, f, 10, 56, 610, 480)
+  drawGrid(p2, f, [56, 220, 380, 480], 200, 18, [TABLES.continued.header, ...TABLES.continued.firstPage])
+
+  // Page 3: the continuation rows at the very top, without a header, then a paragraph.
+  const p3 = doc.addPage([595, 842])
+  const end = drawGrid(p3, f, [56, 220, 380, 480], 810, 18, TABLES.continued.secondPage, {
+    bottomAsRect: true,
+  })
+  drawWrapped(p3, TABLES.afterContinued, f, 10, 56, end - 30, 480)
+  return doc.save()
+}
+
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 
 function wPara(text: string, style?: string): string {
@@ -241,6 +381,132 @@ Metabolik asidozda bikarbonat düzeyi düşer ve anyon açığı hesaplanmalıd�
 | HCO3 | 22-26 mmol/L |
 `
 
+const SS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+const sharedCell = (ref: string, i: number) => `<c r="${ref}" t="s"><v>${i}</v></c>`
+
+/** A workbook with shared/inline strings, formulas, dates, percentages, booleans, merges, two blocks and a hidden sheet. */
+async function buildXlsx(): Promise<Uint8Array> {
+  const zip = new JSZip()
+  zip.file(
+    '[Content_Types].xml',
+    `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>`,
+  )
+  zip.file(
+    'xl/workbook.xml',
+    `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="${SS}" xmlns:r="${R}"><workbookPr/><sheets><sheet name="${XLSX.sheet1}" sheetId="1" r:id="rId1"/><sheet name="${XLSX.sheet2}" sheetId="2" r:id="rId2"/><sheet name="${XLSX.hidden}" sheetId="3" state="hidden" r:id="rId3"/></sheets></workbook>`,
+  )
+  zip.file(
+    'xl/_rels/workbook.xml.rels',
+    `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${R}/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="${R}/worksheet" Target="worksheets/sheet3.xml"/><Relationship Id="rId4" Type="${R}/sharedStrings" Target="sharedStrings.xml"/></Relationships>`,
+  )
+  const strings = [
+    XLSX.title,
+    ...XLSX.header,
+    'Toplam',
+    'Anahtar',
+    'Değer',
+    'Para birimi',
+    'TRY',
+    ...XLSX.notes,
+  ]
+  zip.file(
+    'xl/sharedStrings.xml',
+    `<?xml version="1.0" encoding="UTF-8"?><sst xmlns="${SS}" count="${strings.length}" uniqueCount="${strings.length}">${strings
+      .map((t) => `<si><t>${t}</t></si>`)
+      .join('')}<si><r><t>Zengin </t></r><r><t>metin</t></r></si></sst>`,
+  )
+  zip.file(
+    'xl/styles.xml',
+    `<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="${SS}"><numFmts count="1"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/></numFmts><cellXfs count="5"><xf numFmtId="0"/><xf numFmtId="2"/><xf numFmtId="14"/><xf numFmtId="9"/><xf numFmtId="164"/></cellXfs></styleSheet>`,
+  )
+  const header = XLSX.header.map((_, i) => sharedCell(`${String.fromCharCode(65 + i)}3`, 1 + i)).join('')
+  zip.file(
+    'xl/worksheets/sheet1.xml',
+    `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${SS}"><sheetData>` +
+      `<row r="1">${sharedCell('A1', 0)}</row>` +
+      `<row r="3">${header}</row>` +
+      `<row r="4"><c r="A4" t="inlineStr"><is><t>Kalem</t></is></c><c r="B4"><v>120</v></c><c r="C4" s="1"><v>4.5</v></c><c r="D4" s="2"><v>46037</v></c><c r="E4" s="3"><v>0.25</v></c><c r="F4" t="b"><v>1</v></c></row>` +
+      `<row r="5"><c r="A5" t="s"><v>${strings.length}</v></c><c r="B5"><f>B4-40</f><v>80</v></c><c r="C5" s="1"><v>12.000000000000002</v></c><c r="D5" s="4"><v>46037.5</v></c><c r="E5" t="e"><v>#N/A</v></c><c r="F5" t="b"><v>0</v></c></row>` +
+      `<row r="6">${sharedCell('A6', 7)}<c r="B6"><f>SUM(B4:B5)</f><v>200</v></c></row>` +
+      `<row r="8">${sharedCell('A8', 8)}${sharedCell('B8', 9)}</row>` +
+      `<row r="9">${sharedCell('A9', 10)}${sharedCell('B9', 11)}</row>` +
+      `</sheetData><mergeCells count="1"><mergeCell ref="A1:C1"/></mergeCells></worksheet>`,
+  )
+  zip.file(
+    'xl/worksheets/sheet2.xml',
+    `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${SS}"><sheetData><row r="1">${sharedCell('A1', 12)}</row><row r="2">${sharedCell('A2', 13)}</row></sheetData></worksheet>`,
+  )
+  zip.file(
+    'xl/worksheets/sheet3.xml',
+    `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${SS}"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>gizli</t></is></c></row></sheetData></worksheet>`,
+  )
+  return zip.generateAsync({ type: 'uint8array' })
+}
+
+const HTML_PAGE = `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>${HTML.title}</title>
+<style>body { font: 16px sans-serif }</style>
+<script>console.log('tracking')</script>
+</head>
+<body>
+<header><nav><a href="/">${HTML.nav}</a> <a href="/hakkinda">Hakkında</a></nav></header>
+<main>
+<article>
+<header><h1>${HTML.heading}</h1></header>
+<p>${HTML.paragraph.replace('GFR', '<abbr title="glomerüler filtrasyon hızı">GFR</abbr>')} <strong>Önemli:</strong> <a href="https://example.org/gfr">kaynak</a>.</p>
+<h2>${HTML.section}</h2>
+<table>
+<caption>${HTML.caption}</caption>
+<tr><td>${HTML.rows[0]?.[0]}</td><td>${HTML.rows[0]?.[1]}</td></tr>
+<tr><td>${HTML.rows[1]?.[0]}</td><td>${HTML.rows[1]?.[1]}</td></tr>
+<tr><td>${HTML.rows[2]?.[0]}</td><td>${HTML.rows[2]?.[1]}</td></tr>
+</table>
+<ul><li>${HTML.bullets[0]}</li><li>${HTML.bullets[1]}</li></ul>
+<pre><code class="language-js">${HTML.code}</code></pre>
+<img src="gfr.png" alt="${HTML.alt}"> <img src="spacer.gif">
+<div hidden>${HTML.hidden}</div>
+<aside>${HTML.aside}</aside>
+</article>
+</main>
+<footer>${HTML.footer}</footer>
+</body>
+</html>
+`
+
+/** Figures: a captioned picture plus a tiny logo, a caption above two touching strips, a watermark under text. */
+async function buildFiguresPdf(scanPng: Uint8Array): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const fonts = await embedFonts(doc)
+  const img = await doc.embedPng(scanPng)
+
+  const p1 = doc.addPage([595, 842])
+  p1.drawText(FIGURES.title, { x: 56, y: 780, size: 16, font: fonts.bold })
+  p1.drawImage(img, { x: 500, y: 790, width: 30, height: 30 })
+  let y = drawWrapped(p1, FIGURES.intro, fonts.regular, 11, 56, 740, 480)
+  p1.drawImage(img, { x: 56, y: 420, width: 300, height: 200 })
+  p1.drawText(FIGURES.caption1, { x: 56, y: 400, size: 10, font: fonts.regular })
+  p1.drawText(FIGURES.caption1b, { x: 56, y: 386, size: 10, font: fonts.regular })
+  y = drawWrapped(p1, FIGURES.after, fonts.regular, 11, 56, 340, 480)
+
+  const p2 = doc.addPage([595, 842])
+  p2.drawText(FIGURES.caption2, { x: 56, y: 760, size: 10, font: fonts.regular })
+  p2.drawImage(img, { x: 56, y: 680, width: 300, height: 60 })
+  p2.drawImage(img, { x: 56, y: 620, width: 300, height: 60 })
+  drawWrapped(p2, FIGURES.tiled, fonts.regular, 11, 56, 500, 480)
+
+  const p3 = doc.addPage([595, 842])
+  p3.drawImage(img, { x: 56, y: 400, width: 480, height: 300 })
+  y = 680
+  for (let i = 0; i < 8; i++) {
+    p3.drawText(`${i + 1}. ${FIGURES.watermark}`, { x: 56, y, size: 9, font: fonts.regular })
+    y -= 14
+  }
+  return doc.save()
+}
+
 /** Generates every fixture once (re-generated when VERSION changes). */
 export async function generateFixtures(): Promise<void> {
   const marker = fixture('.version')
@@ -250,8 +516,13 @@ export async function generateFixtures(): Promise<void> {
   await writeFile(fixture('scan.png'), scan)
   await writeFile(fixture('turkish.pdf'), await buildTurkishPdf(scan))
   await writeFile(fixture('two-column.pdf'), await buildTwoColumnPdf())
+  await writeFile(fixture('side-by-side.pdf'), await buildSideBySidePdf())
+  await writeFile(fixture('tables.pdf'), await buildTablesPdf())
+  await writeFile(fixture('figures.pdf'), await buildFiguresPdf(scan))
   await writeFile(fixture('sample.docx'), await buildDocx())
   await writeFile(fixture('sample.pptx'), await buildPptx())
   await writeFile(fixture('sample.md'), MARKDOWN)
+  await writeFile(fixture('sample.xlsx'), await buildXlsx())
+  await writeFile(fixture('sample.html'), HTML_PAGE)
   await writeFile(marker, VERSION)
 }

@@ -56,6 +56,7 @@ export function finalizeChunks(input: FinalizeInput): Chunk[] {
       pageStart: d.pageStart,
       pageEnd: d.pageEnd,
       ocrSource: [...sources].join(','),
+      boxes: [],
       prevChunkId: index > 0 ? (ids[index - 1] as string) : null,
       nextChunkId: index < ids.length - 1 ? (ids[index + 1] as string) : null,
       mustPreserve: d.mustPreserve,

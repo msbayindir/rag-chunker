@@ -9,7 +9,11 @@ A rewrite. v4 is not compatible with v3: the API, CLI flags, output fields and c
 - Multi-provider support with `provider/model` references for every stage: Ollama (local, Gemma 4), Gemini, Anthropic Claude, OpenAI, OpenRouter, Mistral and any OpenAI-compatible server (LM Studio, vLLM, gateways).
 - `--local`: every stage on Ollama, choosing the best installed Gemma 4 for the machine's memory.
 - Tiered OCR: PDF text layer for digital pages (free, no keys), Mistral OCR or any vision model for scanned pages and images; running header/footer and page-number removal.
-- New inputs: DOCX, PPTX (slides, tables, speaker notes), PNG/JPEG/WebP and Markdown.
+- New inputs: DOCX, PPTX (slides, tables, speaker notes), XLSX (one page per sheet, cell blocks as tables with dates, percentages and merged cells resolved), HTML (main content without navigation and chrome), PNG/JPEG/WebP and Markdown.
+- Local reranking: `eval --rerank` and `mcp --rerank` reorder the top 30 hybrid/BM25 candidates with a cross-encoder on `onnxruntime-node` (default mMARCO mMiniLMv2-L12, 120 MB, Apache-2.0; also `bge-reranker-base`, `bge-reranker-v2-m3`), with an in-package SentencePiece Unigram tokenizer; `rerank.engine`/`rerank.candidates`, `rerank` mode in eval reports, `doctor` check, `rerank()` in the API.
+- Quality report in `manifest.json` (`quality`): page sources, OCR confidence, garbled blocks, heading depth and level skips, tables by detector and sparse tables, figures with captions, chunk sizes and positions, plus plain-language `flags`; shown by `process` and `inspect`.
+- `eval --compare`: per-output (or per-mode) MRR/hit@5 deltas, improved/regressed counts and the questions whose rank moved, written to `eval-compare.json`.
+- Figures: pictures in PDF pages (and, with layout analysis, charts and drawings) are cut out as `figures/p<page>-<n>.png`, referenced from the markdown in reading order with their caption as alt text, listed in `document.json` as `figure` blocks and shown in the inspector; `figures.describe` / `--describe-figures` adds a vision-model description under each image (cached); `--no-figures` turns extraction off.
 - Contextual retrieval strategies: `full` (whole document, prompt-cached per provider) and `hierarchical` (document + section summaries) for documents larger than the model's context.
 - Provider-agnostic heading repair plus a deterministic numbered-heading pass.
 - Embeddings for Ollama, Gemini, OpenAI-compatible providers, with batching, caching, input-length protection and query/document prompts.
@@ -18,6 +22,12 @@ A rewrite. v4 is not compatible with v3: the API, CLI flags, output fields and c
 - Inspector UI with search, page images of the original PDF and sanitized markdown.
 - MCP server (`search`, `get_chunk`, `get_page`, `list_documents`).
 - JSON Schema for the config file (`schema/config.schema.json`).
+- Local OCR for scanned pages and images (`--ocr pp-ocr`, on with `--local`, preferred by `auto` once downloaded): PP-OCRv5 mobile detection + Latin recognition on `onnxruntime-node` (13 MB), lines with confidence fed into the same page pipeline as the text layer (headings, tables by alignment, layout regions, positions); an automatically chosen engine that fails hands over to the next one.
+- Local page layout analysis for PDFs (`--layout`, on with `--local`): PP-DocLayoutV3 through the optional `onnxruntime-node` runtime labels every block (25 classes) and gives the reading order; page furniture and figure labels are dropped, captions/footnotes never become headings, titles do, tables are sought where the model sees them, and `document.json` blocks carry the class as `label`. Table regions that no drawn grid explains also go through SLANet_plus (8 MB table structure model): its rows, columns and spans are used where they explain more of the text than alignment does (scanned pages, images, nested headers; columns between rules are refined by it), and `table.source` names the detector (`ruled`, `rules`, `aligned`, `model`). Models download to `~/.rag-chunker/models` (hash-verified); `doctor` and `--dry-run` report readiness.
+- Tables from the PDF text layer: drawn grids (merged cells, multi-row headers, title rows), rule-bounded tables with columns from text alignment, and line-less tables from aligned columns; GFM output, cell structure with spans in `document.json` (`tableToMarkdown`, `tableToHtml`), header carry-over and linking for tables that continue on the next page, and a `teds()` scorer.
+- Provenance: chunks from a PDF text layer carry `boxes` (one rectangle per paragraph, heading or list item, as fractions of the page); `document.json` lists every block with its page, position and chunks; the inspector highlights chunks on the page image; `manifest.stages.chunk.located` counts positioned chunks.
+- `QUOTA_EXCEEDED` and `RATE_LIMITED` errors with the provider's retry delay and a console hint; `ocr: auto` falls back from Mistral when the key has no OCR quota.
+- PDF text layer reading order for two-column papers with narrow gutters and for side-by-side blocks (comparison tables, boxed examples) on single-column pages; headings from font size and font style, with filters for tables of contents, running headers and figure labels.
 
 ### Changed
 
@@ -26,6 +36,9 @@ A rewrite. v4 is not compatible with v3: the API, CLI flags, output fields and c
 - `chunkId` is `documentId prefix + content hash` (unique and stable across runs); chunks carry `documentId`, `source` and `ocrSource`.
 - `process()` is now `processDocument(input, config, options)`; configuration is validated with readable errors; API keys come from the environment (or `providers.*.apiKey` in code), never from config files.
 - Requires Node.js 22.
+- Context batches are runs of consecutive chunks across sections, `auto` switches to `hierarchical` above 60k document tokens, and sections that fit in one chunk get no separate summary. On Ollama a long shared prefix is processed once so llama.cpp can reuse it for every batch (Gemma's sliding-window attention otherwise forces a full re-read per request).
+- `--dry-run` estimates context requests and tokens for the strategy that will actually be used.
+- Headings after a reference list (“References”, “Kaynaklar”) are no longer nested under it in `sectionPath`.
 
 ### Removed
 

@@ -34,7 +34,18 @@ export {
   type RagChunkerConfig,
   type ResolvedConfig,
 } from './config/schema.js'
+export { docxToMarkdown } from './documents/docx.js'
+export type { FigureData, FigureFile, FigureLabel } from './documents/figures.js'
+export { htmlToMarkdown } from './documents/html.js'
 export type { DocumentKind } from './documents/input.js'
+export { pptxToMarkdown } from './documents/pptx.js'
+export {
+  type TableCell,
+  type TableData,
+  tableToHtml,
+  tableToMarkdown,
+} from './documents/tables.js'
+export { xlsxToMarkdown } from './documents/xlsx.js'
 export { type ErrorCode, isRagChunkerError, RagChunkerError } from './errors.js'
 export {
   type EvalQuestion,
@@ -44,6 +55,7 @@ export {
   type ModeMetrics,
   type QuestionSet,
 } from './eval/eval.js'
+export { type TreeNode, tableTree, teds, treeEditDistance } from './eval/teds.js'
 export {
   type ExportResult,
   type ExportTarget,
@@ -52,13 +64,49 @@ export {
   exportToQdrant,
   type SqlClient,
 } from './export/export.js'
+export {
+  analyzeLayoutImage,
+  createLayoutProvider,
+  LAYOUT_LABELS,
+  type LayoutLabel,
+  type LayoutRegion,
+  type PageLayoutProvider,
+} from './local/layout.js'
+export { ensureModel, hasModel, MODELS, type ModelId, modelsDir } from './local/models.js'
+export { createOcrProvider, type OcrLine, type OcrResult, recognizeImage } from './local/ocr.js'
+export {
+  createReranker,
+  DEFAULT_RERANKER,
+  hasReranker,
+  RERANKERS,
+  type RerankerId,
+  type RerankPlan,
+  resolveReranker,
+  UnigramTokenizer,
+} from './local/reranker.js'
+export {
+  createTableStructureProvider,
+  type ModelCell,
+  type ModelTable,
+  recognizeTableStructure,
+  structureToGrid,
+} from './local/table.js'
 export { createMcpServer, type McpOptions } from './mcp/server.js'
+export type { DocumentLayout, LayoutBlock, LayoutPage } from './output/layout.js'
 export type { Manifest } from './output/manifest.js'
 export type { DocumentStructure } from './output/structure.js'
 export { type LoadedOutput, OUTPUT_FILES, type OutputPaths, readOutputDir } from './output/writer.js'
 export type { ProgressEvent, ProgressListener, Stage } from './pipeline/events.js'
 export { type PlanReport, planDocument } from './pipeline/plan.js'
-export { type ProcessOptions, type ProcessResult, processDocument } from './pipeline/process.js'
+export {
+  hasLocalOcr,
+  type LayoutPlan,
+  type ProcessOptions,
+  type ProcessResult,
+  processDocument,
+  resolveLayout,
+  resolveOcrEngine,
+} from './pipeline/process.js'
 export { createEmbedder, createLLM, parseModelRef } from './providers/registry.js'
 export type {
   ContentPart,
@@ -71,12 +119,15 @@ export type {
 export {
   Bm25Index,
   buildSearchIndex,
+  type Reranker,
+  rerank,
+  rerankText,
   type SearchHit,
   type SearchIndex,
   type SearchMode,
   search,
 } from './search/search.js'
-export type { Chunk } from './types.js'
+export type { Box, Chunk, ChunkBox } from './types.js'
 
 /**
  * Chunks a markdown string without any provider (no OCR, context or embeddings).

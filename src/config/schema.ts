@@ -74,18 +74,19 @@ const ocrSchema = z.strictObject({
   engine: z
     .string()
     .trim()
-    .refine((v) => v === 'auto' || v === 'text-layer' || v === 'mistral' || MODEL_REF_RE.test(v), {
-      error: 'ocr.engine must be "auto", "text-layer", "mistral" or "provider/model"',
-    })
+    .refine(
+      (v) => v === 'auto' || v === 'text-layer' || v === 'pp-ocr' || v === 'mistral' || MODEL_REF_RE.test(v),
+      { error: 'ocr.engine must be "auto", "text-layer", "pp-ocr", "mistral" or "provider/model"' },
+    )
     .default('auto')
     .describe(
-      '"auto" (Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), "text-layer", "mistral", or a vision model such as "ollama/gemma4:e4b-it-qat".',
+      '"auto" (local PP-OCR when its models are downloaded, else Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), "text-layer", "pp-ocr" (local PP-OCRv5 on onnxruntime-node; downloads 13 MB once), "mistral", or a vision model such as "ollama/gemma4:e4b-it-qat".',
     ),
   pages: z
     .enum(['auto', 'all', 'scanned'])
     .default('auto')
     .describe(
-      'PDF pages sent to the OCR engine. "auto": all pages for Mistral, scanned pages for vision models.',
+      'PDF pages sent to the OCR engine. "auto": all pages for Mistral, scanned pages for local and vision models.',
     ),
   concurrency: z
     .number()
@@ -184,6 +185,60 @@ const embeddingSchema = z.strictObject({
   batchSize: z.number().int().min(1).max(2048).optional().describe('Texts per embedding request.'),
 })
 
+const layoutSchema = z.strictObject({
+  engine: z
+    .enum(['auto', 'off', 'pp-doclayout-v3'])
+    .default('auto')
+    .describe(
+      'Page layout analysis for PDFs with a local ONNX model (block classes + reading order). "auto": on when onnxruntime-node and the downloaded model are present; "pp-doclayout-v3": on, downloading the model (130 MB) on first use; "off": position heuristics only.',
+    ),
+  minScore: z.number().min(0).max(1).default(0.5).describe('Minimum detection confidence.'),
+  render: z
+    .number()
+    .int()
+    .min(512)
+    .max(2048)
+    .default(1024)
+    .describe('Longer page side, in pixels, of the render the model sees.'),
+})
+
+const figuresSchema = z.strictObject({
+  extract: z
+    .boolean()
+    .default(true)
+    .describe(
+      'Cut the figures of PDF pages and images (embedded pictures; with layout analysis also charts and drawings) out as PNG files under figures/ and reference them from the markdown.',
+    ),
+  describe: z
+    .boolean()
+    .default(false)
+    .describe(
+      'Have models.vision describe every extracted figure (two to five sentences stored under the image, for retrieval). One vision request per figure.',
+    ),
+  minSize: z
+    .number()
+    .min(0)
+    .max(1)
+    .default(0.015)
+    .describe('Smallest figure kept, as a share of the page area; icons and logos fall below it.'),
+})
+
+const rerankSchema = z.strictObject({
+  engine: z
+    .enum(['auto', 'off', 'mmarco-minilm', 'bge-reranker-base', 'bge-reranker-v2-m3'])
+    .default('auto')
+    .describe(
+      'Local cross-encoder that reorders the top search candidates (eval, mcp). "auto": on when onnxruntime-node and the default model (mmarco-minilm) are present; a model id: on, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, slow on CPU); "off".',
+    ),
+  candidates: z
+    .number()
+    .int()
+    .min(5)
+    .max(200)
+    .default(30)
+    .describe('First-stage results (hybrid or BM25) handed to the reranker.'),
+})
+
 const cacheSchema = z.strictObject({
   enabled: z
     .boolean()
@@ -213,6 +268,9 @@ export const configSchema = z
     chunk: chunkSchema.prefault({}).describe('Chunk sizes and boundaries.'),
     context: contextSchema.prefault({}).describe('Contextual retrieval settings.'),
     embedding: embeddingSchema.prefault({}).describe('Embedding settings.'),
+    layout: layoutSchema.prefault({}).describe('Local page layout analysis (PDF).'),
+    figures: figuresSchema.prefault({}).describe('Figure extraction (PDF, images).'),
+    rerank: rerankSchema.prefault({}).describe('Reranking of search results (eval, mcp).'),
     cache: cacheSchema.prefault({}).describe('On-disk cache.'),
   })
   .superRefine((cfg, ctx) => {

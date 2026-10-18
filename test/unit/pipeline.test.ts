@@ -10,8 +10,10 @@ import {
   processDocument,
   type RagChunkerConfig,
   readOutputDir,
+  resolveConfig,
+  resolveLayout,
 } from '../../src/index.js'
-import { PAGE1, SCANNED } from '../fixtures/content.js'
+import { FIGURES, PAGE1, SCANNED } from '../fixtures/content.js'
 import { fixture } from '../fixtures/generate.js'
 import { json, MockServer, type RecordedRequest } from '../helpers/mock-server.js'
 
@@ -30,6 +32,8 @@ function chunkIdsIn(body: any): number[] {
   return [...JSON.stringify(body.messages).matchAll(/<chunk id=\\"(\d+)\\"/g)].map((m) => Number(m[1]))
 }
 
+const FIGURE_DESCRIPTION = 'Şema sodyum ve potasyum dağılımını gösterir.'
+
 /** A fake Ollama that answers OCR, heading, summary and context prompts plus embeddings. */
 function fakeOllama() {
   server.on('POST', '/api/show', (r, res) => {
@@ -46,6 +50,7 @@ function fakeOllama() {
     const system = body.messages[0]?.content ?? ''
     let content: string
     if (system.startsWith('You are an OCR engine')) content = `# ${SCANNED.heading}\n\n${SCANNED.paragraph}`
+    else if (system.startsWith('You describe figures')) content = FIGURE_DESCRIPTION
     else if (system.includes('analyse the structure'))
       content = JSON.stringify({
         documentType: 'guideline',
@@ -114,6 +119,74 @@ describe('processDocument without providers', () => {
     expect(loaded.chunks).toEqual(res.chunks)
     expect((await readFile(paths.markdown, 'utf8')).startsWith('<!-- page 1 -->')).toBe(true)
     expect(loaded.manifest.source.name).toBe('turkish.pdf')
+
+    // Text-layer chunks know where they sit on the page; document.json lists every block.
+    const located = res.chunks.filter((c) => c.boxes.length > 0)
+    expect(located.length).toBe(res.manifest.stages.chunk.located)
+    expect(located.length).toBeGreaterThan(res.chunks.length / 2)
+    for (const c of res.chunks) {
+      for (const b of c.boxes) {
+        expect(b.page).toBeGreaterThanOrEqual(c.pageStart)
+        expect(b.page).toBeLessThanOrEqual(c.pageEnd)
+        for (const v of [b.x, b.y, b.w, b.h]) expect(v).toBeGreaterThanOrEqual(0)
+        expect(b.x + b.w).toBeLessThanOrEqual(1.0001)
+        expect(b.y + b.h).toBeLessThanOrEqual(1.0001)
+      }
+    }
+    expect(loaded.layout).toEqual(res.layout)
+    expect(res.layout.pages.map((p) => p.number)).toEqual([1, 2, 3, 4])
+    const page1 = res.layout.pages[0]
+    expect(page1).toMatchObject({
+      source: 'text-layer',
+      width: expect.any(Number),
+      height: expect.any(Number),
+    })
+    const title = page1?.blocks.find((b) => b.kind === 'heading' && b.text.includes(PAGE1.title))
+    expect(title?.level).toBe(1)
+    expect(title?.box).not.toBeNull()
+    expect(title?.chunkIds).toEqual([first?.chunkId])
+    expect(page1?.blocks.every((b) => b.box !== null)).toBe(true)
+    // The scanned page has no text and therefore no blocks.
+    expect(res.layout.pages[3]?.blocks).toEqual([])
+  })
+
+  it('keeps tables as table chunks and records their cells in document.json', async () => {
+    const res = await processDocument(fixture('tables.pdf'), { cache: { enabled: false } }, { env: {} })
+    // A small table travels with its caption (a "mixed" chunk); a long one is a chunk of its own.
+    const tables = res.chunks.filter((c) => c.rawContent.includes('| --- |'))
+    expect(tables.length).toBe(5)
+    expect(tables.every((c) => c.contentType === 'table' || c.contentType === 'mixed')).toBe(true)
+    expect(tables.every((c) => c.boxes.length > 0)).toBe(true)
+    expect(tables[0]?.rawContent.startsWith('Tablo 1. ')).toBe(true)
+    expect(res.structure.tables).toHaveLength(5)
+    const blocks = res.layout.pages.flatMap((p) => p.blocks.map((b) => ({ page: p.number, ...b })))
+    const grid = blocks.find((b) => b.kind === 'table' && b.page === 1)
+    expect(grid?.table).toMatchObject({ rows: 6, cols: 4, headerRows: 2, source: 'ruled' })
+    expect(grid?.table?.cells).toHaveLength(21)
+    expect(grid?.chunkIds.length).toBeGreaterThan(0)
+    const lastOnPage2 = blocks.filter((b) => b.kind === 'table' && b.page === 2).at(-1)
+    const firstOnPage3 = blocks.find((b) => b.page === 3)
+    expect(firstOnPage3).toMatchObject({ kind: 'table', continues: lastOnPage2?.id })
+  })
+
+  it('turns layout analysis on only when the runtime and the model are present', async () => {
+    const dir = await tmp('rc-models-')
+    const prev = process.env.RAG_CHUNKER_MODELS_DIR
+    process.env.RAG_CHUNKER_MODELS_DIR = dir
+    try {
+      const off = await resolveLayout(resolveConfig({ layout: { engine: 'off' } }))
+      expect(off).toEqual({ engine: null })
+      const auto = await resolveLayout(resolveConfig({}))
+      expect(auto.engine).toBeNull()
+      expect(auto.reason).toMatch(/not downloaded|not installed/)
+      const plan = await planDocument(fixture('turkish.pdf'), {}, { env: {} })
+      expect(plan.layout.engine).toBeNull()
+      const res = await processDocument(fixture('turkish.pdf'), { cache: { enabled: false } }, { env: {} })
+      expect(res.manifest.stages.ocr).toMatchObject({ layout: null, layoutPages: 0 })
+    } finally {
+      if (prev === undefined) delete process.env.RAG_CHUNKER_MODELS_DIR
+      else process.env.RAG_CHUNKER_MODELS_DIR = prev
+    }
   })
 
   it('processes markdown, DOCX and PPTX inputs', async () => {
@@ -220,7 +293,9 @@ describe('planDocument and chunkMarkdown', () => {
     )
     expect(plan).toMatchObject({ pages: 4, scannedPages: 1, ocr: { engine: 'text-layer', pagesToOcr: 0 } })
     expect(plan.estimatedChunks).toBeGreaterThan(0)
+    expect(plan.context).toMatchObject({ strategy: 'full' })
     expect(plan.context?.estimatedRequests).toBeGreaterThan(0)
+    expect(plan.context?.estimatedInputTokens).toBeGreaterThan(plan.documentTokens)
     expect(plan.embedding?.texts).toBe(plan.estimatedChunks)
     expect(plan.warnings.join(' ')).toMatch(/scanned/)
     expect(server.requests).toHaveLength(0)
@@ -264,5 +339,74 @@ describe('automatic OCR fallback', () => {
         { env: { MISTRAL_API_KEY: 'k' } },
       ),
     ).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+  })
+})
+
+describe('figures in the pipeline', () => {
+  it('cuts figures out of the pages, writes them with save() and lists them in document.json and the manifest', async () => {
+    const res = await processDocument(fixture('figures.pdf'), { cache: { enabled: false } }, { env: {} })
+    expect(res.figures.map((f) => f.file)).toEqual(['figures/p1-1.png', 'figures/p2-1.png'])
+    for (const f of res.figures) expect([...f.bytes.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47])
+    expect(res.figures[0]).toMatchObject({
+      page: 1,
+      label: 'image',
+      caption: `${FIGURES.caption1} ${FIGURES.caption1b}`,
+    })
+    expect(res.figures[0]?.box.y).toBeGreaterThan(0.2)
+    expect(res.manifest.stages.figures).toEqual({ extracted: 2, described: 0, cached: 0, model: null })
+    const block = res.layout.pages[0]?.blocks.find((b) => b.kind === 'figure')
+    expect(block?.figure).toMatchObject({ file: 'figures/p1-1.png', label: 'image' })
+    expect(block?.box).not.toBeNull()
+    expect(block?.chunkIds.length).toBeGreaterThan(0)
+    expect(res.chunks.find((c) => c.rawContent.includes('figures/p1-1.png'))?.pageStart).toBe(1)
+    const dir = await tmp('rc-figures-')
+    const paths = await res.save(dir)
+    expect(paths.figures).toBe(join(dir, 'figures'))
+    const written = await readFile(join(dir, 'figures', 'p2-1.png'))
+    expect(written.length).toBe(res.figures[1]?.bytes.length)
+    const loaded = await readOutputDir(dir)
+    expect(loaded.layout?.pages[1]?.blocks.some((b) => b.figure?.file === 'figures/p2-1.png')).toBe(true)
+  })
+
+  it('describes figures with the vision model and caches the descriptions', async () => {
+    fakeOllama()
+    const cacheDir = await tmp('rc-figcache-')
+    const cfg: RagChunkerConfig = {
+      providers: { ollama: { baseURL: server.url } },
+      models: { vision: 'ollama/gemma4:e4b-it-qat' },
+      figures: { describe: true },
+      cache: { dir: cacheDir },
+    }
+    const res = await processDocument(fixture('figures.pdf'), cfg, { env: {} })
+    expect(res.manifest.stages.figures).toMatchObject({
+      extracted: 2,
+      described: 2,
+      cached: 0,
+      model: 'ollama/gemma4:e4b-it-qat',
+    })
+    expect(res.markdown).toContain(`](figures/p1-1.png)\n\n${FIGURE_DESCRIPTION}`)
+    expect(res.figures[0]?.description).toBe(FIGURE_DESCRIPTION)
+    const describeCalls = server.requests.filter(
+      (r) => r.path === '/api/chat' && JSON.stringify(r.body).includes('You describe figures'),
+    )
+    expect(describeCalls).toHaveLength(2)
+    expect(JSON.stringify(describeCalls[0]?.body)).toContain(FIGURES.caption1)
+    expect(res.manifest.usage.byStage.figures?.requests).toBe(2)
+    server.reset()
+    fakeOllama()
+    const again = await processDocument(fixture('figures.pdf'), cfg, { env: {} })
+    expect(again.manifest.stages.figures).toMatchObject({ described: 2, cached: 2 })
+    expect(server.requests.filter((r) => r.path === '/api/chat')).toHaveLength(0)
+  })
+
+  it('skips figures when asked', async () => {
+    const res = await processDocument(
+      fixture('figures.pdf'),
+      { figures: { extract: false }, cache: { enabled: false } },
+      { env: {} },
+    )
+    expect(res.figures).toEqual([])
+    expect(res.manifest.stages.figures).toBeNull()
+    expect(res.markdown).not.toContain('figures/')
   })
 })

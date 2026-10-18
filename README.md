@@ -19,7 +19,7 @@ npx @msbayindir/rag-chunker process book.pdf --local    # everything on Ollama, 
 
 - **Chunks that respect the document.** A deterministic, AST-based chunker keeps headings with their content, never splits mid-sentence unless it must, splits big tables by rows *with the header repeated*, keeps code fences intact and never drops a word (property-tested).
 - **Accurate citations.** Every chunk has `pageStart`/`pageEnd`, a heading breadcrumb (`sectionPath`) and a stable, collision-free `chunkId`.
-- **Tiered OCR.** Digital pages are read from the PDF text layer for free; only scanned pages go to Mistral OCR or a vision model (Gemma 4, Gemini, Claude, GPT…). Running headers, footers and page numbers are removed.
+- **Tiered OCR.** Digital pages are read from the PDF text layer for free; only scanned pages go to OCR: the local PP-OCRv5 models (13 MB, no keys, Latin scripts incl. Turkish), Mistral OCR, or a vision model (Gemma 4, Gemini, Claude, GPT…). Running headers, footers and page numbers are removed.
 - **Contextual retrieval** ([Anthropic's method](https://www.anthropic.com/news/contextual-retrieval)): each chunk gets a 1–2 sentence summary that situates it in the document. Large documents that do not fit a model use document + section summaries instead, so it works with small local models too.
 - **Heading repair.** OCR reads pages one by one and gets heading levels wrong; an LLM pass plus a deterministic numbering pass fixes them.
 - **Any provider, per stage.** `provider/model` everywhere: `ollama/gemma4:e4b-it-qat`, `gemini/gemini-3.5-flash-lite`, `anthropic/claude-haiku-5-5`, `openrouter/…`, or your own OpenAI-compatible server. Native prompt caching for each provider.
@@ -65,12 +65,12 @@ npx @msbayindir/rag-chunker process book.pdf \
   --embedding gemini/gemini-embedding-001
 ```
 
-With `MISTRAL_API_KEY` set, PDFs are OCR'd by Mistral OCR automatically (best quality for tables and complex layouts). If the key's plan has no OCR quota, rag-chunker warns and continues with the next engine.
+Scanned pages: `--ocr pp-ocr` runs PP-OCRv5 locally (downloads 13 MB of models once; `auto` picks it from then on). With `MISTRAL_API_KEY` set and no local models, Mistral OCR is used (strong on tables and complex layouts). If an automatically chosen engine turns out unusable (no quota, download failure), rag-chunker warns and continues with the next one.
 
 ## How it works
 
 ```
-read ─▶ OCR ─▶ headings ─▶ chunk ─▶ context ─▶ embed ─▶ chunks.jsonl, document.md, structure.json, manifest.json
+read ─▶ OCR ─▶ headings ─▶ chunk ─▶ context ─▶ embed ─▶ chunks.jsonl, document.md, structure.json, document.json, manifest.json
         │       (optional)            (optional)  (optional)
         ├─ text layer (digital pages, free)
         ├─ Mistral OCR (all pages)          ← when MISTRAL_API_KEY is set
@@ -84,6 +84,8 @@ A stage without a model is skipped. With no configuration you get the text layer
 | PDF | Text layer (headings from font sizes, lists, two-column order, de-hyphenation); scanned pages through the OCR engine |
 | DOCX | Word headings, paragraphs and tables (mammoth → GFM) |
 | PPTX | One page per slide: title, nested bullets, tables, speaker notes |
+| XLSX | One page per visible sheet: cell blocks as GFM tables (blank rows split them, a lone cell above is a title), dates, percentages, booleans and formula results resolved, merged cells repeated |
+| HTML | The main content (`<main>`, a single `<article>`, else the body) without scripts, navigation, site header/footer and hidden elements; tables of any shape, code blocks, alt texts |
 | PNG / JPEG / WebP | OCR engine (Mistral or a vision model) |
 | Markdown / text | As is; `<!-- page N -->` markers set page numbers |
 
@@ -149,7 +151,7 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 
 | Option | Default | Meaning |
 |---|---|---|
-| `ocr.engine` | `auto` | `auto` (Mistral if `MISTRAL_API_KEY`, else `models.vision`, else text layer), `text-layer`, `mistral`, or a vision `provider/model` |
+| `ocr.engine` | `auto` | `auto` (local PP-OCR when its models are downloaded, else Mistral if `MISTRAL_API_KEY`, else `models.vision`, else text layer), `text-layer`, `pp-ocr`, `mistral`, or a vision `provider/model` |
 | `ocr.pages` | `auto` | PDF pages sent to the engine: `all`, `scanned` (`auto`: all for Mistral, scanned for vision models) |
 | `ocr.removeHeaderFooter` | `true` | Drop running headers, footers and page numbers |
 | `ocr.stripImages` | `true` | Drop image placeholders such as `![img-0.jpeg](img-0.jpeg)` |
@@ -161,10 +163,17 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 | `chunk.hardBoundaryDepth` | `2` | H1/H2 always start a new chunk |
 | `chunk.preserveTables` / `preserveCode` | `true` | Keep tables/code in their own chunks |
 | `chunk.tokenizer` | `o200k` | `o200k` (real BPE) or `estimate` (fast approximation) |
-| `context.strategy` | `auto` | `full` (whole document as cached context), `hierarchical` (summaries), `auto` |
+| `context.strategy` | `auto` | `full` (whole document as cached context), `hierarchical` (document + section summaries), `auto` (`full` up to 60k tokens when the model's context allows, otherwise `hierarchical`) |
 | `context.batchSize` | `8` | Chunks per request |
 | `embedding.dimensions` | — | Output size for models that support it |
 | `providers.<name>` | — | `type`, `baseURL`, `apiKeyEnv`, `headers`, `contextWindow`, `maxContext` (Ollama `num_ctx` cap, default 32768), `concurrency`, `timeoutMs`, `maxRetries` |
+| `layout.engine` | `auto` | Page layout analysis for PDFs with a local ONNX model: `auto` (on when `onnxruntime-node` and the downloaded model are present), `pp-doclayout-v3` (on; downloads the models once), `off` |
+| `layout.minScore`, `layout.render` | `0.5`, `1024` | Detection confidence; longer page side in pixels rendered for the model |
+| `figures.extract` | `true` | Cut the figures of PDF pages and images out as PNG files under `figures/` and reference them from the markdown (`--no-figures` turns it off) |
+| `figures.describe` | `false` | Describe every figure with `models.vision` (two to five sentences stored under the image, for retrieval); one vision request per figure (`--describe-figures`) |
+| `figures.minSize` | `0.015` | Smallest figure kept, as a share of the page area (icons and logos fall below it) |
+| `rerank.engine` | `auto` | Local cross-encoder that reorders the top search candidates in `eval` and `mcp`: `auto` (on when the default model is downloaded), `mmarco-minilm` (120 MB, 14 languages + transfer), `bge-reranker-base` (280 MB), `bge-reranker-v2-m3` (570 MB, 100+ languages, slow on CPU), `off` |
+| `rerank.candidates` | `30` | First-stage results (hybrid or BM25) handed to the reranker |
 | `cache.enabled` / `cache.dir` | `true` / `~/.rag-chunker/cache` | On-disk cache |
 
 ## CLI
@@ -184,13 +193,14 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 
 ## Output
 
-`process` writes four files per document:
+`process` writes five files per document:
 
 | File | Content |
 |---|---|
 | `chunks.jsonl` | One chunk per line (below) |
 | `document.md` | Full markdown with `<!-- page N -->` markers |
 | `structure.json` | Headings, tables, sections, page count |
+| `document.json` | Every block (heading, paragraph, list, table, code) with its page, position on the page and the chunks that contain it |
 | `manifest.json` | Version, models per stage, page/chunk statistics, token usage, the config used (without keys), warnings |
 
 ```jsonc
@@ -208,12 +218,29 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
   "pageStart": 1,
   "pageEnd": 2,
   "ocrSource": "text-layer",                   // or mistral, ollama/gemma4:…, docx, pptx, markdown
+  "boxes": [{ "page": 1, "x": 0.12, "y": 0.31, "w": 0.76, "h": 0.05 }], // where the text sits (fractions of the page, origin top-left); [] when unknown
   "prevChunkId": null,
   "nextChunkId": "332e7af07d0e-f3bd60c543caae4e",
   "mustPreserve": false,
   "embedding": [0.0123, …]                     // [] when no embedding model is set
 }
 ```
+
+**Local OCR (no keys).** `--ocr pp-ocr` (and `--local`) reads scanned pages and images with PP-OCRv5 mobile on `onnxruntime-node`: a 5 MB text detector and an 8 MB Latin-script recogniser (Turkish, English, German, French, Spanish, Italian, Portuguese, Dutch, Polish, …; other scripts are planned). OCR lines enter the same pipeline as text-layer lines, so headings, lists, tables found by alignment, layout regions and positions all work on scanned pages; each line carries a confidence that reaches `document.json` (`confidence`). About 0.3–1 s per page on a laptop CPU, cached per page. Once the models are downloaded, `auto` prefers local OCR over Mistral.
+
+**Layout analysis (local, no keys).** With `--layout` (or `--local`), every PDF page also goes through [PP-DocLayoutV3](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3), a 130 MB ONNX model that labels the blocks of the page (title, section title, text, table, figure, caption, footnote, header/footer, page number, formula, reference…) and gives their reading order. rag-chunker still takes the text from the text layer; the model decides what each block is and in which order it is read: running headers, footers, page numbers and the labels inside figures are dropped, captions and footnotes never become headings, titles do (wrapped title lines merge), tables are looked for where the model sees one, and two-column or magazine-style pages follow the model's order. Blocks in `document.json` carry the class as `label`. Needs the optional `onnxruntime-node` package (`npm install onnxruntime-node`, ~260 MB of runtime binaries); the models (PP-DocLayoutV3 + SLANet_plus, 138 MB) are downloaded to `~/.rag-chunker/models` on first use (override with `RAG_CHUNKER_MODELS_DIR`) and verified by hash. Cost: about one second per page on a laptop CPU, cached per page. `rag-chunker doctor` shows whether the runtime and model are ready; `--dry-run` shows what a run would use.
+
+**Tables.** Tables in a PDF text layer are rebuilt as tables: grids drawn with lines (including merged cells and two-row headers), tables between horizontal rules only (papers) and tables with no lines at all, found from aligned columns. With `--layout`, table regions that no drawn grid explains also go through [SLANet_plus](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/module_usage/table_structure_recognition.en.md), an 8 MB table-structure model: it predicts rows, columns and spans from the image, the page text is matched into its cells, and it is used where it explains more of the text than alignment does, which is how scanned pages, images and tables with multi-level headers get a structure (it also splits narrow columns that alignment merged between rules). `table.source` in `document.json` names the detector (`ruled`, `rules`, `aligned`, `model`). They become GFM tables in `document.md` and table chunks (a short table travels with its caption; a long one is split with its header row repeated). `document.json` keeps the cell structure with spans (`table.cells`, `tableToHtml()` renders it with `colspan`/`rowspan`); a table that runs onto the next page gets its header carried over and the two parts are linked (`continues`). `teds()` measures a recognised table against a reference (TEDS, 0–1).
+
+**Figures.** Pictures embedded in PDF pages are cut out of a page render as PNG files (`figures/p<page>-<n>.png`, next to the other outputs) and referenced from `document.md` where they sit in the reading order: `![caption](figures/p3-1.png)`. The caption comes from the `figure_title` region when layout analysis ran, else from the nearest line that starts like one ("Figure 3", "Fig. 2a", "Şekil 1", "Abbildung 4"…) below or above the picture; the caption text itself stays in the flow. With `--layout`, charts and drawings made of vector graphics are figures too (`image` and `chart` regions), which is what papers mostly contain; without it only raster images are found. Icons, logos, full-page scans and pictures with paragraphs written over them are left out. `document.json` lists every figure as a `figure` block with its box, file, caption and (with `--describe-figures`) the description a vision model wrote — `--local` uses Gemma 4 for that, so a chart's axes, legend and trend become searchable text under the image. `rag-chunker inspect --ui` shows the figures inline.
+
+**Reranking (local, no keys).** `rag-chunker eval <dir> --rerank` and `rag-chunker mcp <dir> --rerank` add a second stage to search: the best 30 candidates of hybrid (or BM25) search go through a cross-encoder that reads the query and each chunk together and scores how well the chunk answers it. The default model is [mMARCO mMiniLMv2-L12](https://huggingface.co/cross-encoder/mmarco-mMiniLMv2-L12-H384-v1) (118M parameters, int8 ONNX, 120 MB, Apache-2.0, trained on 14 languages and usable beyond them) on `onnxruntime-node`, with its SentencePiece tokenizer implemented in the package; it takes about 20 ms per pair on a laptop CPU. Once downloaded, `auto` uses it; `rerank.engine` picks another model or turns it off. `eval` reports a `rerank` mode next to `bm25`, `vector` and `hybrid` so the gain is visible on your own documents.
+
+**Quality report.** Every run writes `quality` into `manifest.json`: pages by source and OCR confidence, blocks that do not read like text, heading depth and skipped levels, tables by detector and sparse ones, figures with and without captions, chunk sizes and how many have positions — plus `flags`, plain-language findings such as "3 page(s) without text — scanned pages need an OCR engine" or "2 table(s) with mostly empty cells". `rag-chunker process` prints the first findings, `rag-chunker inspect <dir>` all of them.
+
+**Comparing runs.** `rag-chunker eval <dirA> <dirB> --compare` evaluates several outputs of the same document on one question set (the first folder's `eval-questions.json`, or `--questions-file`) and shows, per output, MRR and hit@5 with the change against the first, how many questions improved or regressed, and every question whose rank moved; with one folder it compares the search modes the same way. The result is written to `eval-compare.json`.
+
+**Positions.** Chunks read from a PDF text layer carry `boxes`: one rectangle per paragraph, heading or list item, as fractions of the page size (`x`, `y`, `w`, `h`, origin top-left), so an application can highlight the source of an answer on the page at any zoom level. `document.json` has the same positions for every block plus `chunkIds`; `rag-chunker inspect --ui --pdf` draws them over the page. OCR'd pages, DOCX, PPTX, XLSX, HTML and Markdown have no positions (`boxes: []`, `box: null`).
 
 **What to embed:** `content` (it includes the context summary and overlap). For hybrid search index `content` in the vector store and `rawContent` for keyword search. Embed queries with the same model and `embedQuery()` — Gemini and EmbeddingGemma use different prompts for documents and queries.
 

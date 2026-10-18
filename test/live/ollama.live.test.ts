@@ -74,7 +74,7 @@ describe.skipIf(!gemma || !embedding)('live: Ollama (Gemma 4 + EmbeddingGemma)',
       { llm: createLLM(`ollama/${gemma}`, ctx), count: 3, cache: new CacheStore(null) },
     )
     expect(set.questions.length).toBeGreaterThan(0)
-    const report = evaluate(set, res.chunks, 'live')
+    const report = await evaluate(set, res.chunks, 'live')
     expect(report.metrics[0]?.hitAt10).toBeGreaterThan(0)
   })
 })

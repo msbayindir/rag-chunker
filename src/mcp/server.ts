@@ -4,13 +4,17 @@ import { splitPages } from '../ocr/postprocess.js'
 import { PACKAGE_VERSION } from '../output/manifest.js'
 import { type LoadedOutput, readOutputDir } from '../output/writer.js'
 import type { Embedder } from '../providers/types.js'
-import { buildSearchIndex, search } from '../search/search.js'
+import { buildSearchIndex, type Reranker, rerank, search } from '../search/search.js'
 import type { Chunk } from '../types.js'
 
 export interface McpOptions {
   dirs: string[]
   /** Embeds queries for hybrid search when the chunks have vectors from the same model. */
   embedder?: Embedder
+  /** Reorders the top candidates of every search. */
+  reranker?: Reranker
+  /** First-stage results handed to the reranker (default 30). */
+  candidates?: number
 }
 
 function formatChunk(c: Chunk): string {
@@ -34,7 +38,7 @@ export async function createMcpServer(options: McpOptions): Promise<McpServer> {
     'search',
     {
       title: 'Search documents',
-      description: `Find the most relevant passages in the indexed documents (${useVectors ? 'hybrid keyword + semantic' : 'keyword (BM25)'} search). Returns chunk ids, sources, pages and text.`,
+      description: `Find the most relevant passages in the indexed documents (${useVectors ? 'hybrid keyword + semantic' : 'keyword (BM25)'} search${options.reranker ? ', reranked by a cross-encoder' : ''}). Returns chunk ids, sources, pages and text.`,
       inputSchema: {
         query: z.string().min(1).describe('What to look for, in natural language'),
         topK: z.number().int().min(1).max(50).optional().describe('Number of results (default 5)'),
@@ -48,7 +52,14 @@ export async function createMcpServer(options: McpOptions): Promise<McpServer> {
       const queryVector = useVectors
         ? (await options.embedder?.embed([query], 'query'))?.vectors[0]
         : undefined
-      const hits = search(pool, query, { topK: topK ?? 5, queryVector })
+      const hits = options.reranker
+        ? await rerank(pool, query, {
+            reranker: options.reranker,
+            topK: topK ?? 5,
+            candidates: options.candidates,
+            queryVector,
+          })
+        : search(pool, query, { topK: topK ?? 5, queryVector })
       const text =
         hits.length === 0
           ? 'No matching passages.'

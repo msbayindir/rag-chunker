@@ -102,5 +102,6 @@ export async function localPreset(
   const ref = `ollama/${llm}`
   const models: NonNullable<RagChunkerConfig['models']> = { vision: ref, structure: ref, context: ref }
   if (embedding) models.embedding = `ollama/${embedding}`
-  return { ocr: { engine: ref }, models }
+  // Scanned pages: local PP-OCR first (fast, 13 MB); the Ollama vision model remains the fallback.
+  return { ocr: { engine: 'pp-ocr' }, models, layout: { engine: 'pp-doclayout-v3' } }
 }
