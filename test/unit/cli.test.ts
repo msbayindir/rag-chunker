@@ -12,6 +12,7 @@ import { resolveConfig } from '../../src/config/load.js'
 import { detectLocalModels, localPreset, recommendedGemma } from '../../src/config/presets.js'
 import { processDocument } from '../../src/index.js'
 import { fixture } from '../fixtures/generate.js'
+import { stripAnsi } from '../helpers/ansi.js'
 import { json, MockServer } from '../helpers/mock-server.js'
 
 let stdout = ''
@@ -20,11 +21,11 @@ beforeEach(() => {
   stdout = ''
   stderr = ''
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
-    stdout += String(chunk)
+    stdout += stripAnsi(String(chunk))
     return true
   })
   vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-    stderr += String(chunk)
+    stderr += stripAnsi(String(chunk))
     return true
   })
 })

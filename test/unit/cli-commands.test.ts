@@ -8,6 +8,7 @@ import { exportCommand } from '../../src/cli/commands/export.js'
 import { inspectCommand } from '../../src/cli/commands/inspect.js'
 import { processDocument } from '../../src/index.js'
 import { fixture } from '../fixtures/generate.js'
+import { stripAnsi } from '../helpers/ansi.js'
 import { json, MockServer } from '../helpers/mock-server.js'
 
 let stdout = ''
@@ -25,11 +26,11 @@ beforeEach(() => {
   stdout = ''
   stderr = ''
   vi.spyOn(process.stdout, 'write').mockImplementation((c: string | Uint8Array) => {
-    stdout += String(c)
+    stdout += stripAnsi(String(c))
     return true
   })
   vi.spyOn(process.stderr, 'write').mockImplementation((c: string | Uint8Array) => {
-    stderr += String(c)
+    stderr += stripAnsi(String(c))
     return true
   })
   server.reset()
