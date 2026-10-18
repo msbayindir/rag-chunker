@@ -70,7 +70,7 @@ npx @msbayindir/rag-chunker process kitap.pdf \
 ## Nasıl çalışır
 
 ```
-oku ─▶ OCR ─▶ başlıklar ─▶ chunk ─▶ context ─▶ embedding ─▶ chunks.jsonl, document.md, structure.json, manifest.json
+oku ─▶ OCR ─▶ başlıklar ─▶ chunk ─▶ context ─▶ embedding ─▶ chunks.jsonl, document.md, structure.json, document.json, manifest.json
        │       (isteğe bağlı)          (isteğe bağlı) (isteğe bağlı)
        ├─ metin katmanı (dijital sayfalar, ücretsiz)
        ├─ Mistral OCR (tüm sayfalar)        ← MISTRAL_API_KEY varsa
@@ -168,7 +168,7 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 
 ## Çıktı
 
-Her doküman için dört dosya yazılır: `chunks.jsonl` (satır başına bir chunk), `document.md` (sayfa işaretli tam markdown), `structure.json` (başlıklar, tablolar, bölümler), `manifest.json` (sürüm, aşama başına modeller, istatistikler, token kullanımı, anahtarsız config, uyarılar). Alanların açıklaması [İngilizce README](README.md#output)'de.
+Her doküman için beş dosya yazılır: `chunks.jsonl` (satır başına bir chunk), `document.md` (sayfa işaretli tam markdown), `structure.json` (başlıklar, tablolar, bölümler), `document.json` (her bloğun sayfası, sayfadaki konumu ve içinde bulunduğu chunk'lar; PDF metin katmanından gelen chunk'lar da `boxes` alanında konumlarını taşır), `manifest.json` (sürüm, aşama başına modeller, istatistikler, token kullanımı, anahtarsız config, uyarılar). Alanların açıklaması [İngilizce README](README.md#output)'de.
 
 **Neyi embed etmeli:** `content` (context özeti ve overlap dahildir). Hibrit aramada vektör tarafına `content`, anahtar kelime tarafına `rawContent` verin. Sorguları aynı modelle ve `embedQuery()` ile embed edin; Gemini ve EmbeddingGemma doküman ve sorgu için farklı prompt kullanır.
 

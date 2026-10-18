@@ -57,6 +57,22 @@ describe('PDF text layer', () => {
       // Page 4 is an image: no text layer.
       expect(pages[3]?.chars).toBe(0)
       expect(pages.every((p) => !p.garbled)).toBe(true)
+      // Every block carries its position; the title sits above the first paragraph.
+      const page = pages[0]
+      expect(page?.width).toBeGreaterThan(0)
+      expect(page?.height).toBeGreaterThan(page?.width as number)
+      const spans = page?.spans ?? []
+      expect(spans.length).toBeGreaterThan(2)
+      const title = spans.find((s) => s.text === `# ${PAGE1.title}`)
+      const para = spans.find((s) => s.text.startsWith(PAGE1.paragraphs[0]?.slice(0, 30) as string))
+      expect(title?.box.y).toBeLessThan(para?.box.y as number)
+      for (const s of spans) {
+        for (const v of [s.box.x, s.box.y, s.box.w, s.box.h]) expect(v).toBeGreaterThanOrEqual(0)
+        expect(s.box.x + s.box.w).toBeLessThanOrEqual(1.0001)
+        expect(s.box.y + s.box.h).toBeLessThanOrEqual(1.0001)
+      }
+      // List items are separate spans so chunks can be located item by item.
+      expect(pages[1]?.spans.filter((s) => s.text.startsWith('- ')).length).toBe(PAGE2.bullets.length)
     } finally {
       await pdf.close()
     }
@@ -64,13 +80,19 @@ describe('PDF text layer', () => {
 
   it('reads two-column pages column by column', async () => {
     const pdf = await PdfDocumentHandle.open(await bytes('two-column.pdf'))
-    const md = (await pdf.textLayer())[0]?.markdown ?? ''
+    const page = (await pdf.textLayer())[0]
+    const md = page?.markdown ?? ''
     await pdf.close()
     const lastLeft = md.lastIndexOf(TWO_COLUMN.left[1] as string)
     const firstRight = md.indexOf(TWO_COLUMN.right[0] as string)
     expect(lastLeft).toBeGreaterThan(-1)
     expect(firstRight).toBeGreaterThan(lastLeft)
     expect(md).not.toMatch(/fizyolojisini Sağ/)
+    // Boxes follow the columns.
+    for (const s of page?.spans ?? []) {
+      if (s.text.startsWith('Sol')) expect(s.box.x + s.box.w).toBeLessThan(0.5)
+      if (s.text.startsWith('Sağ')) expect(s.box.x).toBeGreaterThan(0.5)
+    }
   })
 
   it('reads side-by-side blocks on single-column pages one block at a time', async () => {

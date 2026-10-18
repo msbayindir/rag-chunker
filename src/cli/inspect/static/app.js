@@ -7,6 +7,7 @@
   let pageIndex = 0
   let view = 'rendered'
   let query = ''
+  let selectedId = null
 
   const $ = (id) => document.getElementById(id)
 
@@ -100,10 +101,11 @@
     if (c.contextSummary)
       body += `<div class="label">Context</div><div class="ctx">${esc(c.contextSummary)}</div>`
     body += '<div class="label">Metadata</div>'
-    body += `<div class="meta">id ${esc(c.chunkId)}<br>${pagesLabel} · ${c.tokenCount} tokens · ${esc(c.ocrSource)}${c.embedding?.length ? ` · ${c.embedding.length}d vector` : ''}</div>`
+    const boxes = c.boxes?.length ? ` · ${c.boxes.length} box${c.boxes.length > 1 ? 'es' : ''}` : ''
+    body += `<div class="meta">id ${esc(c.chunkId)}<br>${pagesLabel} · ${c.tokenCount} tokens · ${esc(c.ocrSource)}${c.embedding?.length ? ` · ${c.embedding.length}d vector` : ''}${boxes}</div>`
     body += `<button class="jump" data-page="${c.pageStart}">Go to page ${c.pageStart}</button>`
     return (
-      `<div class="card" data-id="${esc(c.chunkId)}">` +
+      `<div class="card${c.chunkId === selectedId ? ' selected' : ''}" data-id="${esc(c.chunkId)}">` +
       `<div class="card-head"><span class="idx">#${c.index}</span><span class="type ${c.contentType}">${c.contentType}</span>` +
       `${c.mustPreserve ? '<span class="idx">preserved</span>' : ''}<span class="tok">${pagesLabel} · ${c.tokenCount} tok</span></div>` +
       `<div class="path" title="${esc(path)}">${esc(path)}</div>` +
@@ -145,8 +147,34 @@
     if (view === 'rendered')
       $('rendered').innerHTML = text ? renderMarkdown(text) : '<div class="empty">No text on this page</div>'
     if (view === 'raw') $('raw').textContent = text
-    if (view === 'pdf') $('pdf-img').src = `/api/page/${p}.png`
+    if (view === 'pdf') {
+      $('pdf-img').src = `/api/page/${p}.png`
+      renderBoxes(p)
+    }
     renderList()
+  }
+
+  // Chunk positions are fractions of the page, so the overlay scales with the image.
+  function renderBoxes(page) {
+    const html = []
+    for (const c of chunksByPage.get(page) || []) {
+      for (const b of c.boxes || []) {
+        if (b.page !== page) continue
+        const style = `left:${(b.x * 100).toFixed(2)}%;top:${(b.y * 100).toFixed(2)}%;width:${(b.w * 100).toFixed(2)}%;height:${(b.h * 100).toFixed(2)}%`
+        html.push(
+          `<div class="pdf-box${c.chunkId === selectedId ? ' active' : ''}" data-id="${esc(c.chunkId)}" style="${style}" title="#${c.index}"></div>`,
+        )
+      }
+    }
+    $('pdf-boxes').innerHTML = html.join('')
+  }
+
+  function select(id) {
+    selectedId = selectedId === id ? null : id
+    for (const el of document.querySelectorAll('.card'))
+      el.classList.toggle('selected', el.dataset.id === selectedId)
+    for (const el of document.querySelectorAll('.pdf-box'))
+      el.classList.toggle('active', el.dataset.id === selectedId)
   }
 
   function goTo(page) {
@@ -195,7 +223,21 @@
         return
       }
       const head = e.target.closest('.card-head, .preview, .path')
-      if (head) head.closest('.card').classList.toggle('open')
+      if (head) {
+        const cardEl = head.closest('.card')
+        cardEl.classList.toggle('open')
+        select(cardEl.dataset.id)
+      }
+    })
+    $('pdf-boxes').addEventListener('click', (e) => {
+      const box = e.target.closest('.pdf-box')
+      if (!box) return
+      select(box.dataset.id)
+      const cardEl = document.querySelector(`.card[data-id="${CSS.escape(box.dataset.id)}"]`)
+      if (cardEl) {
+        cardEl.classList.add('open')
+        cardEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
     })
 
     fetch('/api/data')

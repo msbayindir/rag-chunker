@@ -114,6 +114,35 @@ describe('processDocument without providers', () => {
     expect(loaded.chunks).toEqual(res.chunks)
     expect((await readFile(paths.markdown, 'utf8')).startsWith('<!-- page 1 -->')).toBe(true)
     expect(loaded.manifest.source.name).toBe('turkish.pdf')
+
+    // Text-layer chunks know where they sit on the page; document.json lists every block.
+    const located = res.chunks.filter((c) => c.boxes.length > 0)
+    expect(located.length).toBe(res.manifest.stages.chunk.located)
+    expect(located.length).toBeGreaterThan(res.chunks.length / 2)
+    for (const c of res.chunks) {
+      for (const b of c.boxes) {
+        expect(b.page).toBeGreaterThanOrEqual(c.pageStart)
+        expect(b.page).toBeLessThanOrEqual(c.pageEnd)
+        for (const v of [b.x, b.y, b.w, b.h]) expect(v).toBeGreaterThanOrEqual(0)
+        expect(b.x + b.w).toBeLessThanOrEqual(1.0001)
+        expect(b.y + b.h).toBeLessThanOrEqual(1.0001)
+      }
+    }
+    expect(loaded.layout).toEqual(res.layout)
+    expect(res.layout.pages.map((p) => p.number)).toEqual([1, 2, 3, 4])
+    const page1 = res.layout.pages[0]
+    expect(page1).toMatchObject({
+      source: 'text-layer',
+      width: expect.any(Number),
+      height: expect.any(Number),
+    })
+    const title = page1?.blocks.find((b) => b.kind === 'heading' && b.text.includes(PAGE1.title))
+    expect(title?.level).toBe(1)
+    expect(title?.box).not.toBeNull()
+    expect(title?.chunkIds).toEqual([first?.chunkId])
+    expect(page1?.blocks.every((b) => b.box !== null)).toBe(true)
+    // The scanned page has no text and therefore no blocks.
+    expect(res.layout.pages[3]?.blocks).toEqual([])
   })
 
   it('processes markdown, DOCX and PPTX inputs', async () => {

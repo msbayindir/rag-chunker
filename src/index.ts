@@ -53,6 +53,7 @@ export {
   type SqlClient,
 } from './export/export.js'
 export { createMcpServer, type McpOptions } from './mcp/server.js'
+export type { DocumentLayout, LayoutBlock, LayoutPage } from './output/layout.js'
 export type { Manifest } from './output/manifest.js'
 export type { DocumentStructure } from './output/structure.js'
 export { type LoadedOutput, OUTPUT_FILES, type OutputPaths, readOutputDir } from './output/writer.js'
@@ -76,7 +77,7 @@ export {
   type SearchMode,
   search,
 } from './search/search.js'
-export type { Chunk } from './types.js'
+export type { Box, Chunk, ChunkBox } from './types.js'
 
 /**
  * Chunks a markdown string without any provider (no OCR, context or embeddings).

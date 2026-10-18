@@ -1,6 +1,8 @@
 import type { ContentType } from './chunker/chunker.js'
+import type { ChunkBox } from './documents/layout.js'
 
 export type { ContentType } from './chunker/chunker.js'
+export type { Box, ChunkBox } from './documents/layout.js'
 
 /** One retrieval unit. A line of chunks.jsonl. */
 export interface Chunk {
@@ -29,6 +31,12 @@ export interface Chunk {
   pageEnd: number
   /** Which engine produced the text: text-layer, mistral, <provider/model>, markdown, docx, pptx. */
   ocrSource: string
+  /**
+   * Where the chunk's text sits on the page(s), as fractions of the page size with the origin at
+   * the top-left: one box per paragraph, heading or list item. Empty when positions are unknown
+   * (OCR'd pages, DOCX, PPTX, Markdown).
+   */
+  boxes: ChunkBox[]
   prevChunkId: string | null
   nextChunkId: string | null
   /** True for tables/code kept in their own chunk. */

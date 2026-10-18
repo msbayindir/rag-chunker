@@ -44,6 +44,8 @@ export interface Manifest {
       minTokens: number
       maxTokens: number
       byType: Record<ContentType, number>
+      /** Chunks whose position on the page is known (`boxes` non-empty). */
+      located: number
       durationMs: number
     }
     context: {
@@ -86,5 +88,6 @@ export function chunkStats(chunks: Chunk[]): Omit<Manifest['stages']['chunk'], '
     minTokens: chunks.length ? Math.min(...tokens) : 0,
     maxTokens: chunks.length ? Math.max(...tokens) : 0,
     byType,
+    located: chunks.filter((c) => c.boxes.length > 0).length,
   }
 }

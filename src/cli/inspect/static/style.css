@@ -127,14 +127,42 @@ button.on {
 #left {
   border-right: 1px solid var(--border);
 }
+#pdf-stage {
+  position: relative;
+  margin: 0 auto 8px;
+}
 #pdf img {
   display: block;
   width: 100%;
   max-width: 100%;
   height: auto;
-  margin: 0 auto 8px;
   background: #fff;
   box-shadow: 0 0 0 1px var(--border);
+}
+#pdf-boxes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pdf-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid rgba(37, 99, 235, 0.55);
+  background: rgba(37, 99, 235, 0.08);
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.pdf-box:hover {
+  background: rgba(37, 99, 235, 0.18);
+}
+.pdf-box.active {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.22);
+  z-index: 1;
+}
+.card.selected {
+  outline: 2px solid #f59e0b;
 }
 #pdf a {
   color: var(--accent);

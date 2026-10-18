@@ -2,10 +2,16 @@ import { PDFDocument } from 'pdf-lib'
 import { getDocumentProxy, renderPageAsImage } from 'unpdf'
 import { RagChunkerError } from '../errors.js'
 import { importOptional } from '../util/optional.js'
+import { type Box, type TextSpan, unionBoxes } from './layout.js'
 
 export interface PdfTextPage {
   pageNumber: number
   markdown: string
+  /** Page size in PDF points. */
+  width: number
+  height: number
+  /** One entry per heading, paragraph or list item of `markdown`, with its position on the page. */
+  spans: TextSpan[]
   /** Non-whitespace characters on the page. */
   chars: number
   /** True when the text layer looks broken (missing ToUnicode maps, private-use glyphs…). */
@@ -87,10 +93,17 @@ export class PdfDocumentHandle {
 
   /** Converts the text layer of every page into markdown with inferred headings, paragraphs and lists. */
   async textLayer(): Promise<PdfTextPage[]> {
-    const pages: Array<{ pageNumber: number; lines: Line[]; chars: number; garbled: boolean }> = []
+    const pages: Array<{
+      pageNumber: number
+      lines: Line[]
+      width: number
+      height: number
+      chars: number
+      garbled: boolean
+    }> = []
     for (let n = 1; n <= this.pageCount; n++) {
       const page = await this.proxy.getPage(n)
-      const { width } = page.getViewport({ scale: 1 })
+      const { width, height } = page.getViewport({ scale: 1 })
       const content = await page.getTextContent()
       const items: RawItem[] = []
       for (const it of content.items as Array<Record<string, unknown>>) {
@@ -112,6 +125,8 @@ export class PdfDocumentHandle {
       pages.push({
         pageNumber: n,
         lines: orderColumns(toLines(items, width), width),
+        width,
+        height,
         chars: raw.replace(/\s+/g, '').length,
         garbled: isGarbled(raw),
       })
@@ -121,12 +136,18 @@ export class PdfDocumentHandle {
       pages.map((p) => p.lines),
       typo,
     )
-    return pages.map((p) => ({
-      pageNumber: p.pageNumber,
-      markdown: linesToMarkdown(p.lines, typo),
-      chars: p.chars,
-      garbled: p.garbled,
-    }))
+    return pages.map((p) => {
+      const { markdown, spans } = linesToMarkdown(p.lines, typo, p)
+      return {
+        pageNumber: p.pageNumber,
+        markdown,
+        width: p.width,
+        height: p.height,
+        spans,
+        chars: p.chars,
+        garbled: p.garbled,
+      }
+    })
   }
 
   /** Renders a page to PNG with its longer side at `longSide` pixels. Needs @napi-rs/canvas. */
@@ -634,20 +655,39 @@ function joinLine(paragraph: string, next: string): string {
   return `${paragraph} ${next}`
 }
 
-function linesToMarkdown(lines: Line[], typo: Typography): string {
+/** The area a line of text covers, as fractions of the page (ascent above and descent below the baseline). */
+function lineBox(line: Line, page: { width: number; height: number }): Box {
+  const top = line.y + line.size * 0.8
+  const bottom = line.y - line.size * 0.25
+  return {
+    x: line.x0 / page.width,
+    y: (page.height - top) / page.height,
+    w: (line.x1 - line.x0) / page.width,
+    h: (top - bottom) / page.height,
+  }
+}
+
+function linesToMarkdown(
+  lines: Line[],
+  typo: Typography,
+  page: { width: number; height: number },
+): { markdown: string; spans: TextSpan[] } {
   const { body, lineGap } = typo
-  const blocks: string[] = []
+  const blocks: Array<{ text: string; lines: Line[] }> = []
   let para: string | null = null
+  let paraLines: Line[] = []
   let paraKind: 'p' | 'li' = 'p'
-  let heading: { level: number; text: string; size: number } | null = null
+  let heading: { level: number; text: string; size: number; lines: Line[] } | null = null
   let prev: Line | null = null
 
   const flushPara = () => {
-    if (para !== null) blocks.push(paraKind === 'li' ? para : escapeBlockStart(para))
+    if (para !== null)
+      blocks.push({ text: paraKind === 'li' ? para : escapeBlockStart(para), lines: paraLines })
     para = null
+    paraLines = []
   }
   const flushHeading = () => {
-    if (heading) blocks.push(`${'#'.repeat(heading.level)} ${heading.text}`)
+    if (heading) blocks.push({ text: `${'#'.repeat(heading.level)} ${heading.text}`, lines: heading.lines })
     heading = null
   }
 
@@ -660,12 +700,13 @@ function linesToMarkdown(lines: Line[], typo: Typography): string {
     const level = raw === undefined ? undefined : (typo.levelMap.get(raw) ?? raw)
     if (level !== undefined) {
       flushPara()
-      const current = heading as { level: number; text: string; size: number } | null
+      const current = heading as { level: number; text: string; size: number; lines: Line[] } | null
       if (current && current.level === level && gap >= 0 && gap < line.size * 1.8) {
         current.text = `${current.text} ${line.text}`
+        current.lines.push(line)
       } else {
         flushHeading()
-        heading = { level, text: line.text, size: line.size }
+        heading = { level, text: line.text, size: line.size, lines: [line] }
       }
       prev = line
       continue
@@ -690,6 +731,7 @@ function linesToMarkdown(lines: Line[], typo: Typography): string {
     } else {
       para = joinLine(para as unknown as string, line.text)
     }
+    paraLines.push(line)
     prev = line
   }
   flushPara()
@@ -697,15 +739,20 @@ function linesToMarkdown(lines: Line[], typo: Typography): string {
   // Consecutive list items form one list; other blocks are separated by a blank line.
   let out = ''
   for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i] as string
+    const b = (blocks[i] as { text: string }).text
     if (i > 0) {
-      const prevBlock = blocks[i - 1] as string
+      const prevBlock = (blocks[i - 1] as { text: string }).text
       const bothList = LIST_RE.test(prevBlock) && LIST_RE.test(b)
       out += bothList ? '\n' : '\n\n'
     }
     out += b
   }
-  return out
+  const spans: TextSpan[] = []
+  for (const b of blocks) {
+    const box = unionBoxes(b.lines.map((l) => lineBox(l, page)))
+    if (box) spans.push({ text: b.text, box })
+  }
+  return { markdown: out, spans }
 }
 
 /** Builds a new PDF that contains only `pageNumbers` (1-based), in order. */

@@ -70,7 +70,7 @@ With `MISTRAL_API_KEY` set, PDFs are OCR'd by Mistral OCR automatically (best qu
 ## How it works
 
 ```
-read ─▶ OCR ─▶ headings ─▶ chunk ─▶ context ─▶ embed ─▶ chunks.jsonl, document.md, structure.json, manifest.json
+read ─▶ OCR ─▶ headings ─▶ chunk ─▶ context ─▶ embed ─▶ chunks.jsonl, document.md, structure.json, document.json, manifest.json
         │       (optional)            (optional)  (optional)
         ├─ text layer (digital pages, free)
         ├─ Mistral OCR (all pages)          ← when MISTRAL_API_KEY is set
@@ -184,13 +184,14 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 
 ## Output
 
-`process` writes four files per document:
+`process` writes five files per document:
 
 | File | Content |
 |---|---|
 | `chunks.jsonl` | One chunk per line (below) |
 | `document.md` | Full markdown with `<!-- page N -->` markers |
 | `structure.json` | Headings, tables, sections, page count |
+| `document.json` | Every block (heading, paragraph, list, table, code) with its page, position on the page and the chunks that contain it |
 | `manifest.json` | Version, models per stage, page/chunk statistics, token usage, the config used (without keys), warnings |
 
 ```jsonc
@@ -208,12 +209,15 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
   "pageStart": 1,
   "pageEnd": 2,
   "ocrSource": "text-layer",                   // or mistral, ollama/gemma4:…, docx, pptx, markdown
+  "boxes": [{ "page": 1, "x": 0.12, "y": 0.31, "w": 0.76, "h": 0.05 }], // where the text sits (fractions of the page, origin top-left); [] when unknown
   "prevChunkId": null,
   "nextChunkId": "332e7af07d0e-f3bd60c543caae4e",
   "mustPreserve": false,
   "embedding": [0.0123, …]                     // [] when no embedding model is set
 }
 ```
+
+**Positions.** Chunks read from a PDF text layer carry `boxes`: one rectangle per paragraph, heading or list item, as fractions of the page size (`x`, `y`, `w`, `h`, origin top-left), so an application can highlight the source of an answer on the page at any zoom level. `document.json` has the same positions for every block plus `chunkIds`; `rag-chunker inspect --ui --pdf` draws them over the page. OCR'd pages, DOCX, PPTX and Markdown have no positions (`boxes: []`, `box: null`).
 
 **What to embed:** `content` (it includes the context summary and overlap). For hybrid search index `content` in the vector store and `rawContent` for keyword search. Embed queries with the same model and `embedQuery()` — Gemini and EmbeddingGemma use different prompts for documents and queries.
 

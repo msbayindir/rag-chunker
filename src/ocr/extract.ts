@@ -1,6 +1,7 @@
 import type { CacheStore } from '../cache/store.js'
 import { docxToMarkdown } from '../documents/docx.js'
 import type { DocumentInput } from '../documents/input.js'
+import type { TextSpan } from '../documents/layout.js'
 import { PdfDocumentHandle, planPageBatches, subsetPdf } from '../documents/pdf.js'
 import { pptxToMarkdown } from '../documents/pptx.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
@@ -40,6 +41,11 @@ export interface ExtractedPage {
   markdown: string
   /** text-layer | mistral | <provider/model> | markdown | docx | pptx */
   source: string
+  /** Page size in PDF points (PDF input only). */
+  width?: number
+  height?: number
+  /** Positions of the page's text blocks (text-layer pages only). */
+  spans?: TextSpan[]
 }
 
 export interface ExtractStats {
@@ -206,7 +212,14 @@ async function extractPdf(
 
     for (const p of textPages) {
       if (!targetSet.has(p.pageNumber)) {
-        result.set(p.pageNumber, { pageNumber: p.pageNumber, markdown: p.markdown, source: 'text-layer' })
+        result.set(p.pageNumber, {
+          pageNumber: p.pageNumber,
+          markdown: p.markdown,
+          source: 'text-layer',
+          width: p.width,
+          height: p.height,
+          spans: p.spans,
+        })
         stats.textLayerPages++
       }
     }
@@ -317,7 +330,12 @@ async function extractPdf(
       )
     }
 
-    return all.map((p) => result.get(p) ?? { pageNumber: p, markdown: '', source: 'text-layer' })
+    // OCR'd pages have no text positions, but their size is still known from the PDF.
+    const sizes = new Map(textPages.map((p) => [p.pageNumber, { width: p.width, height: p.height }]))
+    return all.map((p) => ({
+      ...sizes.get(p),
+      ...(result.get(p) ?? { pageNumber: p, markdown: '', source: 'text-layer' }),
+    }))
   } finally {
     await handle.close()
   }

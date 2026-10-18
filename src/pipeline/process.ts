@@ -6,9 +6,11 @@ import { DEFAULT_CACHE_DIR, resolveConfig } from '../config/load.js'
 import type { RagChunkerConfig, ResolvedConfig } from '../config/schema.js'
 import { enrichChunks } from '../context/enrich.js'
 import { type DocumentInput, readDocument } from '../documents/input.js'
+import { locateChunk, type TextSpan } from '../documents/layout.js'
 import { embedTexts } from '../embeddings/embed.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
 import { extractDocument, type OcrEngine } from '../ocr/extract.js'
+import { buildDocumentLayout, type DocumentLayout } from '../output/layout.js'
 import { chunkStats, type Manifest, PACKAGE_VERSION, sanitizeConfig } from '../output/manifest.js'
 import { buildStructure, type DocumentStructure } from '../output/structure.js'
 import { type OutputPaths, writeOutputs } from '../output/writer.js'
@@ -37,9 +39,11 @@ export interface ProcessResult {
   /** Full document markdown with `<!-- page N -->` markers (after heading normalisation). */
   markdown: string
   structure: DocumentStructure
+  /** Every block of the document with its page, position and chunks (`document.json`). */
+  layout: DocumentLayout
   manifest: Manifest
   warnings: string[]
-  /** Writes chunks.jsonl, document.md, structure.json and manifest.json to `dir`. */
+  /** Writes chunks.jsonl, document.md, structure.json, document.json and manifest.json to `dir`. */
   save(dir: string): Promise<OutputPaths>
 }
 
@@ -288,6 +292,10 @@ export async function runPipeline(
     contextSummaries: summaries,
     countTokens: (text) => tok.count(text),
   })
+  // Text-layer pages know where each paragraph sits; chunks inherit those boxes.
+  const spansByPage = new Map<number, readonly TextSpan[]>()
+  for (const p of extracted.pages) if (p.spans && p.spans.length > 0) spansByPage.set(p.pageNumber, p.spans)
+  for (const c of chunks) c.boxes = locateChunk(c, spansByPage)
 
   // ── Embeddings ─────────────────────────────────────────────────────────
   let embeddingStage: Manifest['stages']['embedding'] = null
@@ -322,6 +330,13 @@ export async function runPipeline(
   }
 
   const structure = buildStructure(markdown, chunks, chunked.sections, extracted.pageCount)
+  const layout = buildDocumentLayout({
+    documentId: doc.documentId,
+    source: doc.name,
+    markdown,
+    pages: extracted.pages,
+    chunks,
+  })
   const total = emptyUsage()
   for (const u of Object.values(byStage)) addUsage(total, u)
   const manifest: Manifest = {
@@ -345,11 +360,12 @@ export async function runPipeline(
     chunks,
     markdown,
     structure,
+    layout,
     manifest,
     warnings: reporter.warnings,
     async save(dir: string) {
       reporter.start('write', dir)
-      const paths = await writeOutputs(dir, { chunks, markdown, structure, manifest })
+      const paths = await writeOutputs(dir, { chunks, markdown, structure, layout, manifest })
       reporter.end('write', dir)
       return paths
     },
