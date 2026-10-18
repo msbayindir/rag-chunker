@@ -34,7 +34,7 @@ let repo = repoArg.includes('/') ? repoArg : ''
 const HUB = 'https://huggingface.co'
 const { MODELS, modelsDir } = await import(pathToFileURL(join(process.cwd(), 'dist/local/models.js')).href)
 const { readDotEnv } = await import(pathToFileURL(join(process.cwd(), 'dist/index.js')).href)
-const env = { ...(await readDotEnv().catch(() => ({}))), ...process.env }
+const env = { ...(await readDotEnv(join(process.cwd(), '.env')).catch(() => ({}))), ...process.env }
 const token = env.HF_TOKEN
 const dir = flag('--models') ?? modelsDir(env)
 
