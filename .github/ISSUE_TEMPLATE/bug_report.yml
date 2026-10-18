@@ -1,0 +1,29 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Command or code you ran, what you expected and what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `npx @msbayindir/rag-chunker doctor`
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: rag-chunker version
+      placeholder: 4.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: manifest
+    attributes:
+      label: manifest.json (if a run finished)
+      description: It contains models, statistics and warnings — no API keys.
+      render: json

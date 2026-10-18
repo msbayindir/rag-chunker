@@ -1,0 +1,15 @@
+{
+  "$schema": "../schema/config.schema.json",
+  "ocr": { "engine": "auto", "pages": "auto" },
+  "models": {
+    "vision": "ollama/gemma4:e4b-it-qat",
+    "structure": "ollama/gemma4:e4b-it-qat",
+    "context": "ollama/gemma4:e4b-it-qat",
+    "embedding": "ollama/embeddinggemma"
+  },
+  "providers": {
+    "ollama": { "maxContext": 32768 }
+  },
+  "chunk": { "maxTokens": 512, "minTokens": 64, "overlapTokens": 0 },
+  "context": { "strategy": "auto", "batchSize": 8 }
+}

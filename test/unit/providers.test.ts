@@ -469,3 +469,85 @@ describe('retry and JSON helpers', () => {
     })
   })
 })
+
+describe('error mapping and optional dependencies', () => {
+  it('maps HTTP and network failures to actionable codes', async () => {
+    const { toProviderError } = await import('../../src/providers/retry.js')
+    expect(toProviderError({ status: 401, message: 'no' }, 'p/m', ['K']).code).toBe('MISSING_API_KEY')
+    expect(toProviderError({ status: 404, message: 'no' }, 'p/m').code).toBe('MODEL_NOT_FOUND')
+    expect(
+      toProviderError(Object.assign(new Error('fetch failed'), { code: 'ECONNREFUSED' }), 'p/m').code,
+    ).toBe('PROVIDER_UNAVAILABLE')
+    const e = toProviderError({ status: 503, message: 'busy' }, 'p/m')
+    expect(e).toMatchObject({ code: 'PROVIDER_ERROR', retryable: true, status: 503 })
+    const same = new RagChunkerError('ABORTED', 'x')
+    expect(toProviderError(same, 'p/m')).toBe(same)
+  })
+
+  it('turns a missing optional package into an install hint', async () => {
+    const { importOptional } = await import('../../src/util/optional.js')
+    const missing = Object.assign(new Error('Cannot find package'), { code: 'ERR_MODULE_NOT_FOUND' })
+    await expect(
+      importOptional('some-pkg', 'Feature X', async () => Promise.reject(missing)),
+    ).rejects.toMatchObject({
+      code: 'OPTIONAL_DEPENDENCY_MISSING',
+      hint: 'Install it with: npm install some-pkg',
+    })
+    await expect(importOptional('x', 'y', async () => Promise.reject(new Error('boom')))).rejects.toThrow(
+      'boom',
+    )
+    expect(await importOptional('x', 'y', async () => 42)).toBe(42)
+  })
+})
+
+describe('gemini adapter details', () => {
+  const c = () => ctx({ gemini: { baseURL: server.url } }, { GEMINI_API_KEY: 'g-key' })
+
+  it('reads token limits from the models endpoint and reports missing models', async () => {
+    server.on('GET', '/models/gemini-x', (_r, res) =>
+      json(res, 200, { name: 'models/gemini-x', inputTokenLimit: 1048576, outputTokenLimit: 65536 }),
+    )
+    expect(await createLLM('gemini/gemini-x', c()).capabilities()).toEqual({
+      contextWindow: 1048576,
+      maxOutputTokens: 65536,
+      vision: true,
+    })
+    server.on('GET', '/models/nope', (_r, res) =>
+      json(res, 404, { error: { code: 404, message: 'not found', status: 'NOT_FOUND' } }),
+    )
+    await expect(createLLM('gemini/nope', c()).capabilities()).rejects.toMatchObject({
+      code: 'MODEL_NOT_FOUND',
+    })
+  })
+
+  it('treats a blocked response as an error and falls back when a cache expires', async () => {
+    server.on(
+      'POST',
+      ':generateContent',
+      (_r, res) => json(res, 200, { candidates: [{ finishReason: 'SAFETY', content: { parts: [] } }] }),
+      1,
+    )
+    await expect(
+      createLLM('gemini/gemini-x', c()).generate({ parts: [{ type: 'text', text: 'q' }] }),
+    ).rejects.toThrow(/blocked/)
+
+    server.reset()
+    server.on('POST', '/cachedContents', (_r, res) => json(res, 200, { name: 'cachedContents/old' }))
+    server.on('POST', ':generateContent', (r, res) => {
+      if ((r.body as any).cachedContent)
+        return json(res, 403, {
+          error: {
+            code: 403,
+            message: 'CachedContent not found (or permission denied)',
+            status: 'PERMISSION_DENIED',
+          },
+        })
+      json(res, 200, { candidates: [{ content: { parts: [{ text: 'inline ok' }] }, finishReason: 'STOP' }] })
+    })
+    const out = await createLLM('gemini/gemini-x', c()).generate({
+      prefix: 'd'.repeat(20_000),
+      parts: [{ type: 'text', text: 'q' }],
+    })
+    expect(out.text).toBe('inline ok')
+  })
+})
