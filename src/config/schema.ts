@@ -16,6 +16,8 @@ export const providerTypeSchema = z.enum([
   'gemini',
   'ollama',
   'mistral',
+  'cohere',
+  'jina',
 ])
 export type ProviderType = z.infer<typeof providerTypeSchema>
 
@@ -225,10 +227,24 @@ const figuresSchema = z.strictObject({
 
 const rerankSchema = z.strictObject({
   engine: z
-    .enum(['auto', 'off', 'mmarco-minilm', 'bge-reranker-base', 'bge-reranker-v2-m3'])
+    .string()
+    .trim()
+    .refine(
+      (v) =>
+        v === 'auto' ||
+        v === 'off' ||
+        v === 'mmarco-minilm' ||
+        v === 'bge-reranker-base' ||
+        v === 'bge-reranker-v2-m3' ||
+        MODEL_REF_RE.test(v),
+      {
+        error:
+          'rerank.engine must be "auto", "off", a local model (mmarco-minilm, bge-reranker-base, bge-reranker-v2-m3) or "provider/model" (cohere/rerank-v3.5, jina/jina-reranker-v2-base-multilingual)',
+      },
+    )
     .default('auto')
     .describe(
-      'Local cross-encoder that reorders the top search candidates (eval, mcp). "auto": on when onnxruntime-node and the default model (mmarco-minilm) are present; a model id: on, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, slow on CPU); "off".',
+      'Reranker that reorders the top search candidates (eval, mcp). "auto": the local mmarco-minilm when onnxruntime-node and the model are present; a local model id, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, slow on CPU); a hosted one as "provider/model" (cohere/rerank-v3.5 with COHERE_API_KEY, jina/jina-reranker-v2-base-multilingual with JINA_API_KEY); "off".',
     ),
   candidates: z
     .number()

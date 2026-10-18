@@ -61,6 +61,8 @@ export interface TextItem {
   rotated: boolean
   /** OCR confidence (0-1); absent for text-layer items. */
   confidence?: number
+  /** Word runs inside an OCR line (page points); table detection splits cells at the gaps between them. */
+  parts?: Array<{ str: string; x: number; width: number; confidence?: number }>
 }
 type RawItem = TextItem
 
@@ -164,6 +166,18 @@ export function ocrItems(result: OcrResult, page: { width: number; height: numbe
       dir: 'ltr',
       rotated: false,
       confidence: l.confidence,
+      // The line stays one item (columns and reading order come from whole lines); its words
+      // travel along so a scanned table can be split into cells at the gaps between them.
+      ...(l.words && l.words.length > 1
+        ? {
+            parts: l.words.map((w) => ({
+              str: w.text,
+              x: w.x0 * sx,
+              width: (w.x1 - w.x0) * sx,
+              confidence: w.confidence,
+            })),
+          }
+        : {}),
     }
   })
 }
@@ -572,7 +586,20 @@ function toLines(all: RawItem[], pageWidth: number): Line[] {
       // pdf.js reports a gap wider than 0.6 em as a whitespace item of that width. Prose keeps
       // those items (they bridge label/value pairs into one line); table detection uses the real
       // runs and measures the gaps itself.
-      items: its.filter((it) => it.str.trim() !== ''),
+      items: its
+        .flatMap((it) =>
+          it.parts?.length
+            ? it.parts.map((p) => ({
+                ...it,
+                str: p.str,
+                x: p.x,
+                width: p.width,
+                ...(p.confidence !== undefined ? { confidence: p.confidence } : {}),
+                parts: undefined,
+              }))
+            : [it],
+        )
+        .filter((it) => it.str.trim() !== ''),
     })
   }
   return [...out.sort((a, b) => b.y - a.y || a.x0 - b.x0), ...rotated]

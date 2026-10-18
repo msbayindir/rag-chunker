@@ -1,0 +1,308 @@
+{
+  "version": 1,
+  "documentId": "f229bece26c4c386f9c25e4b12f4f0143e698e29266610a1f644d849de7d9088",
+  "source": "hipertansiyon-2022.pdf",
+  "model": "gemini/gemini-3.8-flash",
+  "questions": [
+    {
+      "id": 0,
+      "question": "Klinik olarak bir kişiye hipertansiyon tanısı konulabilmesi için ofis kan basıncı değerinin kaçın üzerinde olması gerekir?",
+      "evidence": "Tekrarlanan ofis ölçümlerinde arteriyel kan basıncının 140/90 mmHg’den daha yüksek olması hipertansiyon (HT) olarak tanımlanır.",
+      "page": 15
+    },
+    {
+      "id": 1,
+      "question": "Beyaz önlük hipertansiyonu tanısı olan hastalarda ek bir risk faktörü bulunması durumunda nasıl bir tedavi yaklaşımı izlenmelidir?",
+      "evidence": "Beyaz önlük hipertansiyonu olanlarda ek risk faktoru varlığında yaşam tarzı değişikliğine ilave olarak ilaç tedavisi önerilirken",
+      "page": 19
+    },
+    {
+      "id": 2,
+      "question": "Kardiyovasküler risk değerlendirme değişkenlerinde yer alan hsCRP kısaltmasının tıbbi açılımı nedir?",
+      "evidence": "hsCRP: Yüksek hassas CRP, HT: Hipertansiyon, KBH: Kronik Böbrek Hastalığı",
+      "page": 28
+    },
+    {
+      "id": 3,
+      "question": "Hipertansiyon hastası olan 65 yaş altı bireyler hangi klinik durumlar veya kriterler sağlandığında yüksek riskli olarak değerlendirilir?",
+      "evidence": "en az 2 majör veya en az 1 majör + 2 minör kriter veya majör kriter olmaksızın 3 minör kriter bulunması durumunda hipertansiyon hastası “yüksek riskli” kabul edilir.",
+      "page": 33
+    },
+    {
+      "id": 4,
+      "question": "Günde 5 gramdan fazla sodyum alan bireylerin tansiyon değerlerinde ne tür değişiklikler gözlenmektedir?",
+      "evidence": "günde 5 gramın üzerinde sodyum tüketenlerde sistolik kan basıncında ve hipertansiyon sıklığında artış olduğu gösterilmiştir.",
+      "page": 36
+    },
+    {
+      "id": 5,
+      "question": "Sistemik vasküler dirençteki yükselme kan basıncını süre bakımından nasıl etkiler?",
+      "evidence": "sistemik vasküler direçte artış daha uzun süreli kan basıncı yüksekliklerine sebep olmaktadır.",
+      "page": 41
+    },
+    {
+      "id": 6,
+      "question": "Vücutta salgılanan katekolaminler hangi organ ve sistemler üzerinde etki gösterir?",
+      "evidence": "Katekolaminler de reseptörleri aracılığıyla kalp, vasküler sistem ve böbrek üzerindeki etkilerini göstermektedirler.",
+      "page": 43
+    },
+    {
+      "id": 7,
+      "question": "Hangi yayında serotonin geri alım inhibitörlerine bağlı gelişen hipertansiyon iki ayrı farmakovijilans veri tabanı incelenerek araştırılmıştır?",
+      "evidence": "Hypertension induced by serotonin reuptake inhibitors: analysis of two pharmacovigilance databases.",
+      "page": 51
+    },
+    {
+      "id": 8,
+      "question": "Adrenal venöz örnekleme işlemi öncesinde mineralokortikoid reseptör antagonisti grubu ilaçlar ne kadar süre önce bırakılmalıdır?",
+      "evidence": "Mineralokortikoid reseptör antagonistleri işlemden 6 hafta önce kesilmelidir.",
+      "page": 55
+    },
+    {
+      "id": 9,
+      "question": "KCNJ5 gen mutasyonu kaynaklı ailesel hiperaldosteronizm tip 3 olgularında Tip A formu için hangi tedavi yöntemi tavsiye edilir?",
+      "evidence": "Tip A da bilateral adrenalektomi önerilirken, tip B’de mineralokortikoid reseptör antagonistleri ile tedavi önerilir.",
+      "page": 57
+    },
+    {
+      "id": 10,
+      "question": "Feokromositoma ve paragangliomada nükleer tıp görüntüleme yöntemlerine hangi klinik durumlarda başvurulur?",
+      "evidence": "Adrenal BT ve MR görüntülemesi ile tipik bulguları olmayan, malign veya metastatik FPGL düşünülen olgularda fonksiyonel nükleer tıp görüntüleme yöntemleri de kullanılabilir.",
+      "page": 60
+    },
+    {
+      "id": 11,
+      "question": "Katekolamin fazlalığı olan hastalarda ameliyat öncesi ve sırasındaki yüksek kan şekeri beslenme değişikliğiyle düşürülemezse ne uygulanmalıdır?",
+      "evidence": "eğer glukoz düzeyleri beslenme düzenlenmesi ile kontrol altına alınamazsa, antidiyabetik tedavi başlanmalıdır.",
+      "page": 63
+    },
+    {
+      "id": 12,
+      "question": "Hipertiroidizm hastalarında nabız basıncının yükselmesi hangi fizyolojik mekanizmalarla açıklanır?",
+      "evidence": "Ayrıca arteriyel kompliyans artışı ve vazodilatasyon sonucu nabız basıncı artmaktadır.",
+      "page": 68
+    },
+    {
+      "id": 13,
+      "question": "In which journal was the review of primary hyperparathyroidism cardiovascular manifestations by Pepe and colleagues published?",
+      "evidence": "Pepe J, Cipriani C, Sonato C, Raimo O, Biamonte F, Minisola S. Cardiovascular manifestations of primary hyperparathyroidism: a narrative review. Eur J Endocrinol.",
+      "page": 69
+    },
+    {
+      "id": 14,
+      "question": "Kalp yetmezliği olan kişilerde potasyum düşüklüğünü dengelemek ve tansiyonu azaltmak için üçüncü basamakta hangi ilaç kullanılabilir?",
+      "evidence": "spironolakton, hipokalemiyi kontrol etmek ve kan basıncını düşürmek için üçüncü basamak bir ilaç olarak tercih edilebilir.",
+      "page": 72
+    },
+    {
+      "id": 15,
+      "question": "Eritropoietin tedavisine bağlı yüksek tansiyon gelişimi hangi fizyolojik mekanizmalarla açıklanmaktadır?",
+      "evidence": "RhuEPO ilişkili hipertansiyon; artmış kan viskozitesi, lokal RAAS sisteminin aktivasyonu, artmış endotelin -1 üretimi, azalmış NO sentezi ve artmış vazokonstriksiyon mekanizmaları nedeni ile ortaya çıkmaktadır.",
+      "page": 76
+    },
+    {
+      "id": 16,
+      "question": "Böbrek doppler incelemesinde rezistif indeks matematiksel olarak nasıl hesaplanır?",
+      "evidence": "Rezistif indeks pik sistolik velositeden diyastol sonu velosite değerinin çıkarılması ve sonucun pik sistolik velositeye bölünmesi ile bulunur.",
+      "page": 82
+    },
+    {
+      "id": 17,
+      "question": "Who wrote the UpToDate entry concerning the clinical features and diagnostic approach for coarctation of the aorta?",
+      "evidence": "Hijazi ZM. Clinical manifestations and diagnosis of coarctation of the aorta.",
+      "page": 85
+    },
+    {
+      "id": 18,
+      "question": "Obstrüktif uyku apnesi tedavisinde CPAP kullanımının renin anjiyotensin aldosteron sistemi ve tansiyon üzerine etkileri nelerdir?",
+      "evidence": "Ayrıca OSA’nın CPAP ile tedavi edilmesi durumunda RAAS aktivasyonunun azaldığı, aldosteron düzeylerinin düştüğü ve kan basıncında azalma olduğu gösterilmiştir.",
+      "page": 88
+    },
+    {
+      "id": 19,
+      "question": "Karotis sinüs sendromunun vazodepresör ve karışık tipleri tansiyon ve nabız değerlerine göre nasıl tanımlanır?",
+      "evidence": "KSS’nin vazodepresör formunda belirgin bradikardi yokluğunda kan basıncında en az 50 mmHg düşüş gözlenirken, karışık tipte olanda ise sistolik kan basıncında en az 50 mmHg azalma ile kalp atımında 3 saniyelik bir duraklama mevcuttur.",
+      "page": 96
+    },
+    {
+      "id": 20,
+      "question": "Hipertansiyon kılavuzları ve meta-analizlere göre hipertansif hastalarda kardiyovasküler riskin azaltılmasındaki en temel faktör nedir?",
+      "evidence": "kan basıncı kontrolünün tüm hipertansif hastalarda (genç-yaşlı, kadın-erkek) kardiyo-vasküler riskin azalmasındaki en önemli belirleyici olduğudur.",
+      "page": 105
+    },
+    {
+      "id": 21,
+      "question": "65 yaş altındaki hipertansiyon hastalarının yüksek riskli sayılması için hangi kriter kombinasyonları gerekir?",
+      "evidence": "Aşağıdakilerden en az 2 majör veya en az 1 majör + 2 minör kriter veya majör kriter olmaksızın 3 minör kriter bulunması durumunda hipertansiyon hastası “yüksek riskli” kabul edilir.",
+      "page": 106
+    },
+    {
+      "id": 22,
+      "question": "Hipertansiyon hastasında tekli ilaç tedavisiyle tansiyon düşürülemezse nasıl bir yol izlenmelidir?",
+      "evidence": "Tek ilaçla tedaviye başlanan hastalarda takip sürecinde kan basıncı hedef değerlere inmez ise kombinasyon tedavisine geçmek gerekir.",
+      "page": 110
+    },
+    {
+      "id": 23,
+      "question": "Hipertansiyon tedavisinde kullanılan kısaltmalardan ARB ve KKB ne anlama gelmektedir?",
+      "evidence": "ARB: Anjiotensin reseptör blokeri, KKB: kalsiyum kanal blokeri, DHP: dihidropridin",
+      "page": 112
+    },
+    {
+      "id": 24,
+      "question": "UKPDS çalışmasına göre sıkı tansiyon takibi diyabete bağlı ölüm riskini ne oranda düşürmüştür?",
+      "evidence": "Sıkı kan basıncı kontrolü grubunda diyabete bağlı sonlanımlarda %24, diyabete bağlı ölüm riskinde %32, inme riskinde %44 ve mikrovasküler sonlanımlarda %17 azalma sağlanmıştır.",
+      "page": 117
+    },
+    {
+      "id": 25,
+      "question": "Türk Hipertansiyon Uzlaşı Raporu'na göre yetişkinlerde hipertansiyon tanısı koymak için kan basıncı değerleri en az kaç olmalıdır?",
+      "evidence": "erişkinlerde hekim tarafından yapılan standart ölçüm ile sistolik kan basıncı ≥140 mmHg ve/veya diyastolik kan basıncının ≥90 mmHg olması hipertansiyon olarak tanımlanmaktadır",
+      "page": 120
+    },
+    {
+      "id": 26,
+      "question": "Tıbbi kısaltmalar listesinde MRA harflerinin açık karşılığı nedir?",
+      "evidence": "MRA: Mineralokortikoid reseptör blokeri, KV: Kardiyovasküler, eGFR: Tahmini glomerüler filtrasyon hızı.",
+      "page": 123
+    },
+    {
+      "id": 27,
+      "question": "Hipertansiyon tedavisinin kardiyovasküler riski azaltmadaki olumlu etkileri cinsiyete göre değişkenlik gösterir mi?",
+      "evidence": "tedavinin faydalı etkileri açısından cinsiyet farklılığı olmadığını göstermiştir.",
+      "page": 130
+    },
+    {
+      "id": 28,
+      "question": "Gebelikte görülen hipertansif bozuklukların sınıflandırmasında yer alan dört ana grup hangileridir?",
+      "evidence": "1- Kronik hipertansiyon 2- Preeklampsi/eklampsi/HELLP sendromu (hemoliz, karaciğer enzimlerinde yükselme, düşük trombosit sayısı) 3- Kronik hipertansiyon zemininde gelişen preeklampsi 4- Gestasyonel hipertansiyon",
+      "page": 133
+    },
+    {
+      "id": 29,
+      "question": "Gebelikte hedef organ hasarı bulunmayan ve güvenli ilaçlarla tansiyonu kontrol altında olan kadınlarda tedavi nasıl sürdürülmelidir?",
+      "evidence": "Hedef organ hasarı olmayan, güvenli bir antihipertansif tedavi ile kan basıncı kontrol altında olan kadınlar için mevcut tedaviye devam edilmesi önerilir.",
+      "page": 134
+    },
+    {
+      "id": 30,
+      "question": "Kronik yüksek tansiyonu olan gebelerde preeklampsi gelişme olasılığı ne kadardır?",
+      "evidence": "Preeklampsi, kronik hipertansiyonu olan kadınların %13-40’ında tabloya eklenir.",
+      "page": 136
+    },
+    {
+      "id": 31,
+      "question": "Çocuklarda ve ergenlerde hipertansiyon sıklığındaki artış hangi sağlık sorununun yaygınlaşmasıyla ilişkilendirilmektedir?",
+      "evidence": "Bu yaş grubunda hipertansiyonun artması aynı zamanda obezitenin de artması ile ilgilidir.",
+      "page": 141
+    },
+    {
+      "id": 32,
+      "question": "Yetişkinlerde hipertansiyon tanısı koymak için kullanılan kan basıncı sınır değerleri nedir?",
+      "evidence": "Yetişkinlerde hipertansiyon için kan basıncı eşiği yaş, cinsiyet ve somatometrik özelliklerden (sistolik> 140 mmHg ve/veya diyastolik> 90 mmHg) bağımsız iken",
+      "page": 143
+    },
+    {
+      "id": 33,
+      "question": "Çocukluk çağında yüksek tansiyon tedavisinin başlanması neden organ hasarı görülene kadar geciktirilmemelidir?",
+      "evidence": "hipertansiyonun asemptomatik hedef organ hasarına neden olduğu ve bu tür bir hasar oluşana kadar tedaviye başlanmasının ertelenmemesi gerektiği belirtilmelidir.",
+      "page": 148
+    },
+    {
+      "id": 34,
+      "question": "Kaptopril gibi ACE inhibitörlerinin kullanımının kesinlikle yasak olduğu ve kaçınılması gereken klinik durumlar nelerdir?",
+      "evidence": "Bilateral renal arter stenozunda, tek böbrekli olgularda tek taraflı renal arter stenozunda, şiddetli hiperkalemide ve gebelikte kontrendikedirler",
+      "page": 150
+    },
+    {
+      "id": 35,
+      "question": "In which journal was the SPRINT Research Group's study on blood pressure control in adults 75 and older published?",
+      "evidence": "Intensive vs Standard Blood Pressure Control and Cardiovascular Disease Outcomes in Adults Aged ≥75 Years: A Randomized Clinical Trial. JAMA. 2016;315:2673-82.",
+      "page": 155
+    },
+    {
+      "id": 36,
+      "question": "Kronik böbrek hastalarında kan basıncını kontrol altına almak hastalığın kötüleşme sürecini nasıl etkiler?",
+      "evidence": "Yüksek KB’nin normale getirilmesi, proteinüriyi de azaltarak KBH ilerleme riskini azaltmaktadır.",
+      "page": 157
+    },
+    {
+      "id": 37,
+      "question": "Böbrek hastalarında glomerüler filtrasyon değeri dakikada 30 ml'nin altına düştüğünde tiyazid grubu diüretiklerin tesiri nasıldır?",
+      "evidence": "tiyazid diüretiklerinin GFR’si 30 ml/dk’dan düşük hastalarda etkinliği azdır.",
+      "page": 160
+    },
+    {
+      "id": 38,
+      "question": "What 2016 study published by Currie and colleagues evaluated how mineralocorticoid receptor antagonists influence proteinuria and CKD progression?",
+      "evidence": "Effect of mineralocorticoid receptor antagonists on proteinuria and progression of chronic kidney disease: a systematic review and meta-analysis. BMC Nephrol. 2016;17:127.",
+      "page": 165
+    },
+    {
+      "id": 39,
+      "question": "Hipertansif ensefalopati tablosunda tansiyon yükseldikten ne kadar süre sonra klinik belirtiler görülmeye başlar?",
+      "evidence": "Klinik olarak semptomlar KB’nın yükselmesinden 12-48 saat sonrasında ortaya çıkar.",
+      "page": 169
+    },
+    {
+      "id": 40,
+      "question": "Yaşlanma sürecinde damarlarda meydana gelen hangi yapısal bozulma arter sertleşmesine ve sistolik kan basıncının yükselmesine yol açar?",
+      "evidence": "yaşlanma ile beraber vasküler elastinin incelmesi arter sertliğinin artması ve elastisitenin azalmasına yol açarak, SKB’nı artırır.",
+      "page": 172
+    },
+    {
+      "id": 41,
+      "question": "Akut koroner sendrom geçiren hastalarda hedeflenen kan basıncı değerleri hangi aralıkta tutulmalıdır?",
+      "evidence": "AKS’lu hastalarda hedef KB <130-140/80 mmHg olmalıdır ve DKB <60 mmHg altına indirilmemelidir.",
+      "page": 175
+    },
+    {
+      "id": 42,
+      "question": "Kalp yetersizliğini iyileştirirken kan basıncını da düzenleyen ve hastalara verilmesi önerilen ilaç grupları nelerdir?",
+      "evidence": "Hastalara ACEİ’leri (veya ARB’leri), Beta bloker (karvediol, metoprolol, bisoprolol, nebivolol) ve aldosteron reseptor antagonistleri verilmelidir.",
+      "page": 177
+    },
+    {
+      "id": 43,
+      "question": "Sol ventrikül sistolik fonksiyonu bozulmuş kalp yetersizliği hastalarında hangi tip kalsiyum kanal blokerleri kullanılmamalıdır?",
+      "evidence": "Nondihidropiridin grubu KKB sol ventrikül sistolik fonksiyonları azalmış KY hastalarında kontraendikedir.",
+      "page": 180
+    },
+    {
+      "id": 44,
+      "question": "Yüksek tansiyonu bulunan obez hastalarda fentermin/topiramat ile naltrekson/bupropion ilaçlarının tansiyon üzerindeki etkileri nasıldır?",
+      "evidence": "fentermin/topiramat kombinasyonunun kan basıncını düşürdüğü, naltrekson/ bupropion’un ise düşürmediği gösterilmiştir.",
+      "page": 186
+    },
+    {
+      "id": 45,
+      "question": "What meta-analysis did L. Ren and colleagues publish in the Journal of Cardiology regarding high blood pressure medications and COVID-19?",
+      "evidence": "Lack of association of antihypertensive drugs with the risk and severity of COVID-19: A meta-analysis",
+      "page": 189
+    },
+    {
+      "id": 46,
+      "question": "Labetalol ilacı intravenöz bolus tarzında uygulandığında doz ayarlaması ve maksimum limit nasıl olmalıdır?",
+      "evidence": "Bolus olarak 10-20 mg iv yapılmasını takiben total doz 300 mg’ı aşmayacak şekilde her 10 dakikada bir 20-80 mg doz tekrarı yapılabilir.",
+      "page": 193
+    },
+    {
+      "id": 47,
+      "question": "Tansiyon yüksekliğinde psödohipertansiyon kesin olarak hangi teşhis yöntemiyle belirlenir?",
+      "evidence": "Psödohipertansiyon tanısı intraarteriyel kan basıncı ölçümü yöntemiyle konulmalıdır.",
+      "page": 197
+    },
+    {
+      "id": 48,
+      "question": "Which clinical trial evaluated the addition of spironolactone in individuals suffering from resistant arterial hypertension?",
+      "evidence": "Addition of spironolactone in patients with resistant arterial hypertension (ASPIRANT): a randomized, double-blind, placebo-controlled trial.",
+      "page": 200
+    },
+    {
+      "id": 49,
+      "question": "TURDEP 2 çalışmasında hipertansiyon görülme oranı yüzde kaç olarak belirlenmiştir?",
+      "evidence": "TURDEP 2 çalışmasında HT sıklığı %31.4 olarak rapor edilmiş",
+      "page": 206
+    }
+  ]
+}

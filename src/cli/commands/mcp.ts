@@ -18,7 +18,7 @@ export function mcpCommand(): Command {
     .option('--no-vectors', 'keyword search only')
     .option(
       '--rerank [model]',
-      'reorder the top candidates with a local cross-encoder (downloads 120 MB once)',
+      'reorder the top candidates with a reranker: local (downloads 120 MB once) or cohere/… / jina/…',
     )
     .option('--no-rerank', 'no reranking even when the model is downloaded')
     .option('-c, --config <file>', 'config file')
@@ -44,7 +44,11 @@ Claude Desktop / Claude Code config:
             if (model) embedder = new ProviderRegistry({ config, env }).embedder(model)
           }
           const plan = await resolveReranker(config, flags.rerank)
-          const reranker = plan.id ? await createReranker(plan.id) : undefined
+          const reranker = plan.ref
+            ? new ProviderRegistry({ config, env }).reranker(plan.ref)
+            : plan.id
+              ? await createReranker(plan.id)
+              : undefined
           const server = await createMcpServer({
             dirs,
             embedder,

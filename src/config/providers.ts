@@ -21,6 +21,8 @@ export const BUILTIN_PROVIDERS: Record<string, BuiltinProvider> = {
   google: { type: 'gemini', apiKeyEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'] },
   ollama: { type: 'ollama', local: true },
   mistral: { type: 'mistral', baseURL: 'https://api.mistral.ai/v1', apiKeyEnv: ['MISTRAL_API_KEY'] },
+  cohere: { type: 'cohere', baseURL: 'https://api.cohere.com/v2', apiKeyEnv: ['COHERE_API_KEY'] },
+  jina: { type: 'jina', baseURL: 'https://api.jina.ai/v1', apiKeyEnv: ['JINA_API_KEY'] },
   lmstudio: { type: 'openai-compatible', baseURL: 'http://127.0.0.1:1234/v1', local: true },
 }
 
@@ -49,6 +51,8 @@ const DEFAULT_CONCURRENCY: Record<ProviderType, number> = {
   anthropic: 4,
   gemini: 4,
   mistral: 2,
+  cohere: 4,
+  jina: 4,
 }
 
 /** Merges a built-in provider definition, user config and environment into a usable provider. */

@@ -1,0 +1,248 @@
+{
+  "version": 1,
+  "documentId": "5692a5514787a8c6727b4ff3b726a3385798bc68e12138d1d4af83947e2acf6e",
+  "source": "bert.pdf",
+  "model": "gemini/gemini-3.8-flash",
+  "questions": [
+    {
+      "id": 0,
+      "question": "What is the purpose of sentence-level natural language processing tasks like paraphrasing and natural language inference?",
+      "evidence": "which aim to predict the relationships between sentences by analyzing them holistically",
+      "page": 1
+    },
+    {
+      "id": 1,
+      "question": "How does the masked language model objective improve representation compared to standard left-to-right pre-training?",
+      "evidence": "the MLM objective enables the representation to fuse the left and the right context, which allows us to pretrain a deep bidirectional Transformer.",
+      "page": 2
+    },
+    {
+      "id": 2,
+      "question": "How does the ELMo model construct the contextual representation for an individual token?",
+      "evidence": "The contextual representation of each token is the concatenation of the left-to-right and right-to-left representations.",
+      "page": 2
+    },
+    {
+      "id": 3,
+      "question": "Which large dataset is commonly used for pre-training models to enable effective transfer learning in computer vision?",
+      "evidence": "an effective recipe is to fine-tune models pre-trained with ImageNet",
+      "page": 3
+    },
+    {
+      "id": 4,
+      "question": "What are the two primary phases involved in the BERT framework?",
+      "evidence": "There are two steps in our framework: pre-training and fine-tuning.",
+      "page": 3
+    },
+    {
+      "id": 5,
+      "question": "How is the input representation of a token formed from different embeddings?",
+      "evidence": "its input representation is constructed by summing the corresponding token, segment, and position embeddings",
+      "page": 4
+    },
+    {
+      "id": 6,
+      "question": "How is BERT pre-trained compared to models like Radford et al. or Peters et al.?",
+      "evidence": "Instead, we pre-train BERT using two unsupervised tasks, described in this section.",
+      "page": 4
+    },
+    {
+      "id": 7,
+      "question": "How are the training examples constructed for the next sentence prediction pre-training task?",
+      "evidence": "50% of the time B is the actual next sentence that follows A (labeled as IsNext), and 50% of the time it is a random sentence from the corpus",
+      "page": 4
+    },
+    {
+      "id": 8,
+      "question": "How does BERT handle bidirectional cross attention between sentence pairs compared to traditional methods?",
+      "evidence": "encoding a concatenated text pair with self-attention effectively includes bidirectional cross attention between two sentences.",
+      "page": 5
+    },
+    {
+      "id": 9,
+      "question": "What is the primary function of the GLUE benchmark?",
+      "evidence": "The General Language Understanding Evaluation (GLUE) benchmark (Wang et al., 2018a) is a collection of diverse natural language understanding tasks.",
+      "page": 5
+    },
+    {
+      "id": 10,
+      "question": "How long does it take to train the BERT SQuAD model on one Cloud TPU to reach a 91.0% Dev F1 score?",
+      "evidence": "BERT SQuAD model can be trained in around 30 minutes on a single Cloud TPU to achieve a Dev F1 score of 91.0%.",
+      "page": 5
+    },
+    {
+      "id": 11,
+      "question": "How many crowdsourced question-answer pairs are included in SQuAD v1.1?",
+      "evidence": "The Stanford Question Answering Dataset (SQuAD v1.1) is a collection of 100k crowdsourced question/answer pairs",
+      "page": 6
+    },
+    {
+      "id": 12,
+      "question": "How did the authors apply data augmentation to improve their system's performance on the SQuAD benchmark?",
+      "evidence": "first fine-tuning on TriviaQA (Joshi et al., 2017) befor fine-tuning on SQuAD.",
+      "page": 6
+    },
+    {
+      "id": 13,
+      "question": "How is BERT adapted to handle unanswerable questions when fine-tuning on the SQuAD 2.0 dataset?",
+      "evidence": "We treat questions that do not have an answer as having an answer span with start and end at the [CLS] token.",
+      "page": 7
+    },
+    {
+      "id": 14,
+      "question": "In the BERT ablation study, how is the model modified when using the + BiLSTM setting?",
+      "evidence": "adds a randomly initialized BiLSTM on top of the “LTR + No NSP” model during fine-tuning.",
+      "page": 8
+    },
+    {
+      "id": 15,
+      "question": "What makes training separate left-to-right and right-to-left models less practical for question answering tasks?",
+      "evidence": "this is non-intuitive for tasks like QA, since the RTL model would not be able to condition the answer on the question",
+      "page": 8
+    },
+    {
+      "id": 16,
+      "question": "In the BERT model size ablation studies, what parameter does #A refer to?",
+      "evidence": "#A = number of attention heads.",
+      "page": 9
+    },
+    {
+      "id": 17,
+      "question": "How were the reported development and test scores determined for the CoNLL-2003 Named Entity Recognition task?",
+      "evidence": "The reported Dev and Test scores are averaged over 5 random restarts using those hyperparameters.",
+      "page": 9
+    },
+    {
+      "id": 18,
+      "question": "Which feature extraction strategy yielded the highest performance when using pre-trained BERT without fine-tuning?",
+      "evidence": "The best performing method concatenates the token representations from the top four hidden layers of the pre-trained Transformer",
+      "page": 9
+    },
+    {
+      "id": 19,
+      "question": "Where was the 2005 paper on learning predictive structures by Rie Kubota Ando and Tong Zhang published?",
+      "evidence": "Journal of Machine Learning Research, 6(Nov):1817–1853.",
+      "page": 10
+    },
+    {
+      "id": 20,
+      "question": "Which conference proceedings published Bowman et al.'s 2015 paper introducing a large corpus for natural language inference?",
+      "evidence": "A large annotated corpus for learning natural language inference. In EMNLP. Association for Computational Linguistics.",
+      "page": 10
+    },
+    {
+      "id": 21,
+      "question": "In which journal was Peter F. Brown and colleagues' 1992 paper on class-based n-gram language models published?",
+      "evidence": "Class-based n-gram models of natural language. Computational linguistics, 18(4):467–479.",
+      "page": 10
+    },
+    {
+      "id": 22,
+      "question": "In which conference proceedings was Ronan Collobert and Jason Weston's 2008 paper on multitask deep neural networks published?",
+      "evidence": "In Proceedings of the 25th international conference on Machine learning, pages 160–167. ACM.",
+      "page": 10
+    },
+    {
+      "id": 23,
+      "question": "At which conference was the 2017 paper on supervised universal sentence representations by Alexis Conneau and colleagues published?",
+      "evidence": "In Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing, pages 670–680, Copenhagen, Denmark.",
+      "page": 10
+    },
+    {
+      "id": 24,
+      "question": "Who are the authors of the 2017 paper on discourse-based objectives for unsupervised sentence representation learning?",
+      "evidence": "Yacine Jernite, Samuel R. Bowman, and David Sontag. 2017. Discourse-based objectives for fast unsupervised sentence representation learning.",
+      "page": 10
+    },
+    {
+      "id": 25,
+      "question": "Who wrote the 2018 OpenAI technical report on enhancing language understanding through unsupervised learning?",
+      "evidence": "Alec Radford, Karthik Narasimhan, Tim Salimans, and Ilya Sutskever. 2018. Improving language understanding with unsupervised learning.",
+      "page": 11
+    },
+    {
+      "id": 26,
+      "question": "In which conference proceedings was the 2013 paper on recursive deep models for semantic compositionality published?",
+      "evidence": "In Proceedings of the 2013 conference on empirical methods in natural language processing, pages 1631–1642.",
+      "page": 11
+    },
+    {
+      "id": 27,
+      "question": "Which paper published in 2016 introduced Google's neural machine translation system?",
+      "evidence": "Google’s neural machine translation system: Bridging the gap between human and machine translation. arXiv preprint arXiv:1609.08144.",
+      "page": 12
+    },
+    {
+      "id": 28,
+      "question": "At which conference was the QANet reading comprehension paper published in 2018?",
+      "evidence": "QANet: Combining local convolution with global self-attention for reading comprehension. In ICLR.",
+      "page": 12
+    },
+    {
+      "id": 29,
+      "question": "Where was Rowan Zellers' 2018 paper introducing the SWAG dataset published?",
+      "evidence": "In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing (EMNLP).",
+      "page": 12
+    },
+    {
+      "id": 30,
+      "question": "Which word is selected for substitution when illustrating the masking procedure on the sentence 'my dog is hairy'?",
+      "evidence": "during the random masking procedure we chose the 4-th token (which corresponding to hairy)",
+      "page": 12
+    },
+    {
+      "id": 31,
+      "question": "How does the convergence speed of masked language modeling compare to standard left-to-right models?",
+      "evidence": "MLM does converge marginally slower than a leftto-right model (which predicts every token)",
+      "page": 13
+    },
+    {
+      "id": 32,
+      "question": "How is the overall training loss calculated during the pre-training of BERT?",
+      "evidence": "The training loss is the sum of the mean masked LM likelihood and the mean next sentence prediction likelihood.",
+      "page": 13
+    },
+    {
+      "id": 33,
+      "question": "How does the training approach of ELMo differ from that of BERT and OpenAI GPT?",
+      "evidence": "BERT and OpenAI GPT are finetuning approaches, while ELMo is a feature-based approach.",
+      "page": 14
+    },
+    {
+      "id": 34,
+      "question": "At what point during training do GPT and BERT incorporate special tokens such as [SEP] and [CLS]?",
+      "evidence": "GPT uses a sentence separator ([SEP]) and classifier token ([CLS]) which are only introduced at fine-tuning time; BERT learns [SEP], [CLS] and sentence A/B embeddings during pre-training.",
+      "page": 14
+    },
+    {
+      "id": 35,
+      "question": "Where were the GLUE benchmark scores shown in Table 1 originally sourced from?",
+      "evidence": "Our GLUE results in Table1 are obtained from https://gluebenchmark.com/ leaderboard and https://blog. openai.com/language-unsupervised.",
+      "page": 14
+    },
+    {
+      "id": 36,
+      "question": "What is the objective of the Quora Question Pairs (QQP) task?",
+      "evidence": "determine if two questions asked on Quora are semantically equivalent (Chen et al., 2018).",
+      "page": 14
+    },
+    {
+      "id": 37,
+      "question": "What is the primary objective of the Corpus of Linguistic Acceptability task?",
+      "evidence": "the goal is to predict whether an English sentence is linguistically “acceptable” or not",
+      "page": 15
+    },
+    {
+      "id": 38,
+      "question": "How much does increasing BERT's pre-training from 500,000 to 1 million steps improve accuracy on the MNLI benchmark?",
+      "evidence": "BERT achieves almost BASE 1.0% additional accuracy on MNLI when trained on 1M steps compared to 500k steps.",
+      "page": 16
+    },
+    {
+      "id": 39,
+      "question": "Why is it necessary to use specific masking strategies during language model pre-training?",
+      "evidence": "the purpose of the masking strategies is to reduce the mismatch between pre-training and fine-tuning",
+      "page": 16
+    }
+  ]
+}
