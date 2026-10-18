@@ -46,7 +46,7 @@ export async function planDocument(
 ): Promise<PlanReport> {
   const ctx = createContext({ ...config, cache: { enabled: false } }, options.env)
   const doc = await readDocument(input, options.name)
-  const { engine, pages } = resolveOcrEngine(ctx)
+  const { engine, pages } = await resolveOcrEngine(ctx)
   const reporter = new Reporter()
   const warnings: string[] = []
 

@@ -279,6 +279,44 @@ describe('PDF text layer', () => {
     expect(withoutHint[1]?.markdown).toContain(TABLES.aligned.rows[0]?.[1] as string)
   })
 
+  it('reads scanned pages through an OCR provider and builds the same page structure', async () => {
+    const pdf = await PdfDocumentHandle.open(await bytes('turkish.pdf'))
+    const seen: number[] = []
+    const pages = await pdf.textLayer({
+      ocr: {
+        needed: (p) => p.chars < 40,
+        recognize: async (_doc, n) => {
+          seen.push(n)
+          return {
+            width: 1000,
+            height: 1400,
+            lines: [
+              { text: '3. Hipokalsemi', x0: 100, y0: 100, x1: 420, y1: 140, confidence: 0.98 },
+              {
+                text: 'Hipokalsemi tetani ve kas krampları ile',
+                x0: 100,
+                y0: 180,
+                x1: 800,
+                y1: 204,
+                confidence: 0.91,
+              },
+              { text: 'kendini gösterir.', x0: 100, y0: 212, x1: 420, y1: 236, confidence: 0.6 },
+            ],
+          }
+        },
+      },
+    })
+    await pdf.close()
+    expect(seen).toEqual([4])
+    const p4 = pages[3] as PdfTextPage
+    expect(p4).toMatchObject({ source: 'ocr', scanned: true })
+    expect(pages[0]?.source).toBe('text-layer')
+    expect(p4.markdown).toBe('# 3. Hipokalsemi\n\nHipokalsemi tetani ve kas krampları ile kendini gösterir.')
+    const para = p4.spans.find((s) => s.text.startsWith('Hipokalsemi tetani'))
+    expect(para?.confidence).toBe(0.6)
+    expect(para?.box.y).toBeGreaterThan(p4.spans[0]?.box.y as number)
+  })
+
   it('renders pages to PNG and builds page subsets', async () => {
     const pdfBytes = await bytes('turkish.pdf')
     const pdf = await PdfDocumentHandle.open(pdfBytes)

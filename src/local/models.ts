@@ -20,7 +20,37 @@ export interface ModelSpec {
   description: string
 }
 
+const PPU = 'https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main'
+const PPU_RAW = 'https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main'
+
 export const MODELS = {
+  'pp-ocrv5-det': {
+    id: 'pp-ocrv5-det',
+    file: 'PP-OCRv5_mobile_det_infer.onnx',
+    url: `${PPU}/detection/PP-OCRv5_mobile_det_infer.onnx`,
+    sha256: 'd7fe3ea74652890722c0f4d02458b7261d9f5ae6c92904d05707c9eb155c7924',
+    bytes: 4_748_769,
+    license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',
+    description: 'OCR text detection (DBNet, mobile)',
+  },
+  'pp-ocrv5-rec-latin': {
+    id: 'pp-ocrv5-rec-latin',
+    file: 'latin_PP-OCRv5_mobile_rec_infer.onnx',
+    url: `${PPU}/recognition/multi/latin/v5/latin_PP-OCRv5_mobile_rec_infer.onnx`,
+    sha256: '497dbed20b7fd86334c9deb5082c2958982a316bb16e3589ebc6502cd85cae79',
+    bytes: 8_066_518,
+    license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',
+    description: 'OCR text recognition, Latin scripts (Turkish, English, German, French, Spanish, …)',
+  },
+  'pp-ocrv5-dict-latin': {
+    id: 'pp-ocrv5-dict-latin',
+    file: 'ppocrv5_latin_dict.txt',
+    url: `${PPU_RAW}/recognition/multi/latin/v5/ppocrv5_latin_dict.txt`,
+    sha256: '7274e68c7675355e45dd75c360c83faa0d0624de33a704c799a7da8897662201',
+    bytes: 2_617,
+    license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',
+    description: 'Character table of the Latin recognition model',
+  },
   'pp-doclayout-v3': {
     id: 'pp-doclayout-v3',
     file: 'PP-DocLayoutV3.onnx',

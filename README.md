@@ -19,7 +19,7 @@ npx @msbayindir/rag-chunker process book.pdf --local    # everything on Ollama, 
 
 - **Chunks that respect the document.** A deterministic, AST-based chunker keeps headings with their content, never splits mid-sentence unless it must, splits big tables by rows *with the header repeated*, keeps code fences intact and never drops a word (property-tested).
 - **Accurate citations.** Every chunk has `pageStart`/`pageEnd`, a heading breadcrumb (`sectionPath`) and a stable, collision-free `chunkId`.
-- **Tiered OCR.** Digital pages are read from the PDF text layer for free; only scanned pages go to Mistral OCR or a vision model (Gemma 4, Gemini, Claude, GPT…). Running headers, footers and page numbers are removed.
+- **Tiered OCR.** Digital pages are read from the PDF text layer for free; only scanned pages go to OCR: the local PP-OCRv5 models (13 MB, no keys, Latin scripts incl. Turkish), Mistral OCR, or a vision model (Gemma 4, Gemini, Claude, GPT…). Running headers, footers and page numbers are removed.
 - **Contextual retrieval** ([Anthropic's method](https://www.anthropic.com/news/contextual-retrieval)): each chunk gets a 1–2 sentence summary that situates it in the document. Large documents that do not fit a model use document + section summaries instead, so it works with small local models too.
 - **Heading repair.** OCR reads pages one by one and gets heading levels wrong; an LLM pass plus a deterministic numbering pass fixes them.
 - **Any provider, per stage.** `provider/model` everywhere: `ollama/gemma4:e4b-it-qat`, `gemini/gemini-3.5-flash-lite`, `anthropic/claude-haiku-5-5`, `openrouter/…`, or your own OpenAI-compatible server. Native prompt caching for each provider.
@@ -65,7 +65,7 @@ npx @msbayindir/rag-chunker process book.pdf \
   --embedding gemini/gemini-embedding-001
 ```
 
-With `MISTRAL_API_KEY` set, PDFs are OCR'd by Mistral OCR automatically (best quality for tables and complex layouts). If the key's plan has no OCR quota, rag-chunker warns and continues with the next engine.
+Scanned pages: `--ocr pp-ocr` runs PP-OCRv5 locally (downloads 13 MB of models once; `auto` picks it from then on). With `MISTRAL_API_KEY` set and no local models, Mistral OCR is used (strong on tables and complex layouts). If an automatically chosen engine turns out unusable (no quota, download failure), rag-chunker warns and continues with the next one.
 
 ## How it works
 
@@ -149,7 +149,7 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 
 | Option | Default | Meaning |
 |---|---|---|
-| `ocr.engine` | `auto` | `auto` (Mistral if `MISTRAL_API_KEY`, else `models.vision`, else text layer), `text-layer`, `mistral`, or a vision `provider/model` |
+| `ocr.engine` | `auto` | `auto` (local PP-OCR when its models are downloaded, else Mistral if `MISTRAL_API_KEY`, else `models.vision`, else text layer), `text-layer`, `pp-ocr`, `mistral`, or a vision `provider/model` |
 | `ocr.pages` | `auto` | PDF pages sent to the engine: `all`, `scanned` (`auto`: all for Mistral, scanned for vision models) |
 | `ocr.removeHeaderFooter` | `true` | Drop running headers, footers and page numbers |
 | `ocr.stripImages` | `true` | Drop image placeholders such as `![img-0.jpeg](img-0.jpeg)` |
@@ -218,6 +218,8 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
   "embedding": [0.0123, …]                     // [] when no embedding model is set
 }
 ```
+
+**Local OCR (no keys).** `--ocr pp-ocr` (and `--local`) reads scanned pages and images with PP-OCRv5 mobile on `onnxruntime-node`: a 5 MB text detector and an 8 MB Latin-script recogniser (Turkish, English, German, French, Spanish, Italian, Portuguese, Dutch, Polish, …; other scripts are planned). OCR lines enter the same pipeline as text-layer lines, so headings, lists, tables found by alignment, layout regions and positions all work on scanned pages; each line carries a confidence that reaches `document.json` (`confidence`). About 0.3–1 s per page on a laptop CPU, cached per page. Once the models are downloaded, `auto` prefers local OCR over Mistral.
 
 **Layout analysis (local, no keys).** With `--layout` (or `--local`), every PDF page also goes through [PP-DocLayoutV3](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3), a 130 MB ONNX model that labels the blocks of the page (title, section title, text, table, figure, caption, footnote, header/footer, page number, formula, reference…) and gives their reading order. rag-chunker still takes the text from the text layer; the model decides what each block is and in which order it is read: running headers, footers, page numbers and the labels inside figures are dropped, captions and footnotes never become headings, titles do (wrapped title lines merge), tables are looked for where the model sees one, and two-column or magazine-style pages follow the model's order. Blocks in `document.json` carry the class as `label`. Needs the optional `onnxruntime-node` package (`npm install onnxruntime-node`, ~260 MB of runtime binaries); the model is downloaded to `~/.rag-chunker/models` on first use (override with `RAG_CHUNKER_MODELS_DIR`) and verified by hash. Cost: about one second per page on a laptop CPU, cached per page. `rag-chunker doctor` shows whether the runtime and model are ready; `--dry-run` shows what a run would use.
 

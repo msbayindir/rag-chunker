@@ -20,6 +20,8 @@ export interface LayoutBlock {
   box: Box | null
   /** Layout-model class (e.g. "figure_title", "footnote") when layout analysis ran. */
   label?: string
+  /** Lowest OCR confidence (0-1) in the block, for text read by local OCR. */
+  confidence?: number
   /** Cell structure (with spans) for tables read from a PDF text layer. */
   table?: TableData
   /** For a table that continues one from the previous page: that table's block id. */
@@ -81,6 +83,7 @@ export function buildDocumentLayout(input: {
     const box = spans ? unionBoxes(matched.map((s) => s.box)) : null
     const table = b.kind === 'table' ? matched.find((s) => s.table)?.table : undefined
     const label = matched.find((s) => s.label)?.label
+    const confidences = matched.map((s) => s.confidence).filter((c): c is number => c !== undefined)
     const chunkIds = chunksOnPage(b.page)
       .filter((c) => matchSpans(c.rawContent, [{ text: b.text }]).length > 0)
       .map((c) => c.chunkId)
@@ -93,6 +96,7 @@ export function buildDocumentLayout(input: {
       text: b.text,
       box,
       ...(label ? { label } : {}),
+      ...(confidences.length > 0 ? { confidence: Math.min(...confidences) } : {}),
       ...(table ? { table } : {}),
       ...(continues ? { continues } : {}),
       chunkIds,

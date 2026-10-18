@@ -74,18 +74,19 @@ const ocrSchema = z.strictObject({
   engine: z
     .string()
     .trim()
-    .refine((v) => v === 'auto' || v === 'text-layer' || v === 'mistral' || MODEL_REF_RE.test(v), {
-      error: 'ocr.engine must be "auto", "text-layer", "mistral" or "provider/model"',
-    })
+    .refine(
+      (v) => v === 'auto' || v === 'text-layer' || v === 'pp-ocr' || v === 'mistral' || MODEL_REF_RE.test(v),
+      { error: 'ocr.engine must be "auto", "text-layer", "pp-ocr", "mistral" or "provider/model"' },
+    )
     .default('auto')
     .describe(
-      '"auto" (Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), "text-layer", "mistral", or a vision model such as "ollama/gemma4:e4b-it-qat".',
+      '"auto" (local PP-OCR when its models are downloaded, else Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), "text-layer", "pp-ocr" (local PP-OCRv5 on onnxruntime-node; downloads 13 MB once), "mistral", or a vision model such as "ollama/gemma4:e4b-it-qat".',
     ),
   pages: z
     .enum(['auto', 'all', 'scanned'])
     .default('auto')
     .describe(
-      'PDF pages sent to the OCR engine. "auto": all pages for Mistral, scanned pages for vision models.',
+      'PDF pages sent to the OCR engine. "auto": all pages for Mistral, scanned pages for local and vision models.',
     ),
   concurrency: z
     .number()

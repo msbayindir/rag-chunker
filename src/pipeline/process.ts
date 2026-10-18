@@ -11,8 +11,9 @@ import { embedTexts } from '../embeddings/embed.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
 import { createLayoutProvider, LAYOUT_MODEL, type PageLayoutProvider } from '../local/layout.js'
 import { hasModel } from '../local/models.js'
+import { createOcrProvider, OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../local/ocr.js'
 import { hasOnnxRuntime } from '../local/runtime.js'
-import { extractDocument, type OcrEngine } from '../ocr/extract.js'
+import { engineLabel, extractDocument, type LocalOcr, type OcrEngine } from '../ocr/extract.js'
 import { buildDocumentLayout, type DocumentLayout } from '../output/layout.js'
 import { chunkStats, type Manifest, PACKAGE_VERSION, sanitizeConfig } from '../output/manifest.js'
 import { buildStructure, type DocumentStructure } from '../output/structure.js'
@@ -79,11 +80,29 @@ export interface OcrPlan {
   fallback?: { engine: OcrEngine; pages: 'all' | 'scanned' }
 }
 
-export function resolveOcrEngine(ctx: PipelineContext): OcrPlan {
+/** True when onnxruntime-node and the three PP-OCR files are on this machine. */
+export async function hasLocalOcr(): Promise<boolean> {
+  if (!(await hasOnnxRuntime())) return false
+  const present = await Promise.all([OCR_DET_MODEL, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)))
+  return present.every(Boolean)
+}
+
+export async function resolveOcrEngine(ctx: PipelineContext): Promise<OcrPlan> {
   const { engine, pages } = ctx.config.ocr
   let resolved: OcrEngine
   if (engine === 'text-layer') resolved = { type: 'text-layer' }
-  else if (engine === 'mistral') {
+  else if (engine === 'pp-ocr') {
+    if (!(await hasOnnxRuntime())) {
+      throw new RagChunkerError(
+        'OPTIONAL_DEPENDENCY_MISSING',
+        'ocr.engine is "pp-ocr" but "onnxruntime-node" is not installed',
+        {
+          hint: 'Install it with: npm install onnxruntime-node',
+        },
+      )
+    }
+    resolved = { type: 'local' }
+  } else if (engine === 'mistral') {
     const mistral = ctx.registry.provider('mistral')
     if (!mistral.apiKey) {
       throw new RagChunkerError('MISSING_API_KEY', 'ocr.engine is "mistral" but no Mistral API key is set', {
@@ -93,30 +112,44 @@ export function resolveOcrEngine(ctx: PipelineContext): OcrPlan {
     resolved = { type: 'mistral' }
   } else if (engine === 'auto') {
     const vision = ctx.config.models.vision
-    if (ctx.registry.provider('mistral').apiKey) resolved = { type: 'mistral' }
+    if (await hasLocalOcr()) resolved = { type: 'local' }
+    else if (ctx.registry.provider('mistral').apiKey) resolved = { type: 'mistral' }
     else if (vision) resolved = { type: 'vision', ref: vision }
     else resolved = { type: 'text-layer' }
   } else {
     resolved = { type: 'vision', ref: engine }
   }
   const mode = pages === 'auto' ? (resolved.type === 'mistral' ? 'all' : 'scanned') : pages
-  if (engine === 'auto' && resolved.type === 'mistral') {
+  // An automatically chosen engine that turns out unusable hands over to the next one in line.
+  if (engine === 'auto' && (resolved.type === 'mistral' || resolved.type === 'local')) {
     const vision = ctx.config.models.vision
-    const fallback: OcrEngine = vision ? { type: 'vision', ref: vision } : { type: 'text-layer' }
-    return {
-      engine: resolved,
-      pages: mode,
-      fallback: { engine: fallback, pages: pages === 'auto' ? 'scanned' : pages },
-    }
+    const fallback: OcrEngine =
+      resolved.type === 'local' && ctx.registry.provider('mistral').apiKey
+        ? { type: 'mistral' }
+        : vision
+          ? { type: 'vision', ref: vision }
+          : { type: 'text-layer' }
+    const fallbackPages = pages === 'auto' ? (fallback.type === 'mistral' ? 'all' : 'scanned') : pages
+    return { engine: resolved, pages: mode, fallback: { engine: fallback, pages: fallbackPages } }
   }
   return { engine: resolved, pages: mode }
 }
 
-/** Errors that make Mistral OCR unusable for this account; "auto" then moves on to the next engine. */
-const OCR_FALLBACK_CODES = new Set(['QUOTA_EXCEEDED', 'MISSING_API_KEY'])
+/** Errors that make an automatically chosen OCR engine unusable; "auto" then moves on to the next one. */
+const OCR_FALLBACK_CODES = new Set([
+  'QUOTA_EXCEEDED',
+  'MISSING_API_KEY',
+  'PROVIDER_UNAVAILABLE',
+  'PROVIDER_ERROR',
+])
 
-function engineName(engine: OcrEngine): string {
-  return engine.type === 'vision' ? engine.ref : engine.type
+const engineName = engineLabel
+/** How an engine is called in warnings. */
+function engineTitle(engine: OcrEngine): string {
+  if (engine.type === 'mistral') return 'Mistral OCR'
+  if (engine.type === 'local') return 'Local OCR (PP-OCR)'
+  if (engine.type === 'vision') return engine.ref
+  return 'the text layer'
 }
 
 export interface LayoutPlan {
@@ -193,14 +226,35 @@ export async function runPipeline(
   reporter.end('read', `${doc.kind}, ${doc.bytes.length} bytes`)
 
   // ── OCR ────────────────────────────────────────────────────────────────
-  const plan = resolveOcrEngine(ctx)
+  const plan = await resolveOcrEngine(ctx)
   let { engine } = plan
   let t = Date.now()
   reporter.start('ocr', engineName(engine))
+  const mb = (n: number) => Math.round(n / 1024 / 1024)
+  let localOcr: LocalOcr | undefined
+  if (engine.type === 'local') {
+    try {
+      localOcr = await createOcrProvider({
+        cache,
+        documentId: doc.documentId,
+        onModelDownload: (file, done, total) =>
+          reporter.progress('ocr', mb(done), mb(total), `downloading ${file} (MB)`),
+        signal,
+      })
+    } catch (err) {
+      if (!plan.fallback || !(err instanceof RagChunkerError) || !OCR_FALLBACK_CODES.has(err.code)) throw err
+      reporter.warn(
+        'ocr',
+        `Local OCR (PP-OCR) is not usable (${err.message}); using ${engineTitle(plan.fallback.engine)} instead. ${err.hint ?? ''}`.trim(),
+      )
+      engine = plan.fallback.engine
+      plan.pages = plan.fallback.pages
+      plan.fallback = undefined
+    }
+  }
   let layoutProvider: PageLayoutProvider | undefined
   const layoutPlan = doc.kind === 'pdf' ? await resolveLayout(config) : { engine: null }
   if (layoutPlan.engine) {
-    const mb = (n: number) => Math.round(n / 1024 / 1024)
     layoutProvider = await createLayoutProvider({
       render: config.layout.render,
       minScore: config.layout.minScore,
@@ -221,6 +275,7 @@ export async function runPipeline(
       removeHeaderFooter: config.ocr.removeHeaderFooter,
       concurrency: config.ocr.concurrency,
       layout: layoutProvider,
+      localOcr,
       registry,
       cache,
       reporter,
@@ -233,7 +288,7 @@ export async function runPipeline(
     if (!plan.fallback || !(err instanceof RagChunkerError) || !OCR_FALLBACK_CODES.has(err.code)) throw err
     reporter.warn(
       'ocr',
-      `Mistral OCR is not usable with this key (${err.message}); using ${engineName(plan.fallback.engine)} instead. ${err.hint ?? ''}`.trim(),
+      `${engineTitle(engine)} is not usable (${err.message}); using ${engineTitle(plan.fallback.engine)} instead. ${err.hint ?? ''}`.trim(),
     )
     engine = plan.fallback.engine
     extracted = await extract(engine, plan.fallback.pages)

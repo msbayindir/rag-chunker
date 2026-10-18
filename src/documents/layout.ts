@@ -21,6 +21,8 @@ export interface TextSpan {
   table?: TableData
   /** Layout-model class of the block, when layout analysis ran. */
   label?: string
+  /** Lowest OCR confidence (0-1) in the block, for text read by local OCR. */
+  confidence?: number
 }
 
 /** A box on a given page. */

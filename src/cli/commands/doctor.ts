@@ -10,6 +10,7 @@ import type { ResolvedConfig } from '../../config/schema.js'
 import { errorMessage, RagChunkerError } from '../../errors.js'
 import { LAYOUT_MODEL } from '../../local/layout.js'
 import { hasModel, MODELS, modelsDir } from '../../local/models.js'
+import { OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../../local/ocr.js'
 import { PACKAGE_VERSION } from '../../output/manifest.js'
 import { ollamaListModels } from '../../providers/ollama.js'
 import { ProviderRegistry } from '../../providers/registry.js'
@@ -99,6 +100,23 @@ export async function runChecks(
       : layoutModel
         ? undefined
         : 'Run `rag-chunker process <pdf> --layout` once to download PP-DocLayoutV3 (130 MB).',
+  })
+
+  const ocrFiles = await Promise.all([OCR_DET_MODEL, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)))
+  const ocrReady = ocrFiles.every(Boolean)
+  checks.push({
+    status: onnx && ocrReady ? 'ok' : 'info',
+    label: 'Local OCR',
+    detail: !onnx
+      ? 'onnxruntime-node not installed'
+      : ocrReady
+        ? `PP-OCRv5 (Latin) in ${modelsDir(env)}`
+        : 'onnxruntime-node ready, models not downloaded',
+    hint: !onnx
+      ? 'Scanned pages without keys need it: npm install onnxruntime-node'
+      : ocrReady
+        ? undefined
+        : 'Run `rag-chunker process <pdf> --ocr pp-ocr` once to download PP-OCRv5 (13 MB); "auto" then uses it.',
   })
 
   for (const [name, def] of Object.entries(BUILTIN_PROVIDERS)) {

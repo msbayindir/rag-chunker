@@ -243,7 +243,7 @@ export function processCommand(): Command {
     .option('-o, --output <dir>', `output folder (default: ./${DEFAULT_OUTPUT_DIR}/<name>)`)
     .option('-c, --config <file>', 'config file (default: ./rag-chunker.config.{json,mjs,js})')
     .option('--local', 'run every stage on Ollama (Gemma 4 vision + embeddings), nothing leaves the machine')
-    .option('--ocr <engine>', 'auto | text-layer | mistral | <provider/model>')
+    .option('--ocr <engine>', 'auto | text-layer | pp-ocr (local, no keys) | mistral | <provider/model>')
     .addOption(
       new Option('--ocr-pages <mode>', 'which PDF pages go to the OCR engine').choices([
         'auto',

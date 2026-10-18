@@ -19,7 +19,7 @@ npx @msbayindir/rag-chunker process kitap.pdf --local    # her şey Ollama'da, h
 
 - **Dokümana saygılı chunk'lar.** Deterministik, AST tabanlı chunker başlıkları içerikleriyle birlikte tutar, mecbur kalmadıkça cümle ortasından bölmez, büyük tabloları *başlık satırını tekrarlayarak* satır satır böler, kod bloklarının çitlerini korur ve hiçbir kelimeyi kaybetmez (property testleriyle doğrulanır).
 - **Doğru kaynak gösterimi.** Her chunk'ta `pageStart`/`pageEnd`, başlık yolu (`sectionPath`) ve çakışmayan, kalıcı bir `chunkId` bulunur.
-- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar Mistral OCR'a veya bir vision modeline (Gemma 4, Gemini, Claude, GPT…) gider. Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir.
+- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar OCR'a gider: yerel PP-OCRv5 modelleri (13 MB, anahtarsız, Türkçe dahil Latin alfabeleri), Mistral OCR ya da bir vision modeli (Gemma 4, Gemini, Claude, GPT…). Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir.
 - **Contextual retrieval** ([Anthropic'in yöntemi](https://www.anthropic.com/news/contextual-retrieval)): her chunk'a, dokümandaki yerini anlatan 1–2 cümlelik bir özet eklenir. Modele sığmayan büyük dokümanlarda doküman ve bölüm özetleri kullanılır, böylece küçük yerel modellerle de çalışır.
 - **Başlık onarımı.** OCR sayfaları tek tek okuduğu için başlık seviyelerini karıştırır; bir LLM adımı ve deterministik bir numaralandırma adımı bunu düzeltir.
 - **Her aşamada her sağlayıcı.** Her yerde `sağlayıcı/model`: `ollama/gemma4:e4b-it-qat`, `gemini/gemini-3.5-flash-lite`, `anthropic/claude-haiku-5-5`, `openrouter/…` ya da kendi OpenAI-uyumlu sunucunuz. Her sağlayıcı için yerleşik prompt cache desteği.
@@ -143,7 +143,7 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 
 | Seçenek | Varsayılan | Anlamı |
 |---|---|---|
-| `ocr.engine` | `auto` | `auto` (`MISTRAL_API_KEY` varsa Mistral, yoksa `models.vision`, yoksa metin katmanı), `text-layer`, `mistral` ya da vision `sağlayıcı/model` |
+| `ocr.engine` | `auto` | `auto` (modelleri indirilmişse yerel PP-OCR, yoksa `MISTRAL_API_KEY` varsa Mistral, yoksa `models.vision`, yoksa metin katmanı), `text-layer`, `pp-ocr`, `mistral` ya da vision `sağlayıcı/model` |
 | `models.*` | — | Aşama başına model; boş bırakılan aşama atlanır |
 | `chunk.maxTokens` | `512` | Chunk başına kesin üst sınır (o200k token) |
 | `chunk.minTokens` | `64` | Daha küçük chunk'lar aynı bölümdeki komşusuyla birleşir |
@@ -167,6 +167,8 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 `--dry-run`, hiçbir model çağırmadan OCR'lanacak sayfaları, tahmini chunk ve istek sayısını ve context token'ları için bir üst sınırı gösterir.
 
 ## Çıktı
+
+**Yerel OCR (anahtarsız).** `--ocr pp-ocr` (ve `--local`) taranmış sayfaları ve görselleri `onnxruntime-node` üzerinde PP-OCRv5 mobile ile okur: 5 MB'lık metin tespit modeli ve 8 MB'lık Latin alfabesi tanıma modeli (Türkçe, İngilizce, Almanca, Fransızca, İspanyolca…; diğer alfabeler planda). OCR satırları metin katmanı satırlarıyla aynı hatta girer; başlıklar, listeler, hizalamayla bulunan tablolar, layout bölgeleri ve konumlar taranmış sayfada da çalışır; her satırın güven skoru `document.json`'a (`confidence`) ulaşır. Dizüstü işlemcide sayfa başına 0,3–1 sn, sayfa bazında cache'lenir. Modeller bir kez indirildikten sonra `auto` yerel OCR'ı Mistral'a tercih eder.
 
 **Sayfa düzeni analizi (yerel, anahtarsız).** `--layout` (veya `--local`) ile her PDF sayfası ayrıca PP-DocLayoutV3'ten (130 MB'lık ONNX modeli) geçer: model sayfadaki blokları etiketler (başlık, bölüm başlığı, metin, tablo, şekil, altyazı, dipnot, üst/alt bilgi, sayfa numarası, formül, kaynakça…) ve okuma sırasını verir. Metin yine metin katmanından alınır; model bloğun ne olduğuna ve hangi sırada okunduğuna karar verir: üst/alt bilgi, sayfa numaraları ve şekil içindeki etiketler düşer, altyazı ve dipnotlar asla başlık olmaz, başlıklar olur (satıra sarılan başlıklar birleşir), tablolar modelin gösterdiği yerde aranır, çok sütunlu sayfalar modelin sırasını izler. `document.json`'daki bloklar sınıfı `label` olarak taşır. Opsiyonel `onnxruntime-node` paketi gerekir (`npm install onnxruntime-node`); model ilk kullanımda `~/.rag-chunker/models` altına indirilir (`RAG_CHUNKER_MODELS_DIR` ile değiştirilebilir) ve hash ile doğrulanır. Maliyet dizüstü işlemcide sayfa başına yaklaşık bir saniye, sayfa bazında cache'lenir. `rag-chunker doctor` hazır olup olmadığını, `--dry-run` çalışmada ne kullanılacağını gösterir.
 

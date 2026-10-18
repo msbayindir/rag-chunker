@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib'
 import { getDocumentProxy, renderPageAsImage } from 'unpdf'
 import { RagChunkerError } from '../errors.js'
 import type { LayoutLabel, LayoutRegion, PageLayoutProvider } from '../local/layout.js'
+import type { OcrResult, PageOcrProvider } from '../local/ocr.js'
 import { importOptional } from '../util/optional.js'
 import { type Box, type TextSpan, unionBoxes } from './layout.js'
 import {
@@ -10,6 +11,7 @@ import {
   extractRulings,
   headerTexts,
   type Rect,
+  type Rulings,
   type TableData,
   tableToMarkdown,
   withHeaderOf,
@@ -18,6 +20,10 @@ import {
 export interface PdfTextPage {
   pageNumber: number
   markdown: string
+  /** Where the page text came from. */
+  source: 'text-layer' | 'ocr'
+  /** True when the page has no usable text layer (scanned or broken fonts). */
+  scanned: boolean
   /** Page size in PDF points. */
   width: number
   height: number
@@ -31,7 +37,8 @@ export interface PdfTextPage {
 
 type PdfProxy = Awaited<ReturnType<typeof getDocumentProxy>>
 
-interface RawItem {
+/** One run of text: a pdf.js text item, or a line read by OCR. Coordinates in PDF points (y up). */
+export interface TextItem {
   str: string
   x: number
   y: number
@@ -41,7 +48,10 @@ interface RawItem {
   dir: string
   /** Text that is not horizontal (margin stamps, vertical labels). */
   rotated: boolean
+  /** OCR confidence (0-1); absent for text-layer items. */
+  confidence?: number
 }
+type RawItem = TextItem
 
 interface Line {
   text: string
@@ -74,11 +84,39 @@ interface Line {
   standalone?: boolean
   /** Inside a body-text region, below its first line: only a larger font still makes it a heading. */
   inBody?: boolean
+  /** Lowest OCR confidence among the line's items (OCR pages only). */
+  confidence?: number
 }
 
 export interface TextLayerOptions {
   /** Layout analysis per page (classes + reading order); without it, position heuristics decide. */
   layout?: PageLayoutProvider
+  /** OCR for pages that need it (scanned, broken text layer); `needed` decides per page. */
+  ocr?: {
+    needed(page: { pageNumber: number; chars: number; garbled: boolean }): boolean
+    recognize: PageOcrProvider
+  }
+}
+
+/** OCR lines (image pixels, origin top-left) as text items in PDF points. */
+export function ocrItems(result: OcrResult, page: { width: number; height: number }): TextItem[] {
+  const sx = page.width / result.width
+  const sy = page.height / result.height
+  return result.lines.map((l) => {
+    const h = (l.y1 - l.y0) * sy
+    const size = h / 1.05
+    return {
+      str: l.text,
+      x: l.x0 * sx,
+      y: page.height - l.y1 * sy + size * 0.25,
+      width: (l.x1 - l.x0) * sx,
+      size,
+      font: 'ocr',
+      dir: 'ltr',
+      rotated: false,
+      confidence: l.confidence,
+    }
+  })
 }
 
 /** Document-wide typography used to recognise headings. */
@@ -136,12 +174,14 @@ export class PdfDocumentHandle {
       height: number
       chars: number
       garbled: boolean
+      source: 'text-layer' | 'ocr'
+      scanned: boolean
     }> = []
     for (let n = 1; n <= this.pageCount; n++) {
       const page = await this.proxy.getPage(n)
       const { width, height } = page.getViewport({ scale: 1 })
       const content = await page.getTextContent()
-      const items: RawItem[] = []
+      let items: RawItem[] = []
       for (const it of content.items as Array<Record<string, unknown>>) {
         if (typeof it.str !== 'string' || !Array.isArray(it.transform)) continue
         const t = it.transform as number[]
@@ -158,32 +198,45 @@ export class PdfDocumentHandle {
         })
       }
       const raw = items.map((it) => it.str).join('')
-      let lines = toLines(items, width)
+      let chars = raw.replace(/\s+/g, '').length
+      const garbled = isGarbled(raw)
+      const scanned = chars === 0 || garbled
+      let source: 'text-layer' | 'ocr' = 'text-layer'
+      if (options.ocr?.needed({ pageNumber: n, chars, garbled })) {
+        items = ocrItems(await options.ocr.recognize(this, n), { width, height })
+        chars = items.reduce((n, it) => n + it.str.replace(/\s+/g, '').length, 0)
+        source = 'ocr'
+      }
       const regions = options.layout ? await options.layout(this, n) : null
-      if (regions) lines = applyLayout(lines, regions)
-      // Tables leave the text flow; a pseudo-line at the table's top keeps its place in reading order.
       const rulings = await extractRulings(page).catch(() => ({ h: [], v: [] }))
-      const hints = regions?.filter((r) => r.label === 'table').map((r) => r.bbox)
-      const { tables, remaining } = detectTables(lines, rulings, { width, hints })
-      const tableFlow = tables.flatMap((t) => tableLines(t, regions))
-      const withTables = [...remaining, ...tableFlow].sort((a, b) => b.y - a.y || a.x0 - b.x0)
       pages.push({
         pageNumber: n,
-        lines: regions ? orderByLayout(withTables) : orderColumns(withTables, width),
+        lines: composePage(items, { width, height }, regions, rulings),
         width,
         height,
-        chars: raw.replace(/\s+/g, '').length,
-        garbled: isGarbled(raw),
+        chars,
+        garbled,
+        source,
+        scanned,
       })
     }
-    const prose = pages.map((p) => p.lines.filter((l) => !l.table))
+    const prose = pages.filter((p) => p.source === 'text-layer').map((p) => p.lines.filter((l) => !l.table))
     const typo = typography(prose)
     typo.levelMap = levelMap(prose, typo)
     const out = pages.map((p) => {
-      const { markdown, spans } = linesToMarkdown(p.lines, typo, p)
+      // OCR line heights are not font sizes: an OCR page is measured against itself only.
+      let pageTypo = typo
+      if (p.source === 'ocr') {
+        const own = [p.lines.filter((l) => !l.table)]
+        pageTypo = typography(own)
+        pageTypo.levelMap = levelMap(own, pageTypo)
+      }
+      const { markdown, spans } = linesToMarkdown(p.lines, pageTypo, p)
       return {
         pageNumber: p.pageNumber,
         markdown,
+        source: p.source,
+        scanned: p.scanned,
         width: p.width,
         height: p.height,
         spans,
@@ -216,6 +269,50 @@ export class PdfDocumentHandle {
     } catch {
       // Releasing pdf.js resources is best effort.
     }
+  }
+}
+
+/**
+ * Lines of one page in reading order: text runs grouped into lines, layout regions applied,
+ * tables lifted out of the flow and put back as pseudo-lines, columns ordered.
+ */
+function composePage(
+  items: RawItem[],
+  page: { width: number; height: number },
+  regions: LayoutRegion[] | null,
+  rulings: Rulings,
+): Line[] {
+  let lines = toLines(items, page.width)
+  if (regions) lines = applyLayout(lines, regions)
+  const hints = regions?.filter((r) => r.label === 'table').map((r) => r.bbox)
+  const { tables, remaining } = detectTables(lines, rulings, { width: page.width, hints })
+  const tableFlow = tables.flatMap((t) => tableLines(t, regions))
+  const withTables = [...remaining, ...tableFlow].sort((a, b) => b.y - a.y || a.x0 - b.x0)
+  return regions ? orderByLayout(withTables) : orderColumns(withTables, page.width)
+}
+
+/** A page built from text items alone (OCR of an image): same headings, lists and tables as a PDF page. */
+export function pageFromItems(
+  items: TextItem[],
+  page: { width: number; height: number },
+  options: { regions?: LayoutRegion[] | null; source?: PdfTextPage['source'] } = {},
+): PdfTextPage {
+  const lines = composePage(items, page, options.regions ?? null, { h: [], v: [] })
+  const prose = [lines.filter((l) => !l.table)]
+  const typo = typography(prose)
+  typo.levelMap = levelMap(prose, typo)
+  const { markdown, spans } = linesToMarkdown(lines, typo, page)
+  const chars = items.reduce((n, it) => n + it.str.replace(/\s+/g, '').length, 0)
+  return {
+    pageNumber: 1,
+    markdown,
+    source: options.source ?? 'ocr',
+    scanned: true,
+    width: page.width,
+    height: page.height,
+    spans,
+    chars,
+    garbled: false,
   }
 }
 
@@ -373,6 +470,7 @@ function toLines(all: RawItem[], pageWidth: number): Line[] {
         best = n
       }
     }
+    const confidences = its.map((it) => it.confidence).filter((c): c is number => c !== undefined)
     out.push({
       text,
       y: first.y,
@@ -381,6 +479,7 @@ function toLines(all: RawItem[], pageWidth: number): Line[] {
       size: sizeWeight > 0 ? sizeSum / sizeWeight : first.size,
       font,
       fontShare: sizeWeight > 0 ? Math.max(0, best) / sizeWeight : 1,
+      ...(confidences.length > 0 ? { confidence: Math.min(...confidences) } : {}),
       // pdf.js reports a gap wider than 0.6 em as a whitespace item of that width. Prose keeps
       // those items (they bridge label/value pairs into one line); table detection uses the real
       // runs and measures the gaps itself.
@@ -832,7 +931,14 @@ function linesToMarkdown(
     const box = unionBoxes(b.lines.map((l) => lineBox(l, page)))
     if (!box) continue
     const label = labelOf(b.lines)
-    spans.push({ text: b.text, box, ...(b.table ? { table: b.table } : {}), ...(label ? { label } : {}) })
+    const confidences = b.lines.map((l) => l.confidence).filter((c): c is number => c !== undefined)
+    spans.push({
+      text: b.text,
+      box,
+      ...(b.table ? { table: b.table } : {}),
+      ...(label ? { label } : {}),
+      ...(confidences.length > 0 ? { confidence: Math.round(Math.min(...confidences) * 1000) / 1000 } : {}),
+    })
   }
   return { markdown: out, spans }
 }
