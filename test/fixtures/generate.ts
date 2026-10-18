@@ -243,7 +243,9 @@ async function buildTablesPdf(): Promise<Uint8Array> {
   const rulesRows = [TABLES.rules.header, ...TABLES.rules.rows]
   rulesRows.forEach((row, i) => {
     const base = y - 13 - 14 * i
-    row.forEach((text, c) => p1.drawText(text, { x: rulesX[c] as number, y: base, size: 10, font: f }))
+    row.forEach((text, c) => {
+      p1.drawText(text, { x: rulesX[c] as number, y: base, size: 10, font: f })
+    })
     if (i === 0) hline(p1, 56, 200, base - 4)
   })
   hline(p1, 56, 200, y - 13 - 14 * (rulesRows.length - 1) - 4)
