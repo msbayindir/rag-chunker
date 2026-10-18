@@ -20,14 +20,15 @@ export interface ModelSpec {
   description: string
 }
 
-const PPU = 'https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main'
-const PPU_RAW = 'https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main'
+// The PaddleOCR models are mirrored, unmodified and with their licences, in the project's own
+// Hugging Face repository (model card: https://huggingface.co/msbayindir/rag-chunker-models);
+// the sha256 values are those of the original exports.
 
 export const MODELS = {
   'pp-ocrv5-det': {
     id: 'pp-ocrv5-det',
     file: 'PP-OCRv5_mobile_det_infer.onnx',
-    url: `${PPU}/detection/PP-OCRv5_mobile_det_infer.onnx`,
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/PP-OCRv5_mobile_det_infer.onnx',
     sha256: 'd7fe3ea74652890722c0f4d02458b7261d9f5ae6c92904d05707c9eb155c7924',
     bytes: 4_748_769,
     license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',
@@ -36,7 +37,7 @@ export const MODELS = {
   'pp-ocrv5-rec-latin': {
     id: 'pp-ocrv5-rec-latin',
     file: 'latin_PP-OCRv5_mobile_rec_infer.onnx',
-    url: `${PPU}/recognition/multi/latin/v5/latin_PP-OCRv5_mobile_rec_infer.onnx`,
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/latin_PP-OCRv5_mobile_rec_infer.onnx',
     sha256: '497dbed20b7fd86334c9deb5082c2958982a316bb16e3589ebc6502cd85cae79',
     bytes: 8_066_518,
     license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',
@@ -45,7 +46,7 @@ export const MODELS = {
   'pp-ocrv5-dict-latin': {
     id: 'pp-ocrv5-dict-latin',
     file: 'ppocrv5_latin_dict.txt',
-    url: `${PPU_RAW}/recognition/multi/latin/v5/ppocrv5_latin_dict.txt`,
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/ppocrv5_latin_dict.txt',
     sha256: '7274e68c7675355e45dd75c360c83faa0d0624de33a704c799a7da8897662201',
     bytes: 2_617,
     license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',
@@ -54,7 +55,7 @@ export const MODELS = {
   'slanet-plus': {
     id: 'slanet-plus',
     file: 'SLANet_plus.onnx',
-    url: `${PPU}/table/SLANet_plus.onnx`,
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/SLANet_plus.onnx',
     sha256: 'd57a942af6a2f57d6a4a0372573c696a2379bf5857c45e2ac69993f3b334514b',
     bytes: 7_758_305,
     license: 'Apache-2.0 (PaddleOCR PP-StructureV2)',
@@ -63,7 +64,7 @@ export const MODELS = {
   'slanet-dict': {
     id: 'slanet-dict',
     file: 'table_structure_dict_ch.txt',
-    url: 'https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/table_structure_dict_ch.txt',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/table_structure_dict_ch.txt',
     sha256: '68d344a84b726e043f390122240ff2b2ced2949b2a80ce9b61ae955054d190ef',
     bytes: 578,
     license: 'Apache-2.0 (PaddleOCR)',
@@ -72,7 +73,7 @@ export const MODELS = {
   'pp-doclayout-v3': {
     id: 'pp-doclayout-v3',
     file: 'PP-DocLayoutV3.onnx',
-    url: 'https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/layout/PP-DocLayoutV3.onnx',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/PP-DocLayoutV3.onnx',
     sha256: 'dc5670ebbb42e2ba4e41395fc55e8217b007134e8b9e35023d592a8fe040a288',
     bytes: 129_920_689,
     license: 'Apache-2.0 (PaddlePaddle PP-DocLayoutV3)',

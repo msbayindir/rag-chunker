@@ -35,7 +35,7 @@ const dist = (p) => import(pathToFileURL(join(root, 'dist', p)).href)
 const api = await dist('index.js')
 const { PACKAGE_VERSION } = await dist('output/manifest.js')
 const { processDocument, resolveConfig, evaluate, createReranker, resolveReranker, readDotEnv } = api
-const env = { ...(await readDotEnv().catch(() => ({}))), ...process.env }
+const env = { ...(await readDotEnv(join(process.cwd(), '.env')).catch(() => ({}))), ...process.env }
 
 /** Rewrites the results block of bench/README.md from a results file. */
 async function updateReadme(summary) {
