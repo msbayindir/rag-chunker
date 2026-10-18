@@ -20,98 +20,185 @@ export const providerTypeSchema = z.enum([
 export type ProviderType = z.infer<typeof providerTypeSchema>
 
 export const providerConfigSchema = z.strictObject({
-  /** Adapter to use. Optional for built-in provider names (openai, anthropic, gemini, ollama, ...). */
-  type: providerTypeSchema.optional(),
-  /** Override the API base URL (proxies, LM Studio, vLLM, self-hosted gateways). */
-  baseURL: z.url().optional(),
-  /** Programmatic use only. Config files must not contain keys — use environment variables. */
-  apiKey: z.string().min(1).optional(),
-  /** Environment variable that holds the API key. Defaults to the provider's standard variable. */
-  apiKeyEnv: z.string().min(1).optional(),
-  /** Extra HTTP headers sent with every request. */
-  headers: z.record(z.string(), z.string()).optional(),
-  /** Context window override in tokens (when the provider cannot report it). */
-  contextWindow: z.number().int().positive().optional(),
-  /** Upper bound for Ollama's num_ctx. Keeps memory use predictable. Default 32768. */
-  maxContext: z.number().int().min(2048).optional(),
-  /** Maximum parallel requests to this provider. */
-  concurrency: z.number().int().min(1).max(64).optional(),
-  /** Per-request timeout in milliseconds. */
-  timeoutMs: z.number().int().positive().optional(),
-  /** Retries for transient errors (429, 5xx, network). Default 4. */
-  maxRetries: z.number().int().min(0).max(10).optional(),
+  type: providerTypeSchema
+    .optional()
+    .describe(
+      'Adapter to use. Optional for built-in names (openai, openrouter, anthropic, gemini, ollama, mistral, lmstudio).',
+    ),
+  baseURL: z.url().optional().describe('API base URL (proxies, LM Studio, vLLM, self-hosted gateways).'),
+  apiKey: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Programmatic use only. Config files must not contain keys — use environment variables.'),
+  apiKeyEnv: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Environment variable holding the key (default: the provider's standard one)."),
+  headers: z
+    .record(z.string(), z.string())
+    .optional()
+    .describe('Extra HTTP headers sent with every request.'),
+  contextWindow: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Context window in tokens, for providers that cannot report it.'),
+  maxContext: z
+    .number()
+    .int()
+    .min(2048)
+    .optional()
+    .describe("Upper bound for Ollama's num_ctx; keeps memory use predictable. Default 32768."),
+  concurrency: z
+    .number()
+    .int()
+    .min(1)
+    .max(64)
+    .optional()
+    .describe('Maximum parallel requests to this provider.'),
+  timeoutMs: z.number().int().positive().optional().describe('Per-request timeout in milliseconds.'),
+  maxRetries: z
+    .number()
+    .int()
+    .min(0)
+    .max(10)
+    .optional()
+    .describe('Retries for transient errors (429, 5xx, network). Default 4.'),
 })
 export type ProviderConfig = z.infer<typeof providerConfigSchema>
 
 const ocrSchema = z.strictObject({
-  /** "auto", "text-layer", "mistral" or a vision model reference such as "ollama/gemma4:e4b-it-qat". */
   engine: z
     .string()
     .trim()
     .refine((v) => v === 'auto' || v === 'text-layer' || v === 'mistral' || MODEL_REF_RE.test(v), {
       error: 'ocr.engine must be "auto", "text-layer", "mistral" or "provider/model"',
     })
-    .default('auto'),
-  /** Which pages go to the OCR engine. "auto": all pages for Mistral, scanned pages for vision models. */
-  pages: z.enum(['auto', 'all', 'scanned']).default('auto'),
-  /** Parallel page requests for vision OCR. Defaults to the provider's concurrency. */
-  concurrency: z.number().int().min(1).max(32).optional(),
-  /** Remove image placeholders such as ![img-0.jpeg](img-0.jpeg). */
-  stripImages: z.boolean().default(true),
-  /** Remove running headers and footers that repeat across pages. */
-  removeHeaderFooter: z.boolean().default(true),
-  /** A PDF page with fewer extractable characters than this is treated as scanned. */
-  minTextChars: z.number().int().min(0).default(40),
+    .default('auto')
+    .describe(
+      '"auto" (Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), "text-layer", "mistral", or a vision model such as "ollama/gemma4:e4b-it-qat".',
+    ),
+  pages: z
+    .enum(['auto', 'all', 'scanned'])
+    .default('auto')
+    .describe(
+      'PDF pages sent to the OCR engine. "auto": all pages for Mistral, scanned pages for vision models.',
+    ),
+  concurrency: z
+    .number()
+    .int()
+    .min(1)
+    .max(32)
+    .optional()
+    .describe("Parallel page requests (default: the provider's concurrency)."),
+  stripImages: z
+    .boolean()
+    .default(true)
+    .describe('Remove image placeholders such as ![img-0.jpeg](img-0.jpeg).'),
+  removeHeaderFooter: z
+    .boolean()
+    .default(true)
+    .describe('Remove running headers, footers and page numbers that repeat across pages.'),
+  minTextChars: z
+    .number()
+    .int()
+    .min(0)
+    .default(40)
+    .describe('A PDF page with fewer extractable characters is treated as scanned.'),
 })
 
 const modelsSchema = z.strictObject({
-  /** Vision model used for OCR of scanned pages and images. */
-  vision: modelRefSchema.optional(),
-  /** LLM that fixes heading levels. Stage is skipped when unset. */
-  structure: modelRefSchema.optional(),
-  /** LLM that writes contextual-retrieval summaries. Stage is skipped when unset. */
-  context: modelRefSchema.optional(),
-  /** Embedding model. Stage is skipped when unset. */
-  embedding: modelRefSchema.optional(),
+  vision: modelRefSchema
+    .optional()
+    .describe('Vision model for scanned pages and images, e.g. "ollama/gemma4:e4b-it-qat".'),
+  structure: modelRefSchema.optional().describe('LLM that repairs heading levels. Skipped when unset.'),
+  context: modelRefSchema
+    .optional()
+    .describe('LLM that writes contextual-retrieval summaries. Skipped when unset.'),
+  embedding: modelRefSchema
+    .optional()
+    .describe('Embedding model, e.g. "ollama/embeddinggemma". Skipped when unset.'),
 })
 
 const chunkSchema = z.strictObject({
-  maxTokens: z.number().int().min(32).max(16384).default(512),
-  minTokens: z.number().int().min(0).default(64),
-  overlapTokens: z.number().int().min(0).default(0),
-  /** Headings at this depth or shallower always start a new chunk (H1 + H2 by default). */
-  hardBoundaryDepth: z.number().int().min(0).max(6).default(2),
-  preserveTables: z.boolean().default(true),
-  preserveCode: z.boolean().default(true),
-  /** "o200k" is a real BPE tokenizer; "estimate" is a fast character-based approximation. */
-  tokenizer: z.enum(['o200k', 'estimate']).default('o200k'),
+  maxTokens: z.number().int().min(32).max(16384).default(512).describe('Maximum tokens per chunk.'),
+  minTokens: z
+    .number()
+    .int()
+    .min(0)
+    .default(64)
+    .describe('Smaller chunks are merged with a neighbour in the same section.'),
+  overlapTokens: z
+    .number()
+    .int()
+    .min(0)
+    .default(0)
+    .describe('Trailing sentences of the previous chunk added for context.'),
+  hardBoundaryDepth: z
+    .number()
+    .int()
+    .min(0)
+    .max(6)
+    .default(2)
+    .describe('Headings at this depth or shallower always start a new chunk (2 = H1 and H2).'),
+  preserveTables: z
+    .boolean()
+    .default(true)
+    .describe('Keep tables in their own chunks (split by rows with the header repeated).'),
+  preserveCode: z.boolean().default(true).describe('Keep code blocks in their own chunks.'),
+  tokenizer: z
+    .enum(['o200k', 'estimate'])
+    .default('o200k')
+    .describe('"o200k" counts real BPE tokens; "estimate" is a fast character-based approximation.'),
 })
 
 const contextSchema = z.strictObject({
-  /** "full" sends the whole document, "hierarchical" sends summaries + neighbours, "auto" picks. */
-  strategy: z.enum(['auto', 'full', 'hierarchical']).default('auto'),
-  /** Chunks summarised per request. */
-  batchSize: z.number().int().min(1).max(50).default(8),
-  concurrency: z.number().int().min(1).max(32).optional(),
+  strategy: z
+    .enum(['auto', 'full', 'hierarchical'])
+    .default('auto')
+    .describe(
+      '"full" sends the whole document, "hierarchical" sends document + section summaries, "auto" picks by size.',
+    ),
+  batchSize: z.number().int().min(1).max(50).default(8).describe('Chunks summarised per request.'),
+  concurrency: z
+    .number()
+    .int()
+    .min(1)
+    .max(32)
+    .optional()
+    .describe("Parallel requests (default: the provider's concurrency)."),
 })
 
 const embeddingSchema = z.strictObject({
-  /** Output dimensions for models that support truncation (Gemini, OpenAI text-embedding-3). */
-  dimensions: z.number().int().positive().optional(),
-  batchSize: z.number().int().min(1).max(2048).optional(),
+  dimensions: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'Output dimensions for models that support it (Gemini, OpenAI text-embedding-3, EmbeddingGemma).',
+    ),
+  batchSize: z.number().int().min(1).max(2048).optional().describe('Texts per embedding request.'),
 })
 
 const cacheSchema = z.strictObject({
-  enabled: z.boolean().default(true),
-  /** Defaults to ~/.rag-chunker/cache */
-  dir: z.string().min(1).optional(),
+  enabled: z
+    .boolean()
+    .default(true)
+    .describe('Cache OCR pages, summaries and embeddings so reruns are free and resumable.'),
+  dir: z.string().min(1).optional().describe('Cache folder (default ~/.rag-chunker/cache).'),
 })
 
 export const configSchema = z
   .strictObject({
     $schema: z.string().optional(),
-    ocr: ocrSchema.prefault({}),
-    models: modelsSchema.prefault({}),
+    ocr: ocrSchema.prefault({}).describe('How text is extracted.'),
+    models: modelsSchema
+      .prefault({})
+      .describe('Models per stage as "provider/model". A stage without a model is skipped.'),
     providers: z
       .record(
         z
@@ -119,11 +206,14 @@ export const configSchema = z
           .regex(PROVIDER_NAME_RE, { error: 'Provider names may only contain letters, digits, - and _' }),
         providerConfigSchema,
       )
-      .default({}),
-    chunk: chunkSchema.prefault({}),
-    context: contextSchema.prefault({}),
-    embedding: embeddingSchema.prefault({}),
-    cache: cacheSchema.prefault({}),
+      .default({})
+      .describe(
+        'Provider settings and custom OpenAI-compatible endpoints, keyed by the name used in model references.',
+      ),
+    chunk: chunkSchema.prefault({}).describe('Chunk sizes and boundaries.'),
+    context: contextSchema.prefault({}).describe('Contextual retrieval settings.'),
+    embedding: embeddingSchema.prefault({}).describe('Embedding settings.'),
+    cache: cacheSchema.prefault({}).describe('On-disk cache.'),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.chunk.minTokens >= cfg.chunk.maxTokens) {
