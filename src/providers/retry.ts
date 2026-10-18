@@ -37,6 +37,37 @@ function headerValue(headers: unknown, name: string): string | undefined {
   return typeof v === 'string' ? v : undefined
 }
 
+function headersOf(err: unknown): unknown {
+  const e = err as { headers?: unknown; response?: { headers?: unknown } } | undefined
+  return e?.headers ?? e?.response?.headers
+}
+
+function headerEntries(headers: unknown): Array<[string, string]> {
+  if (!headers) return []
+  if (typeof (headers as Headers).forEach === 'function' && typeof (headers as Headers).get === 'function') {
+    const out: Array<[string, string]> = []
+    ;(headers as Headers).forEach((value, key) => {
+      out.push([key, value])
+    })
+    return out
+  }
+  return Object.entries(headers as Record<string, unknown>).filter(
+    (e): e is [string, string] => typeof e[1] === 'string',
+  )
+}
+
+/**
+ * True when a 429 comes from a quota of zero (the plan does not include this model or endpoint),
+ * e.g. Mistral's `x-ratelimit-limit-req-minute: 0` or Gemini's "limit: 0". Retrying cannot help.
+ */
+export function hasZeroQuota(err: unknown): boolean {
+  if (statusOf(err) !== 429) return false
+  for (const [key, value] of headerEntries(headersOf(err))) {
+    if (/^x-ratelimit-limit/i.test(key) && value.trim() === '0') return true
+  }
+  return /\blimit:\s*0\b/i.test(errorMessage(err))
+}
+
 /** Delay requested by the server (Retry-After / retry-after-ms), capped at 60s. */
 export function retryAfterMs(err: unknown): number | undefined {
   const headers =
@@ -55,6 +86,7 @@ export function retryAfterMs(err: unknown): number | undefined {
 
 export function isRetryable(err: unknown): boolean {
   if (err instanceof RagChunkerError) return err.retryable
+  if (hasZeroQuota(err)) return false
   const status = statusOf(err)
   if (status !== undefined) return RETRYABLE_STATUS.has(status)
   const e = err as { code?: unknown; name?: unknown; cause?: { code?: unknown } }
@@ -104,6 +136,31 @@ export function toProviderError(err: unknown, ref: string, keyEnv?: string[]): R
       cause: err,
       hint:
         keyEnv && keyEnv.length > 0 ? `Check ${keyEnv.join(' / ')}` : 'Check the API key for this provider',
+    })
+  }
+  if (status === 429) {
+    const provider = ref.split('/')[0] ?? ''
+    const where =
+      provider === 'mistral'
+        ? ' (console.mistral.ai → Billing / Limits)'
+        : provider === 'gemini' || provider === 'google'
+          ? ' (aistudio.google.com → API keys → billing and rate limits)'
+          : ''
+    if (hasZeroQuota(err)) {
+      return new RagChunkerError(
+        'QUOTA_EXCEEDED',
+        `${ref}: this API key's plan has no quota for this model (rate limit is 0 requests)`,
+        {
+          status,
+          cause: err,
+          hint: `Enable billing or a plan that includes this model in the provider console${where}.`,
+        },
+      )
+    }
+    return new RagChunkerError('RATE_LIMITED', `${ref}: rate limited (429) even after retries: ${message}`, {
+      status,
+      cause: err,
+      hint: `Lower providers.${provider}.concurrency, wait a minute and run again (finished work is cached), or raise your plan's limits${where}.`,
     })
   }
   if (status === 404) {

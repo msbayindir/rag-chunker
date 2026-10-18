@@ -210,7 +210,7 @@ export async function runProcess(inputs: string[], flags: ProcessFlags): Promise
         else reportError(error, flags.verbose)
         if (
           error instanceof RagChunkerError &&
-          ['MISSING_API_KEY', 'CONFIG_INVALID', 'PROVIDER_UNAVAILABLE'].includes(error.code)
+          ['MISSING_API_KEY', 'QUOTA_EXCEEDED', 'CONFIG_INVALID', 'PROVIDER_UNAVAILABLE'].includes(error.code)
         ) {
           break
         }

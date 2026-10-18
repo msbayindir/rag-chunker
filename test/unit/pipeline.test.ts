@@ -245,3 +245,24 @@ describe('planDocument and chunkMarkdown', () => {
     })
   })
 })
+
+describe('automatic OCR fallback', () => {
+  it('moves on to the text layer when an automatically chosen Mistral has no quota', async () => {
+    server.on('POST', '/v1/ocr', (_r, res) =>
+      json(res, 429, { message: 'Rate limit exceeded' }, { 'x-ratelimit-limit-req-minute': '0' }),
+    )
+    const config = { providers: { mistral: { baseURL: `${server.url}/v1` } }, cache: { enabled: false } }
+    const res = await processDocument(fixture('turkish.pdf'), config, { env: { MISTRAL_API_KEY: 'k' } })
+    expect(res.manifest.stages.ocr.engine).toBe('text-layer')
+    expect(res.chunks.length).toBeGreaterThan(0)
+    expect(res.warnings.some((w) => w.includes('Mistral OCR is not usable'))).toBe(true)
+    // An explicit choice still fails loudly.
+    await expect(
+      processDocument(
+        fixture('turkish.pdf'),
+        { ...config, ocr: { engine: 'mistral' } },
+        { env: { MISTRAL_API_KEY: 'k' } },
+      ),
+    ).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+  })
+})

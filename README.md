@@ -65,7 +65,7 @@ npx @msbayindir/rag-chunker process book.pdf \
   --embedding gemini/gemini-embedding-001
 ```
 
-With `MISTRAL_API_KEY` set, PDFs are OCR'd by Mistral OCR automatically (best quality for tables and complex layouts).
+With `MISTRAL_API_KEY` set, PDFs are OCR'd by Mistral OCR automatically (best quality for tables and complex layouts). If the key's plan has no OCR quota, rag-chunker warns and continues with the next engine.
 
 ## How it works
 
@@ -300,6 +300,8 @@ Tools: `search` (hybrid when the chunks have embeddings), `get_chunk` (with neig
 | `model is not installed in Ollama` | `ollama pull <model>` |
 | `cannot reach Ollama` | Start the Ollama app or `ollama serve`; set `OLLAMA_HOST` for remote hosts |
 | `needs an API key` | Put the key in `.env` or the environment (the error names the variable) |
+| `plan has no quota for this model` | The key works but its plan allows 0 requests for that model (common for Mistral OCR on free plans). Enable billing in the provider console. With `ocr.engine: "auto"` rag-chunker warns and falls back to the vision model or the text layer |
+| `rate limited (429) even after retries` | Lower `providers.<name>.concurrency` and run again — finished pages and chunks come from the cache |
 | Vision OCR needs `@napi-rs/canvas` | `npm install @napi-rs/canvas` (installed by default unless optional dependencies are skipped) |
 | Small local model returns invalid JSON | It is retried and split automatically; persistent failures appear as warnings. Use a larger model for `structure` |
 

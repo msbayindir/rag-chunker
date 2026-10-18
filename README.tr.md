@@ -65,7 +65,7 @@ npx @msbayindir/rag-chunker process kitap.pdf \
   --embedding gemini/gemini-embedding-001
 ```
 
-`MISTRAL_API_KEY` tanımlıysa PDF'ler otomatik olarak Mistral OCR ile okunur (tablolar ve karmaşık sayfa düzenleri için en iyi kalite).
+`MISTRAL_API_KEY` tanımlıysa PDF'ler otomatik olarak Mistral OCR ile okunur (tablolar ve karmaşık sayfa düzenleri için en iyi kalite). Anahtarın planında OCR kotası yoksa rag-chunker uyarı verip bir sonraki motorla devam eder.
 
 ## Nasıl çalışır
 
@@ -218,6 +218,8 @@ Araçlar: `search`, `get_chunk`, `get_page`, `list_documents`.
 | `model is not installed in Ollama` | `ollama pull <model>` |
 | `cannot reach Ollama` | Ollama uygulamasını açın ya da `ollama serve`; uzak sunucu için `OLLAMA_HOST` |
 | `needs an API key` | Anahtarı `.env`'e ya da ortama yazın (hata mesajı değişken adını söyler) |
+| `plan has no quota for this model` | Anahtar geçerli ama planı o model için 0 istek hakkı veriyor (ücretsiz planlarda Mistral OCR'da sık görülür). Sağlayıcı konsolundan faturalandırmayı açın. `ocr.engine: "auto"` iken rag-chunker uyarı verip vision modele ya da metin katmanına geçer |
+| `rate limited (429) even after retries` | `providers.<ad>.concurrency` değerini düşürüp tekrar çalıştırın; biten sayfalar ve chunk'lar cache'ten gelir |
 | Küçük yerel model geçersiz JSON döndürüyor | Otomatik olarak yeniden denenir ve bölünür; kalıcı hatalar uyarı olarak görünür. `structure` için daha büyük bir model kullanın |
 
 Önce `rag-chunker doctor` çalıştırın; yukarıdakilerin hepsini kontrol eder.

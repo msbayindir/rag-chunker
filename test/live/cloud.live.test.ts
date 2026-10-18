@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { resolveConfig } from '../../src/config/load.js'
 import { readDocument } from '../../src/documents/input.js'
+import { subsetPdf } from '../../src/documents/pdf.js'
 import { processDocument } from '../../src/index.js'
 import { mistralOcr } from '../../src/providers/mistral-ocr.js'
 import { createEmbedder, createLLM, getProvider } from '../../src/providers/registry.js'
@@ -11,6 +12,26 @@ import { liveEnv } from './helpers.js'
 
 const env = await liveEnv()
 const hasMistral = !!env.MISTRAL_API_KEY
+
+/** 'ok' when the key can run OCR, 'no-quota' when the plan allows 0 OCR requests. */
+async function probeMistral(): Promise<'ok' | 'no-quota' | 'no-key'> {
+  if (!hasMistral) return 'no-key'
+  const provider = getProvider('mistral', { config: resolveConfig({}), env })
+  const page = await subsetPdf(new Uint8Array(await readFile(fixture('turkish.pdf'))), [1])
+  try {
+    await mistralOcr({ provider, bytes: page, mime: 'application/pdf', kind: 'pdf' })
+    return 'ok'
+  } catch (err) {
+    if ((err as { code?: string }).code === 'QUOTA_EXCEEDED') {
+      console.warn(
+        'Mistral: this key has no OCR quota (0 requests/minute); running the fallback checks instead.',
+      )
+      return 'no-quota'
+    }
+    throw err
+  }
+}
+const mistral = await probeMistral()
 const hasGemini = !!(env.GEMINI_API_KEY || env.GOOGLE_API_KEY)
 
 /** Override with GEMINI_TEST_* when Google renames models. */
@@ -18,7 +39,28 @@ const GEMINI_FAST = env.GEMINI_TEST_MODEL ?? 'gemini-3.5-flash-lite'
 const GEMINI_VISION = env.GEMINI_TEST_VISION_MODEL ?? 'gemini-3.8-flash'
 const GEMINI_EMBEDDING = env.GEMINI_TEST_EMBEDDING_MODEL ?? 'gemini-embedding-001'
 
-describe.skipIf(!hasMistral)('live: Mistral OCR', () => {
+describe.skipIf(mistral !== 'no-quota')('live: Mistral key without OCR quota', () => {
+  it('fails fast with QUOTA_EXCEEDED when Mistral is chosen explicitly', async () => {
+    const started = Date.now()
+    await expect(
+      processDocument(
+        fixture('turkish.pdf'),
+        { ocr: { engine: 'mistral' }, cache: { enabled: false } },
+        { env },
+      ),
+    ).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    expect(Date.now() - started).toBeLessThan(10_000)
+  })
+
+  it('falls back to the next OCR engine in auto mode', async () => {
+    const res = await processDocument(fixture('turkish.pdf'), { cache: { enabled: false } }, { env })
+    expect(res.manifest.stages.ocr.engine).toBe('text-layer')
+    expect(res.warnings.join(' ')).toContain('Mistral OCR is not usable')
+    expect(res.chunks.length).toBeGreaterThan(0)
+  })
+})
+
+describe.skipIf(mistral !== 'ok')('live: Mistral OCR', () => {
   it('OCRs every page of a PDF, including the scanned one', async () => {
     const res = await processDocument(
       fixture('turkish.pdf'),

@@ -551,3 +551,45 @@ describe('gemini adapter details', () => {
     expect(out.text).toBe('inline ok')
   })
 })
+
+describe('rate limits and quotas', () => {
+  it('stops immediately when the plan has a zero quota (Mistral headers)', async () => {
+    server.on('POST', '/v1/ocr', (_r, res) =>
+      json(
+        res,
+        429,
+        { object: 'error', message: 'Rate limit exceeded', type: 'rate_limited', code: '1300' },
+        { 'x-ratelimit-limit-req-minute': '0', 'x-ratelimit-remaining-req-minute': '0' },
+      ),
+    )
+    const c = ctx({ mistral: { baseURL: `${server.url}/v1` } }, { MISTRAL_API_KEY: 'm-key' })
+    const provider = (await import('../../src/providers/registry.js')).getProvider('mistral', c)
+    const err = await mistralOcr({
+      provider,
+      bytes: new Uint8Array([1]),
+      mime: 'application/pdf',
+      kind: 'pdf',
+    }).catch((e) => e)
+    expect(err).toMatchObject({ code: 'QUOTA_EXCEEDED', status: 429 })
+    expect(err.hint).toContain('console.mistral.ai')
+    expect(server.requests).toHaveLength(1)
+  })
+
+  it('recognises Gemini "limit: 0" quota errors and reports exhausted retries as RATE_LIMITED', async () => {
+    const { hasZeroQuota, toProviderError } = await import('../../src/providers/retry.js')
+    expect(
+      hasZeroQuota({
+        status: 429,
+        message: 'Quota exceeded for metric: generate_content_free_tier_requests, limit: 0',
+      }),
+    ).toBe(true)
+    expect(hasZeroQuota({ status: 429, message: 'Quota exceeded, limit: 10' })).toBe(false)
+    expect(hasZeroQuota({ status: 500, headers: { 'x-ratelimit-limit-req-minute': '0' } })).toBe(false)
+    const limited = toProviderError(
+      { status: 429, message: 'slow down', headers: new Headers({ 'x-ratelimit-limit-req-minute': '60' }) },
+      'gemini/x',
+    )
+    expect(limited).toMatchObject({ code: 'RATE_LIMITED', retryable: false })
+    expect(limited.hint).toContain('concurrency')
+  })
+})

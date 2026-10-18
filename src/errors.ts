@@ -3,6 +3,8 @@ export type ErrorCode =
   | 'MISSING_API_KEY'
   | 'PROVIDER_UNAVAILABLE'
   | 'PROVIDER_ERROR'
+  | 'RATE_LIMITED'
+  | 'QUOTA_EXCEEDED'
   | 'MODEL_NOT_FOUND'
   | 'CAPABILITY_MISSING'
   | 'STRUCTURED_OUTPUT_FAILED'
@@ -55,5 +57,7 @@ export function throwIfAborted(signal?: AbortSignal): void {
 
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
+  const message = (err as { message?: unknown } | null)?.message
+  if (typeof message === 'string') return message
   return String(err)
 }

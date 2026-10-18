@@ -60,7 +60,14 @@ export function createContext(
 }
 
 /** Picks the OCR engine: explicit config wins; "auto" prefers Mistral, then a vision model, then the text layer. */
-export function resolveOcrEngine(ctx: PipelineContext): { engine: OcrEngine; pages: 'all' | 'scanned' } {
+export interface OcrPlan {
+  engine: OcrEngine
+  pages: 'all' | 'scanned'
+  /** Engine to use when an automatically chosen Mistral OCR is unusable (no quota, bad key). */
+  fallback?: { engine: OcrEngine; pages: 'all' | 'scanned' }
+}
+
+export function resolveOcrEngine(ctx: PipelineContext): OcrPlan {
   const { engine, pages } = ctx.config.ocr
   let resolved: OcrEngine
   if (engine === 'text-layer') resolved = { type: 'text-layer' }
@@ -81,8 +88,20 @@ export function resolveOcrEngine(ctx: PipelineContext): { engine: OcrEngine; pag
     resolved = { type: 'vision', ref: engine }
   }
   const mode = pages === 'auto' ? (resolved.type === 'mistral' ? 'all' : 'scanned') : pages
+  if (engine === 'auto' && resolved.type === 'mistral') {
+    const vision = ctx.config.models.vision
+    const fallback: OcrEngine = vision ? { type: 'vision', ref: vision } : { type: 'text-layer' }
+    return {
+      engine: resolved,
+      pages: mode,
+      fallback: { engine: fallback, pages: pages === 'auto' ? 'scanned' : pages },
+    }
+  }
   return { engine: resolved, pages: mode }
 }
+
+/** Errors that make Mistral OCR unusable for this account; "auto" then moves on to the next engine. */
+const OCR_FALLBACK_CODES = new Set(['QUOTA_EXCEEDED', 'MISSING_API_KEY'])
 
 function engineName(engine: OcrEngine): string {
   return engine.type === 'vision' ? engine.ref : engine.type
@@ -123,21 +142,35 @@ export async function runPipeline(
   reporter.end('read', `${doc.kind}, ${doc.bytes.length} bytes`)
 
   // ── OCR ────────────────────────────────────────────────────────────────
-  const { engine, pages } = resolveOcrEngine(ctx)
+  const plan = resolveOcrEngine(ctx)
+  let { engine } = plan
   let t = Date.now()
   reporter.start('ocr', engineName(engine))
-  const extracted = await extractDocument(doc, {
-    engine,
-    pages,
-    minTextChars: config.ocr.minTextChars,
-    stripImages: config.ocr.stripImages,
-    removeHeaderFooter: config.ocr.removeHeaderFooter,
-    concurrency: config.ocr.concurrency,
-    registry,
-    cache,
-    reporter,
-    signal,
-  })
+  const extract = (e: OcrEngine, p: 'all' | 'scanned') =>
+    extractDocument(doc, {
+      engine: e,
+      pages: p,
+      minTextChars: config.ocr.minTextChars,
+      stripImages: config.ocr.stripImages,
+      removeHeaderFooter: config.ocr.removeHeaderFooter,
+      concurrency: config.ocr.concurrency,
+      registry,
+      cache,
+      reporter,
+      signal,
+    })
+  let extracted: Awaited<ReturnType<typeof extractDocument>>
+  try {
+    extracted = await extract(engine, plan.pages)
+  } catch (err) {
+    if (!plan.fallback || !(err instanceof RagChunkerError) || !OCR_FALLBACK_CODES.has(err.code)) throw err
+    reporter.warn(
+      'ocr',
+      `Mistral OCR is not usable with this key (${err.message}); using ${engineName(plan.fallback.engine)} instead. ${err.hint ?? ''}`.trim(),
+    )
+    engine = plan.fallback.engine
+    extracted = await extract(engine, plan.fallback.pages)
+  }
   byStage.ocr = extracted.usage
   const ocrStage: Manifest['stages']['ocr'] = {
     engine: engineName(engine),

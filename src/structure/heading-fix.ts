@@ -274,6 +274,8 @@ export function isFatal(err: unknown): boolean {
   if (!(err instanceof RagChunkerError)) return false
   return [
     'MISSING_API_KEY',
+    'QUOTA_EXCEEDED',
+    'RATE_LIMITED',
     'MODEL_NOT_FOUND',
     'PROVIDER_UNAVAILABLE',
     'CAPABILITY_MISSING',
