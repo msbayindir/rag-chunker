@@ -223,6 +223,22 @@ const figuresSchema = z.strictObject({
     .describe('Smallest figure kept, as a share of the page area; icons and logos fall below it.'),
 })
 
+const rerankSchema = z.strictObject({
+  engine: z
+    .enum(['auto', 'off', 'mmarco-minilm', 'bge-reranker-base', 'bge-reranker-v2-m3'])
+    .default('auto')
+    .describe(
+      'Local cross-encoder that reorders the top search candidates (eval, mcp). "auto": on when onnxruntime-node and the default model (mmarco-minilm) are present; a model id: on, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, slow on CPU); "off".',
+    ),
+  candidates: z
+    .number()
+    .int()
+    .min(5)
+    .max(200)
+    .default(30)
+    .describe('First-stage results (hybrid or BM25) handed to the reranker.'),
+})
+
 const cacheSchema = z.strictObject({
   enabled: z
     .boolean()
@@ -254,6 +270,7 @@ export const configSchema = z
     embedding: embeddingSchema.prefault({}).describe('Embedding settings.'),
     layout: layoutSchema.prefault({}).describe('Local page layout analysis (PDF).'),
     figures: figuresSchema.prefault({}).describe('Figure extraction (PDF, images).'),
+    rerank: rerankSchema.prefault({}).describe('Reranking of search results (eval, mcp).'),
     cache: cacheSchema.prefault({}).describe('On-disk cache.'),
   })
   .superRefine((cfg, ctx) => {

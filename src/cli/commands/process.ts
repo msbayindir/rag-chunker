@@ -211,6 +211,13 @@ export async function runProcess(inputs: string[], flags: ProcessFlags): Promise
             for (const w of res.warnings.slice(0, flags.verbose ? undefined : 5)) err(`     ${pc.dim(w)}`)
             if (!flags.verbose && res.warnings.length > 5) err(pc.dim('     … run with --verbose to see all'))
           }
+          const findings = res.manifest.quality?.flags ?? []
+          if (findings.length > 0) {
+            err(`  ${sym.dot} ${pc.bold('Quality')} ${pc.dim(`${findings.length} finding(s)`)}`)
+            for (const f of findings.slice(0, flags.verbose ? undefined : 3)) err(`     ${pc.dim(f)}`)
+            if (!flags.verbose && findings.length > 3)
+              err(pc.dim(`     … rag-chunker inspect ${dir} shows all`))
+          }
           err()
         }
       } catch (error) {

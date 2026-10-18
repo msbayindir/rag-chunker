@@ -325,6 +325,33 @@
       },
       "additionalProperties": false
     },
+    "rerank": {
+      "description": "Reranking of search results (eval, mcp).",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "engine": {
+          "default": "auto",
+          "description": "Local cross-encoder that reorders the top search candidates (eval, mcp). \"auto\": on when onnxruntime-node and the default model (mmarco-minilm) are present; a model id: on, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, slow on CPU); \"off\".",
+          "type": "string",
+          "enum": [
+            "auto",
+            "off",
+            "mmarco-minilm",
+            "bge-reranker-base",
+            "bge-reranker-v2-m3"
+          ]
+        },
+        "candidates": {
+          "default": 30,
+          "description": "First-stage results (hybrid or BM25) handed to the reranker.",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 200
+        }
+      },
+      "additionalProperties": false
+    },
     "cache": {
       "description": "On-disk cache.",
       "default": {},

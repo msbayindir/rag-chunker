@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { CacheStore } from '../../src/cache/store.js'
 import {
+  compareReports,
   evaluate,
   generateQuestions,
   isRelevant,
@@ -143,14 +144,14 @@ describe('eval', () => {
       'Hipokalsemi belirtileri?',
     ])
     const chunks = chunkMarkdown(doc, { minTokens: 0 })
-    const report = evaluate(set, chunks, 'out')
+    const report = await evaluate(set, chunks, 'out')
     expect(report.metrics).toHaveLength(1)
     expect(report.metrics[0]).toMatchObject({ mode: 'bm25', questions: 2, hitAt1: 1, mrr: 1 })
     const vec = withVectors(chunks, (c) => [
       c.rawContent.includes('Hiperkalemi') ? 1 : 0,
       c.rawContent.includes('Hipokalsemi') ? 1 : 0,
     ])
-    const withVec = evaluate(
+    const withVec = await evaluate(
       set,
       vec,
       'out',
@@ -158,5 +159,47 @@ describe('eval', () => {
     )
     expect(withVec.metrics.map((m) => m.mode)).toEqual(['bm25', 'vector', 'hybrid'])
     expect(withVec.metrics[1]?.hitAt1).toBe(1)
+  })
+})
+
+describe('compareReports', () => {
+  const report = (output: string, ranks: Record<string, number[]>) => ({
+    output,
+    chunks: 10,
+    metrics: Object.entries(ranks).map(([mode, rs]) => ({
+      mode: mode as 'bm25' | 'hybrid' | 'rerank',
+      questions: rs.length,
+      hitAt1: rs.filter((r) => r === 1).length / rs.length,
+      hitAt3: rs.filter((r) => r > 0 && r <= 3).length / rs.length,
+      hitAt5: rs.filter((r) => r > 0 && r <= 5).length / rs.length,
+      hitAt10: rs.filter((r) => r > 0).length / rs.length,
+      mrr: rs.reduce((s, r) => s + (r > 0 ? 1 / r : 0), 0) / rs.length,
+    })),
+    ranks: (ranks.bm25 as number[]).map((_, i) => ({
+      id: i,
+      question: `q${i}`,
+      ranks: Object.fromEntries(Object.entries(ranks).map(([mode, rs]) => [mode, rs[i]])),
+    })),
+  })
+
+  it('compares several outputs in the best mode they share, counting improved and regressed questions', () => {
+    const a = report('a', { bm25: [1, 3, 0, 2], hybrid: [1, 2, 0, 2] })
+    const b = report('b', { bm25: [1, 1, 4, 3], hybrid: [1, 1, 5, 2], rerank: [1, 1, 1, 1] })
+    const cmp = compareReports([a, b], ['a', 'b'])
+    expect(cmp.columns.map((c) => [c.label, c.mode])).toEqual([
+      ['a', 'hybrid'],
+      ['b', 'hybrid'],
+    ])
+    const col = cmp.columns[1]
+    expect(col?.ranks).toEqual([1, 1, 5, 2])
+    expect(col).toMatchObject({ improved: 2, regressed: 0 })
+    expect(col?.deltaMrr).toBeCloseTo((1 + 1 + 0.2 + 0.5) / 4 - (1 + 0.5 + 0 + 0.5) / 4, 6)
+  })
+
+  it('compares the modes of a single output against its first mode', () => {
+    const only = report('a', { bm25: [2, 0, 1], rerank: [1, 3, 2] })
+    const cmp = compareReports([only], ['a'])
+    expect(cmp.columns.map((c) => c.label)).toEqual(['bm25', 'rerank'])
+    expect(cmp.columns[1]).toMatchObject({ improved: 2, regressed: 1 })
   })
 })

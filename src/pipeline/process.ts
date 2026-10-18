@@ -19,6 +19,7 @@ import { createTableStructureProvider, TABLE_DICT, TABLE_MODEL } from '../local/
 import { engineLabel, extractDocument, type LocalOcr, type OcrEngine } from '../ocr/extract.js'
 import { buildDocumentLayout, type DocumentLayout } from '../output/layout.js'
 import { chunkStats, type Manifest, PACKAGE_VERSION, sanitizeConfig } from '../output/manifest.js'
+import { assessQuality } from '../output/quality.js'
 import { buildStructure, type DocumentStructure } from '../output/structure.js'
 import { type OutputPaths, writeOutputs } from '../output/writer.js'
 import { ProviderRegistry } from '../providers/registry.js'
@@ -509,6 +510,13 @@ export async function runPipeline(
     pages: extracted.pages,
     chunks,
   })
+  const quality = assessQuality({
+    layout,
+    chunks,
+    stages: { ocr: ocrStage },
+    chunk: config.chunk,
+    kind: doc.kind,
+  })
   const total = emptyUsage()
   for (const u of Object.values(byStage)) addUsage(total, u)
   const manifest: Manifest = {
@@ -526,6 +534,7 @@ export async function runPipeline(
       embedding: embeddingStage,
     },
     usage: { total, byStage },
+    quality,
     warnings: reporter.warnings,
   }
 

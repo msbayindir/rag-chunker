@@ -75,6 +75,16 @@ export {
 export { ensureModel, hasModel, MODELS, type ModelId, modelsDir } from './local/models.js'
 export { createOcrProvider, type OcrLine, type OcrResult, recognizeImage } from './local/ocr.js'
 export {
+  createReranker,
+  DEFAULT_RERANKER,
+  hasReranker,
+  RERANKERS,
+  type RerankerId,
+  type RerankPlan,
+  resolveReranker,
+  UnigramTokenizer,
+} from './local/reranker.js'
+export {
   createTableStructureProvider,
   type ModelCell,
   type ModelTable,
@@ -109,6 +119,9 @@ export type {
 export {
   Bm25Index,
   buildSearchIndex,
+  type Reranker,
+  rerank,
+  rerankText,
   type SearchHit,
   type SearchIndex,
   type SearchMode,

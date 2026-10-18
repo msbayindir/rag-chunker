@@ -3,6 +3,7 @@ import type { ResolvedConfig } from '../config/schema.js'
 import type { DocumentKind } from '../documents/input.js'
 import type { Usage } from '../providers/types.js'
 import type { Chunk, ContentType } from '../types.js'
+import type { QualityReport } from './quality.js'
 
 const require = createRequire(import.meta.url)
 export const PACKAGE_VERSION: string = (require('../../package.json') as { version: string }).version
@@ -76,6 +77,8 @@ export interface Manifest {
     } | null
   }
   usage: { total: Usage; byStage: Record<string, Usage> }
+  /** Quality signals and findings (absent in outputs written by older versions). */
+  quality?: QualityReport
   warnings: string[]
 }
 
