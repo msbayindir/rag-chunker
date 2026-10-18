@@ -17,7 +17,7 @@ import { PACKAGE_VERSION } from '../../output/manifest.js'
 import { ollamaListModels } from '../../providers/ollama.js'
 import { ProviderRegistry } from '../../providers/registry.js'
 import { cliEnv } from '../env.js'
-import { err, formatNumber, header, mask, reportError, sym } from '../ui.js'
+import { DISCUSSIONS_URL, err, formatNumber, header, ISSUES_URL, mask, reportError, sym } from '../ui.js'
 import { buildConfig, type ProcessFlags } from './process.js'
 
 type Status = 'ok' | 'warn' | 'fail' | 'info'
@@ -274,6 +274,9 @@ export function doctorCommand(): Command {
             err(`  ${icon(c.status)}  ${pc.bold(c.label.padEnd(16))} ${c.detail}`)
             if (c.hint) err(`     ${' '.repeat(16)} ${pc.dim(c.hint)}`)
           }
+          err()
+          err(pc.dim(`  Something off? Report it: ${ISSUES_URL}`))
+          err(pc.dim(`  Questions and ideas: ${DISCUSSIONS_URL}`))
           err()
         }
         process.exitCode = checks.some((c) => c.status === 'fail') ? 1 : 0

@@ -112,19 +112,31 @@ export class ProgressRenderer {
 }
 
 /** Prints an error with its hint and returns the exit code. */
+export const ISSUES_URL = 'https://github.com/msbayindir/rag-chunker/issues/new/choose'
+export const DISCUSSIONS_URL = 'https://github.com/msbayindir/rag-chunker/discussions'
+
+/** Errors that point at the tool rather than at the user's setup get a link to report them. */
+const REPORTABLE = new Set(['PROVIDER_ERROR', 'INPUT_INVALID', 'UNSUPPORTED_INPUT'])
+
 export function reportError(error: unknown, verbose = false): number {
   err()
+  let reportable = false
   if (error instanceof RagChunkerError) {
     err(`  ${sym.fail}  ${pc.red(error.message)}`)
     if (error.hint) err(`     ${pc.dim(error.hint)}`)
     if (verbose && error.cause instanceof Error && error.cause.stack) err(pc.dim(error.cause.stack))
+    reportable = REPORTABLE.has(error.code)
   } else if (error instanceof Error) {
     err(`  ${sym.fail}  ${pc.red(error.message)}`)
     if (verbose && error.stack) err(pc.dim(error.stack))
     else err(`     ${pc.dim('Run again with --verbose for details.')}`)
+    reportable = true
   } else {
     err(`  ${sym.fail}  ${pc.red(String(error))}`)
+    reportable = true
   }
+  if (reportable)
+    err(`     ${pc.dim(`If this looks like a bug in rag-chunker, please report it: ${ISSUES_URL}`)}`)
   err()
   return 1
 }

@@ -214,7 +214,8 @@ export function captionFor(
         .sort((a, b) => b.y - a.y || a.x0 - b.x0)
       if (inside.length > 0) return { text: joinCaption(inside.map((l) => l.text)), bbox: t.bbox }
     }
-    return null
+    // No caption region next to the figure: the model misses captions on some pages, so the
+    // text heuristics below still get their turn.
   }
   const near = (l: LineLike) => horizontally({ x0: l.x0, x1: l.x1, y0: l.y, y1: l.y + l.size })
   const below = lines

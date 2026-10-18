@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/msbayindir/rag-chunker/discussions
+    about: Ask how to do something, share what you built, or propose a feature in Discussions.
+  - name: Security issue
+    url: https://github.com/msbayindir/rag-chunker/security/advisories/new
+    about: Report a vulnerability privately through GitHub (see SECURITY.md).

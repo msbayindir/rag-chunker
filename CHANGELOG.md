@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Examples for the local layout model with figures and descriptions, XLSX/HTML inputs, two-stage search with the reranker, `eval --compare` for two chunk sizes, and the MCP setup for Claude Desktop, Claude Code and Cursor; README links them.
+- Feedback channels: a "document problem" issue template, Discussions, `SECURITY.md` with private vulnerability reporting; `doctor` and error messages that look like bugs link to the issue tracker.
+- Figure captions fall back to the caption-line heuristic when layout analysis finds no caption region next to a figure.
+
 ## 4.0.0
 
 A rewrite. v4 is not compatible with v3: the API, CLI flags, output fields and cache format all changed.

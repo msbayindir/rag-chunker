@@ -342,9 +342,16 @@ Run `rag-chunker doctor` first; it checks everything above.
 
 Node.js 22 or newer. Optional: [Ollama](https://ollama.com) for local models.
 
-## Contributing
+## Examples
 
-Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Adding a provider means implementing the small `LLM` / `Embedder` interfaces in `src/providers/`.
+[`examples/`](examples/) has runnable scripts: the basics, the local layout model with figures and their descriptions, XLSX/HTML inputs, two-stage search with the reranker, `eval --compare` for two chunk sizes, a fully local pipeline, mixed providers, a pgvector query, and the MCP setup for Claude Desktop, Claude Code and Cursor.
+
+## Feedback and contributing
+
+- A document that comes out wrong (missing text, reading order, tables, headings, figures, OCR): open a [document problem](https://github.com/msbayindir/rag-chunker/issues/new/choose) with the quality findings from `rag-chunker inspect <dir>` — that is the single most useful kind of report.
+- Questions, ideas and what you built with it: [Discussions](https://github.com/msbayindir/rag-chunker/discussions).
+- Security: see [SECURITY.md](SECURITY.md) (private reporting through GitHub).
+- Pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Adding a provider means implementing the small `LLM` / `Embedder` interfaces in `src/providers/`.
 
 ## License
 
