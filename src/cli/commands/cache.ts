@@ -1,72 +1,55 @@
 import { Command } from 'commander'
-import {
-  loadOcrRegistry,
-  saveOcrRegistry,
-  listOcrEntries,
-  pruneOcrCache,
-  clearOcrCache,
-  formatCachedAt,
-  DEFAULT_OCR_CACHE_PATH
-} from '../../context/cache.js'
+import pc from 'picocolors'
+import { CacheStore } from '../../cache/store.js'
+import { DEFAULT_CACHE_DIR, loadConfig } from '../../config/load.js'
+import { err, formatNumber, parseIntOption, reportError, sym } from '../ui.js'
 
-export function buildCacheCommand(): Command {
-  const cmd = new Command('cache')
-    .description('Manage the local OCR cache registry')
+async function store(configPath?: string, dir?: string): Promise<CacheStore> {
+  if (dir) return new CacheStore(dir)
+  const { config } = await loadConfig({ configPath })
+  return new CacheStore(config.cache.dir ?? DEFAULT_CACHE_DIR)
+}
 
+export function cacheCommand(): Command {
+  const cmd = new Command('cache').description('Show or clear the cache (OCR pages, summaries, embeddings)')
   cmd
-    .command('list')
-    .description('List all OCR cache entries')
-    .option('--cache-path <path>', 'Custom cache JSON path', DEFAULT_OCR_CACHE_PATH)
-    .action((opts: { cachePath: string }) => {
-      const registry = loadOcrRegistry(opts.cachePath)
-      const entries = listOcrEntries(registry)
-
-      if (entries.length === 0) {
-        process.stdout.write('OCR cache is empty.\n')
-        return
+    .command('info')
+    .description('Show cache size per stage')
+    .option('--dir <dir>', 'cache folder (default from config or ~/.rag-chunker/cache)')
+    .option('-c, --config <file>', 'config file')
+    .action(async (flags: { dir?: string; config?: string }) => {
+      try {
+        const s = await store(flags.config, flags.dir)
+        const stats = await s.stats()
+        err()
+        err(`  ${pc.bold('Cache')} ${pc.dim(s.dir ?? '')}`)
+        err(`  ${formatNumber(stats.entries)} entries, ${(stats.bytes / 1024 / 1024).toFixed(1)} MB`)
+        for (const [ns, v] of Object.entries(stats.namespaces).sort()) {
+          err(
+            `  ${sym.dot} ${ns.padEnd(10)} ${formatNumber(v.entries).padStart(7)} entries  ${(v.bytes / 1024 / 1024).toFixed(1)} MB`,
+          )
+        }
+        err()
+      } catch (e) {
+        process.exitCode = reportError(e)
       }
-
-      process.stdout.write(`\nOCR cache (${entries.length} entries):\n`)
-      for (const { key, entry } of entries) {
-        process.stdout.write(
-          `  ${key.slice(0, 16)}… | ${entry.model} | ${entry.pageCount} pages | ${formatCachedAt(entry.cachedAt)}\n`
-        )
-      }
-      process.stdout.write('\n')
     })
-
   cmd
     .command('clear')
-    .description('Clear OCR cache entries')
-    .option('--expired', 'Remove only expired entries')
-    .option('--all', 'Remove all entries')
-    .option('--ttl <days>', 'TTL in days for expired check', '7')
-    .option('--cache-path <path>', 'Custom cache JSON path', DEFAULT_OCR_CACHE_PATH)
-    .action((opts: {
-      expired?: boolean
-      all?: boolean
-      ttl: string
-      cachePath: string
-    }) => {
-      if (!opts.expired && !opts.all) {
-        process.stderr.write('Error: specify --expired or --all\n')
-        globalThis.process.exit(1)
+    .description('Delete cache entries')
+    .option('--older-than <days>', 'only entries older than this many days', parseIntOption('older-than'))
+    .option('--dir <dir>', 'cache folder')
+    .option('-c, --config <file>', 'config file')
+    .action(async (flags: { olderThan?: number; dir?: string; config?: string }) => {
+      try {
+        const s = await store(flags.config, flags.dir)
+        const removed = await s.prune(
+          flags.olderThan === undefined ? undefined : flags.olderThan * 86_400_000,
+        )
+        err(`  ${sym.ok} Removed ${formatNumber(removed)} entr${removed === 1 ? 'y' : 'ies'}`)
+      } catch (e) {
+        process.exitCode = reportError(e)
       }
-
-      const registry = loadOcrRegistry(opts.cachePath)
-
-      if (opts.all) {
-        clearOcrCache(registry)
-        saveOcrRegistry(opts.cachePath, registry)
-        process.stdout.write('OCR cache cleared.\n')
-        return
-      }
-
-      const ttlDays = parseFloat(opts.ttl)
-      const removed = pruneOcrCache(registry, ttlDays)
-      saveOcrRegistry(opts.cachePath, registry)
-      process.stdout.write(`Removed ${removed} expired entries.\n`)
     })
-
   return cmd
 }

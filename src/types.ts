@@ -1,95 +1,38 @@
-export type { DocumentStructure, ProcessManifest, TableRecord } from './output/types.js'
-export type { HeadingCorrection, HeadingFixResult, StructureDiscovery } from './normalize/heading-fix.js'
-export type { IEmbeddingProvider } from './embeddings/types.js'
+import type { ContentType } from './chunker/chunker.js'
 
-export interface ChunkerConfig {
-  /** Gemini API key — used for context enrichment and as OCR fallback */
-  geminiApiKey?: string
-  /** Mistral API key — primary OCR provider */
-  mistralApiKey?: string
-  /** Context generation mode. Default: 'none' */
-  contextMode?: 'per-chunk' | 'batch' | 'none'
-  /** Gemini model for context summaries. Default: 'gemini-2.0-flash' */
-  contextModel?: string
-  /** Number of chunks per batch in batch context mode. Default: 10 */
-  contextBatchSize?: number
-  /** Max concurrent API calls in per-chunk context mode. Default: 2 */
-  contextConcurrency?: number
-  /** Max tokens per chunk. Default: 512 */
-  maxChunkTokens?: number
-  /** Min tokens for a chunk to be emitted. Default: 50 */
-  minChunkTokens?: number
-  /** Tokens of overlap prepended from previous chunk. Default: 0 */
-  overlapTokens?: number
-  /** Keep tables in their own chunk. Default: true */
-  preserveTables?: boolean
-  /** Keep code blocks in their own chunk. Default: true */
-  preserveCodeBlocks?: boolean
-  /**
-   * Path to OCR cache JSON file. Default: ~/.rag-chunker/ocr-cache.json.
-   * Pass `false` to disable OCR caching.
-   */
-  ocrCachePath?: string | false
-  /** OCR cache TTL in days. Default: 7 */
-  ocrCacheTtlDays?: number
-  /** Embedding provider for generating vector embeddings. Optional. */
-  embeddingProvider?: import('./embeddings/types.js').IEmbeddingProvider
-  /** Custom logger. Default: pino logger at INFO level. */
-  logger?: import('./logger.js').ILogger
-  /**
-   * Use Gemini to detect and fix inconsistent heading levels produced by OCR.
-   * Requires geminiApiKey. Fails gracefully if the API call fails.
-   * Default: false
-   */
-  headingNormalization?: boolean
-  /**
-   * Warn when a mustPreserve chunk (table/code) exceeds this token count.
-   * These chunks can't be split, so large values degrade embedding quality.
-   * Default: 2000
-   */
-  warnLargeChunkTokens?: number
-  /**
-   * Gemini model for heading fix phase 1 (structure discovery — full document sent).
-   * Default: 'gemini-2.5-pro'
-   */
-  headingFixPhase1Model?: string
-  /**
-   * Gemini model for heading fix phase 2 (corrections — heading list only).
-   * Default: 'gemini-2.5-flash-preview-05-20'
-   */
-  headingFixPhase2Model?: string
-}
+export type { ContentType } from './chunker/chunker.js'
 
+/** One retrieval unit. A line of chunks.jsonl. */
 export interface Chunk {
-  /** SHA-256 of rawContent (first 32 hex chars). Deterministic. */
+  /** `<documentId[0:12]>-<sha256(rawContent)[0:16]>`, with `-2`, `-3`… for duplicates. Stable across runs. */
   chunkId: string
-  /** 0-based index in the chunks array */
+  /** sha256 of the source file bytes. */
+  documentId: string
+  /** Source file name (or a caller-provided label). */
+  source: string
+  /** 0-based position in the document. */
   index: number
-  /** Final content — contextSummary prepended to rawContent (if any), ready for embedding */
+  /** What to embed: `Context: <summary>` + overlap + rawContent. */
   content: string
-  /** Markdown content without context summary */
+  /** Verbatim markdown of the chunk. */
   rawContent: string
-  /** 2-sentence context summary, or empty string if contextMode is 'none' */
+  /** Contextual-retrieval summary, '' when the context stage is off or skipped this chunk. */
   contextSummary: string
+  /** Tokens in `content` (o200k unless the estimate tokenizer is configured). */
   tokenCount: number
-  contentType: 'text' | 'code' | 'table' | 'mixed'
-  /** Heading breadcrumb from root to this chunk */
+  contentType: ContentType
+  /** Heading breadcrumb, root first. */
   sectionPath: string[]
-  /** 1-based page number (from OCR page markers) */
-  pageNumber: number
+  /** 1-based first page (slide number for PPTX, 1 for formats without pages). */
+  pageStart: number
+  /** 1-based last page. */
+  pageEnd: number
+  /** Which engine produced the text: text-layer, mistral, <provider/model>, markdown, docx, pptx. */
+  ocrSource: string
   prevChunkId: string | null
   nextChunkId: string | null
-  embedding: number[]
-  /** True for table/code chunks that must not be merged across boundaries */
+  /** True for tables/code kept in their own chunk. */
   mustPreserve: boolean
-}
-
-export interface ProcessResult {
-  chunks: Chunk[]
-  /** Full document markdown with <!-- page N --> markers */
-  markdown: string
-  structure: import('./output/types.js').DocumentStructure
-  manifest: import('./output/types.js').ProcessManifest
-  /** Writes document.md, structure.json, chunks.jsonl, manifest.json to outputDir */
-  save(outputDir: string): Promise<void>
+  /** Embedding vector, [] when the embedding stage is off. */
+  embedding: number[]
 }

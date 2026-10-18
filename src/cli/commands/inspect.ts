@@ -1,77 +1,94 @@
+import { spawn } from 'node:child_process'
 import { Command } from 'commander'
-import { readFileSync, existsSync } from 'fs'
-import { join } from 'path'
-import { serveInspectUI } from '../ui.js'
+import pc from 'picocolors'
+import { readOutputDir } from '../../output/writer.js'
+import { startInspectServer } from '../inspect/server.js'
+import { err, formatMs, formatNumber, parseIntOption, reportError, sym } from '../ui.js'
 
-export function buildInspectCommand(): Command {
+function openBrowser(url: string): void {
+  const [cmd, args] =
+    process.platform === 'darwin'
+      ? ['open', [url]]
+      : process.platform === 'win32'
+        ? ['cmd', ['/c', 'start', '', url]]
+        : ['xdg-open', [url]]
+  try {
+    spawn(cmd, args as string[], { stdio: 'ignore', detached: true }).unref()
+  } catch {
+    // Opening the browser is a convenience; the URL is printed anyway.
+  }
+}
+
+async function printSummary(dir: string): Promise<void> {
+  const { manifest: m, structure, chunks } = await readOutputDir(dir)
+  const s = m.stages
+  err()
+  err(
+    `  ${pc.bold(m.source.name)}  ${pc.dim(`${m.source.kind} · rag-chunker v${m.version} · ${m.createdAt}`)}`,
+  )
+  err()
+  err(
+    `  OCR        ${s.ocr.model} ${pc.dim(`(${s.ocr.pages} pages, ${s.ocr.ocrPages} OCR'd, ${s.ocr.scannedPages} scanned)`)}`,
+  )
+  err(
+    `  Headings   ${s.structure ? `${s.structure.model} ${pc.dim(`(${s.structure.corrections} fixes)`)}` : pc.dim('off')}`,
+  )
+  err(
+    `  Chunks     ${s.chunk.count} ${pc.dim(`(avg ${s.chunk.avgTokens}, ${s.chunk.minTokens}–${s.chunk.maxTokens} tokens; text ${s.chunk.byType.text}, table ${s.chunk.byType.table}, code ${s.chunk.byType.code}, mixed ${s.chunk.byType.mixed})`)}`,
+  )
+  err(
+    `  Context    ${s.context ? `${s.context.model} ${pc.dim(`(${s.context.strategy}, ${s.context.enriched} enriched, ${s.context.failed} failed)`)}` : pc.dim('off')}`,
+  )
+  err(
+    `  Embedding  ${s.embedding ? `${s.embedding.model} ${pc.dim(`(${s.embedding.dimensions} dimensions)`)}` : pc.dim('off')}`,
+  )
+  if (structure) {
+    err(
+      `  Structure  ${structure.headings.length} headings, ${structure.tables.length} tables, ${formatNumber(structure.totalTokens)} tokens`,
+    )
+  }
+  err(
+    `  Usage      ${formatNumber(m.usage.total.requests)} requests, ${formatNumber(m.usage.total.inputTokens)} in / ${formatNumber(m.usage.total.outputTokens)} out`,
+  )
+  err(`  Duration   ${formatMs(m.durationMs)}`)
+  if (m.warnings.length)
+    err(`  ${sym.warn} ${pc.yellow(`${m.warnings.length} warning(s)`)} ${pc.dim('— see manifest.json')}`)
+  if (chunks.length > 0) {
+    err()
+    err(pc.dim(`  First chunk (${chunks[0]?.sectionPath.join(' › ') || 'no section'}):`))
+    err(pc.dim(`  ${(chunks[0]?.rawContent ?? '').slice(0, 240).replace(/\n/g, ' ')}…`))
+  }
+  err()
+}
+
+export function inspectCommand(): Command {
   return new Command('inspect')
-    .description('Inspect an output directory (reads manifest.json and structure.json)')
-    .argument('<output-dir>', 'Path to the output directory produced by `rag-chunker process`')
-    .option('--ui', 'Open an interactive browser UI for exploring the output')
-    .option('--pdf <path>', 'Path to the original PDF file (enables side-by-side PDF view in UI)')
-    .action((outputDir: string, opts: { ui?: boolean; pdf?: string }) => {
-      if (opts.ui) {
-        const manifestPath = join(outputDir, 'manifest.json')
-        if (!existsSync(manifestPath)) {
-          process.stderr.write(`Error: No manifest.json found in: ${outputDir}\n`)
-          globalThis.process.exit(1)
-        }
-        serveInspectUI(outputDir, opts.pdf)
-        return
-      }
-      const manifestPath = join(outputDir, 'manifest.json')
-      const structurePath = join(outputDir, 'structure.json')
-
-      if (!existsSync(manifestPath)) {
-        process.stderr.write(`Error: No manifest.json found in: ${outputDir}\n`)
-        globalThis.process.exit(1)
-      }
-
+    .description('Summarise an output folder, or browse it in a local web UI')
+    .argument('<dir>', 'output folder written by `rag-chunker process`')
+    .option('--ui', 'open the browser UI')
+    .option('--pdf <file>', 'original PDF, shown next to the extracted text')
+    .option('--port <port>', 'port for the UI (default: random)', parseIntOption('port'))
+    .option('--no-open', 'do not open the browser automatically')
+    .action(async (dir: string, flags: { ui?: boolean; pdf?: string; port?: number; open?: boolean }) => {
       try {
-        const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>
-
-        process.stdout.write('\n')
-        process.stdout.write(`Version:       ${manifest['version']}\n`)
-        process.stdout.write(`Processed:     ${manifest['processedAt']}\n`)
-        process.stdout.write(`PDF hash:      ${String(manifest['pdfHash']).slice(0, 12)}…\n`)
-        process.stdout.write(`OCR model:     ${manifest['ocrModel']}\n`)
-        process.stdout.write(`Context model: ${manifest['contextModel']}\n`)
-        process.stdout.write(`Context mode:  ${manifest['contextMode']}\n`)
-        process.stdout.write(`OCR cache hit: ${manifest['ocrCacheHit']}\n`)
-        const hf = manifest['headingFix'] as Record<string, unknown> | null | undefined
-        if (hf && !hf['skipped'] && Number(hf['corrections']) > 0) {
-          process.stdout.write(`Heading fixes: ${hf['corrections']} (${hf['documentType'] ?? 'unknown type'}, ${hf['mainSectionsFound']} main sections)\n`)
+        if (!flags.ui) {
+          await printSummary(dir)
+          return
         }
-        process.stdout.write(`Duration:      ${(Number(manifest['durationMs']) / 1000).toFixed(2)}s\n`)
-
-        const s = manifest['chunkStats'] as Record<string, number> | undefined
-        if (s) {
-          process.stdout.write('\nChunks:\n')
-          process.stdout.write(`  total:  ${s['total']}\n`)
-          process.stdout.write(`  avg:    ${s['avgTokens']} tokens\n`)
-          process.stdout.write(`  range:  ${s['minTokens']}–${s['maxTokens']} tokens\n`)
-          process.stdout.write(
-            `  types:  text=${s['textChunks']}  table=${s['tableChunks']}  ` +
-            `code=${s['codeChunks']}  mixed=${s['mixedChunks']}\n`
-          )
+        const server = await startInspectServer({ dir, pdf: flags.pdf, port: flags.port })
+        err()
+        err(`  ${pc.cyan('◆')}  Inspector running at ${pc.bold(server.url)}`)
+        err(`     ${pc.dim('Press Ctrl+C to stop')}`)
+        err()
+        if (flags.open !== false) openBrowser(server.url)
+        const stop = async () => {
+          await server.close()
+          process.exit(0)
         }
-
-        if (existsSync(structurePath)) {
-          const structure = JSON.parse(readFileSync(structurePath, 'utf-8')) as Record<string, unknown>
-          process.stdout.write('\nDocument structure:\n')
-          process.stdout.write(`  pages:       ${structure['pageCount']}\n`)
-          process.stdout.write(
-            `  headings:    ${(structure['headings'] as unknown[])?.length ?? 0}\n`
-          )
-          process.stdout.write(`  tables:      ${structure['tableCount']}\n`)
-          process.stdout.write(`  code blocks: ${structure['codeBlockCount']}\n`)
-          process.stdout.write(`  total tokens: ${structure['totalTokens']}\n`)
-        }
-
-        process.stdout.write('\n')
-      } catch (err) {
-        process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`)
-        globalThis.process.exit(1)
+        process.once('SIGINT', stop)
+        process.once('SIGTERM', stop)
+      } catch (e) {
+        process.exitCode = reportError(e)
       }
     })
 }

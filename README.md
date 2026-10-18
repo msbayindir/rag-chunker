@@ -1,565 +1,320 @@
-# @msbayindir/rag-chunker
+# rag-chunker
 
-[![npm version](https://img.shields.io/npm/v/@msbayindir/rag-chunker)](https://www.npmjs.com/package/@msbayindir/rag-chunker)
-[![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@msbayindir/rag-chunker)](https://www.npmjs.com/package/@msbayindir/rag-chunker)
+[![CI](https://github.com/msbayindir/rag-chunker/actions/workflows/ci.yml/badge.svg)](https://github.com/msbayindir/rag-chunker/actions/workflows/ci.yml)
+[![Node ≥ 22](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-**PDF → Mistral OCR → Deterministic AST Chunker → Contextual RAG**
+**PDF, Word, PowerPoint, images and Markdown → retrieval-ready chunks.**
+One `npx` command, no Python. Runs with **no API keys**, **fully local** on Ollama (Gemma 4), or with any cloud model — Gemini, Claude, OpenAI, OpenRouter, Mistral OCR — and you can mix them per stage.
 
-A production-ready pipeline that turns PDFs into retrieval-optimized chunks. Uses Mistral OCR for accurate text extraction, a deterministic AST-based chunker that respects document structure, and optionally enriches each chunk with a context summary following [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval) method — reducing retrieval failures by up to 49%.
-
----
-
-## Highlights
-
-- **Mistral OCR 3** as primary OCR provider; Gemini Vision as automatic fallback
-- **Deterministic AST chunker** powered by remark/mdast — no LLM required for chunking, fast and reproducible
-- **Anthropic Contextual Retrieval** — optional batch or per-chunk context enrichment via Gemini
-- **Heading normalization** — two-phase Gemini pipeline fixes inconsistent heading levels from OCR
-- **Large PDF auto-split** — PDFs over 50 MB are automatically split into 40 MB batches and merged seamlessly
-- **OCR cache** — results cached locally (7-day TTL) so the same PDF is never re-processed
-- **CLI + programmatic API** — use as a command-line tool or import into your own pipeline
-
----
-
-## Installation
+[Türkçe README](README.tr.md)
 
 ```bash
-npm install @msbayindir/rag-chunker
+npx @msbayindir/rag-chunker process book.pdf            # no keys: text layer + structure-aware chunks
+npx @msbayindir/rag-chunker process book.pdf --local    # everything on Ollama, nothing leaves your machine
 ```
 
-`@google/genai` is a required peer dependency and is installed automatically. If you plan to use OpenAI embeddings:
+## Why rag-chunker
+
+- **Chunks that respect the document.** A deterministic, AST-based chunker keeps headings with their content, never splits mid-sentence unless it must, splits big tables by rows *with the header repeated*, keeps code fences intact and never drops a word (property-tested).
+- **Accurate citations.** Every chunk has `pageStart`/`pageEnd`, a heading breadcrumb (`sectionPath`) and a stable, collision-free `chunkId`.
+- **Tiered OCR.** Digital pages are read from the PDF text layer for free; only scanned pages go to Mistral OCR or a vision model (Gemma 4, Gemini, Claude, GPT…). Running headers, footers and page numbers are removed.
+- **Contextual retrieval** ([Anthropic's method](https://www.anthropic.com/news/contextual-retrieval)): each chunk gets a 1–2 sentence summary that situates it in the document. Large documents that do not fit a model use document + section summaries instead, so it works with small local models too.
+- **Heading repair.** OCR reads pages one by one and gets heading levels wrong; an LLM pass plus a deterministic numbering pass fixes them.
+- **Any provider, per stage.** `provider/model` everywhere: `ollama/gemma4:e4b-it-qat`, `gemini/gemini-3.5-flash-lite`, `anthropic/claude-haiku-5-5`, `openrouter/…`, or your own OpenAI-compatible server. Native prompt caching for each provider.
+- **Resumable and cheap to re-run.** OCR pages, summaries and embeddings are cached; an interrupted run continues where it stopped, and changing chunk sizes never re-pays for OCR.
+- **Measurable quality.** `rag-chunker eval` generates evidence-grounded questions and reports hit@k / MRR for BM25, vector and hybrid search — compare chunking settings side by side.
+- **Batteries included.** Browser inspector, exports to pgvector / Qdrant / LanceDB, and an MCP server so agents (Claude Desktop, Claude Code…) can search your documents.
+
+## Quick start
 
 ```bash
-npm install openai
+# 1. Check what is available on this machine
+npx @msbayindir/rag-chunker doctor
+
+# 2. (optional) Create a config with a guided setup — detects Ollama, RAM and API keys
+npx @msbayindir/rag-chunker init
+
+# 3. Process documents (files or whole folders)
+npx @msbayindir/rag-chunker process docs/ -o out/
+
+# 4. Look at the result
+npx @msbayindir/rag-chunker inspect out/report --ui --pdf docs/report.pdf
 ```
 
----
-
-## API Keys — Free to Get Started
-
-You can process hundreds of documents without spending a cent.
-
-### Mistral AI — Primary OCR
-
-1. Go to [console.mistral.ai](https://console.mistral.ai) → Sign Up → **API Keys**
-2. New accounts receive **$5 free credit** (no credit card required on sign-up)
-3. Mistral OCR pricing: ~$1 per 1,000 pages → $5 gets you ~5,000 pages
-4. More than enough to evaluate and prototype
-
-> If you only have a Mistral key, OCR works. Context enrichment and heading normalization require a Gemini key.
-
-### Google Gemini — Context Enrichment, Heading Normalization, Fallback OCR
-
-1. Go to [aistudio.google.com](https://aistudio.google.com) → **Get API Key**
-2. **Completely free** on the Google AI Studio free tier — no credit card required
-3. Free tier limits:
-   - `gemini-2.0-flash` (context default): **1,500 requests/day**
-   - `gemini-2.5-flash` (context alternative): **500 requests/day**
-   - `gemini-2.5-pro` (heading normalization phase 1): **50 requests/day**
-
-> For most documents, context enrichment uses ~20–30 batch requests. You can process 50+ documents per day on the free tier.
-
----
-
-## Quick Start
+### Fully local (private documents)
 
 ```bash
-# Basic — OCR + chunk, no context enrichment
-npx rag-chunker process document.pdf -m YOUR_MISTRAL_KEY -o ./output
-
-# With Anthropic-style context enrichment (recommended for RAG)
-npx rag-chunker process document.pdf \
-  -m YOUR_MISTRAL_KEY \
-  -k YOUR_GEMINI_KEY \
-  --context-mode batch \
-  -o ./output
-
-# With heading normalization (useful when OCR produces inconsistent heading levels)
-npx rag-chunker process document.pdf \
-  -m YOUR_MISTRAL_KEY \
-  -k YOUR_GEMINI_KEY \
-  --heading-normalization \
-  -o ./output
-
-# Using environment variables (recommended)
-export MISTRAL_API_KEY=your_key
-export GEMINI_API_KEY=your_key
-npx rag-chunker process document.pdf -o ./output
+brew install ollama            # or https://ollama.com/download
+ollama pull gemma4:e4b-it-qat  # vision + text, ~6 GB; 16 GB RAM is enough
+ollama pull embeddinggemma     # embeddings, ~0.6 GB
+npx @msbayindir/rag-chunker process contract.pdf --local
 ```
 
-After processing, `./output/` will contain:
+`--local` picks the best installed Gemma 4 for your RAM and turns on every stage: vision OCR for scanned pages, heading repair, contextual summaries and embeddings. Even if `MISTRAL_API_KEY` is set, nothing is sent to the cloud.
 
-```
-output/
-  chunks.jsonl      ← one chunk per line, ready for embedding
-  document.md       ← full markdown with page markers
-  structure.json    ← headings, tables, page count
-  manifest.json     ← processing stats and metadata
-```
+### Cloud models
 
----
-
-## CLI Reference
-
-### `rag-chunker process <pdf>`
-
-Full pipeline: OCR → chunk → optional context enrichment → save.
+API keys are read from the environment or a `.env` file in the current folder — never from config files.
 
 ```bash
-rag-chunker process <pdf> [options]
+echo "GEMINI_API_KEY=..." >> .env
+npx @msbayindir/rag-chunker process book.pdf \
+  --context gemini/gemini-3.5-flash-lite \
+  --embedding gemini/gemini-embedding-001
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `-o, --output <dir>` | — | Output directory. If omitted, results are not saved to disk. |
-| `-m, --mistral-api-key <key>` | `MISTRAL_API_KEY` env | Mistral API key — primary OCR provider |
-| `-k, --gemini-api-key <key>` | `GEMINI_API_KEY` env | Gemini API key — context enrichment, heading fix, fallback OCR |
-| `--context-mode <mode>` | `none` | `none` \| `batch` \| `per-chunk` |
-| `--context-model <model>` | `gemini-2.0-flash` | Gemini model for context summaries |
-| `--context-batch-size <n>` | `10` | Chunks per batch in batch mode |
-| `--max-chunk-tokens <n>` | `512` | Max tokens per chunk |
-| `--min-chunk-tokens <n>` | `50` | Min tokens for a chunk to be emitted |
-| `--overlap-tokens <n>` | `0` | Tokens prepended from the previous chunk |
-| `--no-preserve-tables` | — | Do not keep tables in their own chunk |
-| `--no-preserve-code` | — | Do not keep code blocks in their own chunk |
-| `--heading-normalization` | — | Fix inconsistent heading levels (requires `--gemini-api-key`) |
-| `--ocr-cache-path <path>` | `~/.rag-chunker/ocr-cache.json` | Custom OCR cache file path |
-| `--ocr-cache-ttl <days>` | `7` | OCR cache TTL in days |
-| `--no-ocr-cache` | — | Disable OCR caching |
-| `--warn-large-chunk <n>` | `2000` | Warn when a table/code chunk exceeds N tokens |
-| `--verbose` | — | Show verbose pipeline logs |
+With `MISTRAL_API_KEY` set, PDFs are OCR'd by Mistral OCR automatically (best quality for tables and complex layouts). If the key's plan has no OCR quota, rag-chunker warns and continues with the next engine.
 
-**Large PDF handling:** PDFs over 50 MB automatically trigger a confirmation prompt. If confirmed, the file is split into 40 MB batches, each batch is OCR'd sequentially, and results are merged — page numbers and heading hierarchy are preserved across the split.
+## How it works
 
----
-
-### `rag-chunker ocr <pdf>`
-
-Debug command. Runs OCR and prints each page's markdown to stdout.
-
-```bash
-rag-chunker ocr document.pdf -m YOUR_MISTRAL_KEY
+```
+read ─▶ OCR ─▶ headings ─▶ chunk ─▶ context ─▶ embed ─▶ chunks.jsonl, document.md, structure.json, manifest.json
+        │       (optional)            (optional)  (optional)
+        ├─ text layer (digital pages, free)
+        ├─ Mistral OCR (all pages)          ← when MISTRAL_API_KEY is set
+        └─ vision model (scanned pages)     ← models.vision / --local
 ```
 
-| Option | Description |
-|--------|-------------|
-| `-m, --mistral-api-key <key>` | Mistral API key |
-| `-k, --gemini-api-key <key>` | Gemini API key (for Vision fallback) |
+A stage without a model is skipped. With no configuration you get the text layer and the chunker — no network calls at all.
 
----
+| Input | How it is read |
+|---|---|
+| PDF | Text layer (headings from font sizes, lists, two-column order, de-hyphenation); scanned pages through the OCR engine |
+| DOCX | Word headings, paragraphs and tables (mammoth → GFM) |
+| PPTX | One page per slide: title, nested bullets, tables, speaker notes |
+| PNG / JPEG / WebP | OCR engine (Mistral or a vision model) |
+| Markdown / text | As is; `<!-- page N -->` markers set page numbers |
 
-### `rag-chunker chunk <md>`
+## Choosing models
 
-Debug command. Runs the AST chunker on a `.md` file and prints chunk boundaries. No API key needed.
+Every model is written as `provider/model`. Built-in providers need no configuration:
 
-```bash
-rag-chunker chunk document.md --max-tokens 512
+| Provider | Key (environment) | Example models |
+|---|---|---|
+| `ollama` | — (`OLLAMA_HOST`, default `127.0.0.1:11434`) | `gemma4:e4b-it-qat`, `gemma4:12b-it-qat`, `embeddinggemma` |
+| `gemini` | `GEMINI_API_KEY` | `gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-embedding-001` |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-5-5`, `claude-sonnet-5-5` |
+| `openai` | `OPENAI_API_KEY` | your chat model, `text-embedding-3-large` |
+| `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-haiku-5-5`, any OpenRouter id |
+| `mistral` | `MISTRAL_API_KEY` | OCR (`ocr.engine: "mistral"`), `mistral-embed` |
+| `lmstudio` | — | whatever LM Studio serves on port 1234 |
+
+Model ids change over time; use the ones your account offers. `rag-chunker doctor` checks every configured model.
+
+Any OpenAI-compatible server (vLLM, llama.cpp, a gateway…) works by naming it:
+
+```json
+{
+  "providers": { "lab": { "type": "openai-compatible", "baseURL": "http://localhost:8000/v1", "apiKeyEnv": "LAB_KEY" } },
+  "models": { "context": "lab/qwen3-32b" }
+}
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--max-tokens <n>` | `512` | Max tokens per chunk |
-| `--min-tokens <n>` | `50` | Min tokens per chunk |
-| `--overlap-tokens <n>` | `0` | Overlap tokens from previous chunk |
-| `--no-preserve-tables` | — | Do not isolate tables |
-| `--no-preserve-code` | — | Do not isolate code blocks |
+**Suggested combinations**
 
----
+| Goal | vision / OCR | context | embedding |
+|---|---|---|---|
+| Free and private | `ollama/gemma4:e4b-it-qat` | same | `ollama/embeddinggemma` |
+| Best PDFs, cheap | Mistral OCR | `gemini/gemini-3.5-flash-lite` | `gemini/gemini-embedding-001` |
+| Mixed | Mistral OCR | `ollama/gemma4:12b-it-qat` | `openai/text-embedding-3-large` |
+| One key | `openrouter/…` | `openrouter/anthropic/claude-haiku-5-5` | in your vector DB |
 
-### `rag-chunker inspect <output-dir>`
+## Configuration
 
-Reads an output directory and prints a summary of its manifest and structure.
+Settings come from (highest priority first): **CLI flags → `rag-chunker.config.json` (or `.mjs`/`.js`) → automatic detection → defaults.**
 
-```bash
-rag-chunker inspect ./output
+```json
+{
+  "$schema": "./node_modules/@msbayindir/rag-chunker/schema/config.schema.json",
+  "ocr": { "engine": "auto" },
+  "models": {
+    "vision": "ollama/gemma4:e4b-it-qat",
+    "structure": "anthropic/claude-sonnet-5-5",
+    "context": "ollama/gemma4:e4b-it-qat",
+    "embedding": "ollama/embeddinggemma"
+  },
+  "chunk": { "maxTokens": 512, "minTokens": 64, "overlapTokens": 0 }
+}
 ```
 
----
+The `$schema` line gives autocompletion and documentation in VS Code and other editors. In JavaScript use `defineConfig`:
 
-### `rag-chunker cache list / clear`
-
-Manage the local OCR cache.
-
-```bash
-rag-chunker cache list
-rag-chunker cache clear --expired    # remove entries older than TTL
-rag-chunker cache clear --all        # wipe entire cache
+```js
+// rag-chunker.config.mjs
+import { defineConfig } from '@msbayindir/rag-chunker'
+export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' } })
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--cache-path <path>` | Custom cache file path |
-| `--ttl <days>` | TTL for expired check (default: 7) |
+| Option | Default | Meaning |
+|---|---|---|
+| `ocr.engine` | `auto` | `auto` (Mistral if `MISTRAL_API_KEY`, else `models.vision`, else text layer), `text-layer`, `mistral`, or a vision `provider/model` |
+| `ocr.pages` | `auto` | PDF pages sent to the engine: `all`, `scanned` (`auto`: all for Mistral, scanned for vision models) |
+| `ocr.removeHeaderFooter` | `true` | Drop running headers, footers and page numbers |
+| `ocr.stripImages` | `true` | Drop image placeholders such as `![img-0.jpeg](img-0.jpeg)` |
+| `ocr.minTextChars` | `40` | Pages with less extractable text count as scanned |
+| `models.vision` / `structure` / `context` / `embedding` | — | Model per stage; unset = stage skipped |
+| `chunk.maxTokens` | `512` | Hard limit per chunk (o200k tokens) |
+| `chunk.minTokens` | `64` | Smaller chunks merge with a neighbour in the same section |
+| `chunk.overlapTokens` | `0` | Trailing sentences of the previous chunk, prepended to `content` |
+| `chunk.hardBoundaryDepth` | `2` | H1/H2 always start a new chunk |
+| `chunk.preserveTables` / `preserveCode` | `true` | Keep tables/code in their own chunks |
+| `chunk.tokenizer` | `o200k` | `o200k` (real BPE) or `estimate` (fast approximation) |
+| `context.strategy` | `auto` | `full` (whole document as cached context), `hierarchical` (summaries), `auto` |
+| `context.batchSize` | `8` | Chunks per request |
+| `embedding.dimensions` | — | Output size for models that support it |
+| `providers.<name>` | — | `type`, `baseURL`, `apiKeyEnv`, `headers`, `contextWindow`, `maxContext` (Ollama `num_ctx` cap, default 32768), `concurrency`, `timeoutMs`, `maxRetries` |
+| `cache.enabled` / `cache.dir` | `true` / `~/.rag-chunker/cache` | On-disk cache |
 
----
+## CLI
+
+| Command | What it does |
+|---|---|
+| `process <files/folders…>` | Run the pipeline. `-o <dir>`, `--local`, `--ocr`, `--vision`, `--structure`, `--context`, `--embedding`, `--max-tokens`, `--min-tokens`, `--overlap`, `--context-strategy`, `--no-cache`, `--dry-run`, `--json`, `--verbose` |
+| `init` | Guided setup; offers to download Gemma 4 / EmbeddingGemma; `--yes` for defaults |
+| `doctor` | Checks Node, cache, keys, Ollama and every configured model (metadata only, no paid calls) |
+| `inspect <dir>` | Summary; `--ui` opens a local browser UI with search and `--pdf` page view |
+| `eval <dirs…>` | Retrieval benchmark (`--model`, `--questions`, `--questions-file`, `--embedding`) |
+| `export <dirs…> --to pgvector\|qdrant\|lancedb` | Upsert chunks and vectors (`--url`, `--table`, `--replace-document`, `--embedding`, `--index`) |
+| `mcp <dirs…>` | MCP server over stdio for AI agents |
+| `cache info` / `cache clear [--older-than <days>]` | Manage the cache |
+
+`--dry-run` shows pages to OCR, the estimated number of chunks and requests and an upper bound for context tokens, without calling any model.
+
+## Output
+
+`process` writes four files per document:
+
+| File | Content |
+|---|---|
+| `chunks.jsonl` | One chunk per line (below) |
+| `document.md` | Full markdown with `<!-- page N -->` markers |
+| `structure.json` | Headings, tables, sections, page count |
+| `manifest.json` | Version, models per stage, page/chunk statistics, token usage, the config used (without keys), warnings |
+
+```jsonc
+{
+  "chunkId": "332e7af07d0e-d5c8ae6169f9fdc6", // document prefix + content hash: stable across runs
+  "documentId": "332e7af07d0e…",              // sha256 of the file
+  "source": "turkish.pdf",
+  "index": 0,
+  "content": "Context: Bu bölüm …\n\n## 1. Hiponatremi\n\n…", // embed this
+  "rawContent": "## 1. Hiponatremi\n\n…",                       // verbatim markdown
+  "contextSummary": "Bu bölüm …",
+  "tokenCount": 304,
+  "contentType": "text",                       // text | table | code | mixed
+  "sectionPath": ["Elektrolit Bozuklukları", "1. Hiponatremi"],
+  "pageStart": 1,
+  "pageEnd": 2,
+  "ocrSource": "text-layer",                   // or mistral, ollama/gemma4:…, docx, pptx, markdown
+  "prevChunkId": null,
+  "nextChunkId": "332e7af07d0e-f3bd60c543caae4e",
+  "mustPreserve": false,
+  "embedding": [0.0123, …]                     // [] when no embedding model is set
+}
+```
+
+**What to embed:** `content` (it includes the context summary and overlap). For hybrid search index `content` in the vector store and `rawContent` for keyword search. Embed queries with the same model and `embedQuery()` — Gemini and EmbeddingGemma use different prompts for documents and queries.
 
 ## Programmatic API
 
-### `process(pdfInput, config)`
+```ts
+import { processDocument } from '@msbayindir/rag-chunker'
 
-Full pipeline. Returns a `ProcessResult` with chunks, markdown, structure, manifest, and a `save()` method.
-
-```typescript
-import { process } from '@msbayindir/rag-chunker'
-
-const result = await process('document.pdf', {
-  mistralApiKey: process.env.MISTRAL_API_KEY,
-  geminiApiKey: process.env.GEMINI_API_KEY,
-  contextMode: 'batch',
-  maxChunkTokens: 512,
+const result = await processDocument('book.pdf', {
+  models: { context: 'ollama/gemma4:e4b-it-qat', embedding: 'ollama/embeddinggemma' },
+}, {
+  onProgress: (e) => e.type === 'progress' && console.log(e.stage, `${e.done}/${e.total}`),
+  signal: AbortSignal.timeout(30 * 60_000),
 })
 
-// Save all output files
-await result.save('./output')
-
-// Or work with chunks directly
+await result.save('out/book')
 for (const chunk of result.chunks) {
-  console.log(chunk.content)     // embed this
-  console.log(chunk.sectionPath) // breadcrumb path
-  console.log(chunk.pageNumber)
+  // chunk.content → vector store, chunk.sectionPath / pageStart → citations
 }
 ```
 
-### `chunk(pdfInput, config)`
-
-Convenience wrapper. Forces `contextMode: 'none'` and returns only `Chunk[]`.
-
-```typescript
-import { chunk } from '@msbayindir/rag-chunker'
-
-const chunks = await chunk('document.pdf', {
-  mistralApiKey: process.env.MISTRAL_API_KEY,
-  maxChunkTokens: 512,
-})
-```
-
-### Full `ChunkerConfig` Reference
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `mistralApiKey` | `string` | — | Mistral API key — primary OCR |
-| `geminiApiKey` | `string` | — | Gemini API key — context, heading fix, fallback OCR |
-| `contextMode` | `'none' \| 'batch' \| 'per-chunk'` | `'none'` | Context enrichment mode |
-| `contextModel` | `string` | `'gemini-2.0-flash'` | Gemini model for context summaries |
-| `contextBatchSize` | `number` | `10` | Chunks per Gemini batch call |
-| `contextConcurrency` | `number` | `2` | Max concurrent calls in per-chunk mode |
-| `maxChunkTokens` | `number` | `512` | Max tokens per chunk |
-| `minChunkTokens` | `number` | `50` | Min tokens per chunk |
-| `overlapTokens` | `number` | `0` | Overlap tokens prepended from previous chunk |
-| `preserveTables` | `boolean` | `true` | Keep tables in their own chunk |
-| `preserveCodeBlocks` | `boolean` | `true` | Keep code blocks in their own chunk |
-| `ocrCachePath` | `string \| false` | `~/.rag-chunker/ocr-cache.json` | Cache path. `false` to disable. |
-| `ocrCacheTtlDays` | `number` | `7` | OCR cache TTL in days |
-| `headingNormalization` | `boolean` | `false` | Fix OCR heading levels via Gemini |
-| `headingFixPhase1Model` | `string` | `'gemini-2.5-pro'` | Model for structure discovery phase |
-| `headingFixPhase2Model` | `string` | `'gemini-2.5-flash-preview-05-20'` | Model for correction phase |
-| `warnLargeChunkTokens` | `number` | `2000` | Warn threshold for oversized preserved chunks |
-| `embeddingProvider` | `IEmbeddingProvider` | — | Embedding provider (optional) |
-| `logger` | `ILogger` | pino at INFO | Custom logger |
-
----
-
-## Embedding Providers
-
-Built-in providers can optionally generate embeddings inline during the pipeline.
-
-```typescript
-import {
-  createGeminiEmbeddingProvider,
-  createOpenAiEmbeddingProvider,
-  createNullEmbeddingProvider,
-} from '@msbayindir/rag-chunker'
-
-// Gemini — 1536 dimensions
-const geminiProvider = createGeminiEmbeddingProvider({
-  apiKey: process.env.GEMINI_API_KEY!,
-})
-
-// OpenAI text-embedding-3-large — 3072 dimensions (requires: npm install openai)
-const openaiProvider = createOpenAiEmbeddingProvider({
-  apiKey: process.env.OPENAI_API_KEY!,
-})
-
-// Null — returns empty vectors, useful for testing
-const nullProvider = createNullEmbeddingProvider()
-
-const result = await process('document.pdf', {
-  mistralApiKey: process.env.MISTRAL_API_KEY,
-  embeddingProvider: openaiProvider,
-})
-// result.chunks[0].embedding → number[]
-```
-
-> **Note:** Embedding is non-fatal. If the provider throws, the chunk is still returned with `embedding: []`.
-
----
-
-## Output Files
-
-### `chunks.jsonl`
-
-One JSON object per line. Each line is a `Chunk`:
-
-```jsonc
-{
-  "chunkId": "a3f7c2d1...",        // SHA-256(rawContent), first 32 hex chars — deterministic
-  "index": 0,                       // 0-based position in chunk array
-  "content": "Context: This section covers sodium metabolism in the electrolyte chapter.\n\n## Sodium Metabolism\n\nSodium is...",
-  "rawContent": "## Sodium Metabolism\n\nSodium is...",   // pure markdown, no context
-  "contextSummary": "This section covers sodium metabolism in the electrolyte chapter.",
-  "tokenCount": 412,
-  "contentType": "text",            // "text" | "table" | "code" | "mixed"
-  "sectionPath": ["Electrolyte Disorders", "Sodium Metabolism"],
-  "pageNumber": 14,                 // 1-based, from OCR page markers
-  "prevChunkId": "9f1a...",
-  "nextChunkId": "c82b...",
-  "mustPreserve": false,            // true for table/code chunks that can't be split
-  "embedding": []                   // number[] if embeddingProvider was configured
-}
-```
-
-### `document.md`
-
-Full document markdown with page markers:
-
-```markdown
-<!-- page 1 -->
-
-# Chapter 1
-
-Content...
-
-<!-- page 2 -->
-
-## Section 1.1
-```
-
-### `structure.json`
-
-Document structure extracted from markdown:
-
-```jsonc
-{
-  "headings": [
-    { "level": 1, "text": "Chapter 1", "pageNumber": 1, "markdownLine": 3 }
-  ],
-  "tables": [
-    { "index": 0, "caption": "Table 1. Electrolyte values", "pageNumber": 5, "rowCount": 8, "columnCount": 3 }
-  ],
-  "tableCount": 12,
-  "codeBlockCount": 0,
-  "pageCount": 192,
-  "totalTokens": 68432
-}
-```
-
-### `manifest.json`
-
-Processing metadata:
-
-```jsonc
-{
-  "version": "3.0",
-  "processedAt": "2026-03-16T00:20:51.118Z",
-  "pdfHash": "0f2860b4...",
-  "ocrModel": "mistral-ocr-latest",
-  "contextModel": "gemini-2.0-flash",
-  "contextMode": "batch",
-  "chunkStats": {
-    "total": 183, "avgTokens": 378,
-    "minTokens": 50, "maxTokens": 2662,
-    "tableChunks": 25, "codeChunks": 0, "textChunks": 158, "mixedChunks": 0
-  },
-  "durationMs": 146689,
-  "ocrCacheHit": true,
-  "headingFix": null,               // populated if --heading-normalization was used
-  "contextEnrichment": {
-    "model": "gemini-2.0-flash",
-    "chunksEnriched": 176,
-    "chunksSkipped": 7,             // low-quality OCR artifacts skipped
-    "batchCalls": 19,
-    "durationMs": 146005,
-    "cacheUsed": true               // whether Gemini CachedContent was used
-  }
-}
-```
-
----
-
-## Contextual Retrieval — What to Embed and Why
-
-### The Problem with Naive Chunking
-
-When you split a document into chunks and embed them independently, each chunk loses its context. A chunk containing `"It was founded in 1987 and has since expanded to 42 countries"` provides no signal for a query about a specific organization — the surrounding context that identifies the subject is gone.
-
-This is the core retrieval failure in most RAG systems.
-
-### Anthropic's Solution — and the Numbers
-
-In September 2024, Anthropic published [**Contextual Retrieval**](https://www.anthropic.com/news/contextual-retrieval), showing that prepending a short, situating summary to each chunk before embedding significantly improves retrieval:
-
-| Method | Retrieval Failure Reduction |
-|--------|-----------------------------|
-| Basic semantic embedding | baseline |
-| Contextual embedding | **49% fewer failures** |
-| Contextual embedding + BM25 hybrid | **67% fewer failures** |
-
-The approach: for each chunk, generate a 1–2 sentence summary that situates it within the document — what section it belongs to, what topic it covers. Prepend this to the chunk content before embedding.
-
-### How This Package Implements It
-
-When `--context-mode batch` (or `per-chunk`) is used:
-
-1. The full document markdown is sent to Gemini as context
-2. For each chunk, a 1–2 sentence summary is generated in the **same language as the document**
-3. The `contextSummary` field is stored separately
-4. `content` is assembled as: `"Context: <summary>\n\n<rawContent>"`
-
-This matches Anthropic's exact format.
-
-### Which Field Should You Embed?
-
-| Your setup | Embed this field |
-|-----------|-----------------|
-| `--context-mode batch` or `per-chunk` (recommended) | **`content`** — includes the context summary |
-| `--context-mode none` (default) | `content` or `rawContent` — they are identical |
-| Hybrid search: vector + BM25/keyword | `content` for vector index, `rawContent` for keyword index |
-
-```typescript
-// Reading chunks.jsonl and embedding
-import { createReadStream } from 'fs'
-import { createInterface } from 'readline'
-
-const rl = createInterface({ input: createReadStream('./output/chunks.jsonl') })
-for await (const line of rl) {
-  const chunk = JSON.parse(line)
-  const textToEmbed = chunk.content  // always use content
-  // → send to your vector database
-}
-```
-
-### Should You Strip Markdown Before Embedding?
-
-Modern embedding models (OpenAI `text-embedding-3-large`, Gemini `embedding-001`, Cohere `embed-v3`) are trained on web-scale data that includes markdown. They handle `#`, `**`, `|` and similar syntax gracefully — stripping is generally not necessary.
-
-Research findings:
-- **Nussbaum et al. (2024)** — *Nomic Embed: Training a Reproducible Long Context Text Embedder* — shows retrieval quality is robust to markdown formatting in general-purpose embedders
-- **Muennighoff et al. (2022)** — *MTEB: Massive Text Embedding Benchmark* — the benchmark includes mixed-format text; top models perform well without preprocessing
-- For **table-heavy content**, stripping `|` separators can marginally improve semantic similarity scores; for prose, the effect is negligible
-
-**This package does not strip markdown.** If your downstream embedding model or use case requires clean text, strip it yourself before embedding — this is intentionally left to the caller:
-
-```typescript
-// Optional: strip markdown before embedding (your responsibility)
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/#{1,6}\s+/g, '')          // headings
-    .replace(/\*\*([^*]+)\*\*/g, '$1')  // bold
-    .replace(/_([^_]+)_/g, '$1')        // italic
-    .replace(/`([^`]+)`/g, '$1')        // inline code
-    .replace(/\|/g, ' ')                // table separators
-    .replace(/\s+/g, ' ').trim()
-}
-
-const textToEmbed = stripMarkdown(chunk.content)
-```
-
----
-
-## Advanced Usage
-
-### Custom Logger
-
-Replace the default pino logger with your own:
-
-```typescript
-import { process } from '@msbayindir/rag-chunker'
-
-const result = await process('document.pdf', {
-  mistralApiKey: process.env.MISTRAL_API_KEY,
-  logger: {
-    debug: (msg, meta) => console.debug('[rag]', msg, meta),
-    info:  (msg, meta) => console.info('[rag]', msg, meta),
-    warn:  (msg, meta) => console.warn('[rag]', msg, meta),
-    error: (msg, meta) => console.error('[rag]', msg, meta),
-  }
-})
-```
-
-### Disable or Customize OCR Cache
-
-```typescript
-// Disable caching entirely
-const result = await process('document.pdf', {
-  mistralApiKey: process.env.MISTRAL_API_KEY,
-  ocrCachePath: false,
-})
-
-// Use a project-local cache instead of ~/.rag-chunker/
-const result = await process('document.pdf', {
-  mistralApiKey: process.env.MISTRAL_API_KEY,
-  ocrCachePath: './.rag-cache/ocr.json',
-  ocrCacheTtlDays: 30,
-})
-```
-
-### Heading Normalization
-
-OCR pipelines often produce inconsistent heading levels — a section title becomes `# Title` on one page and `## Title` on another, or numbered sections (`1.1`, `1.2`) get assigned the wrong level.
-
-The two-phase normalization process:
-1. **Phase 1 (Gemini Pro):** Sends the full document to discover structure — document type, main sections, numbering patterns
-2. **Phase 2 (Gemini Flash):** Sends the discovered structure + heading list (not the full document) and corrects each heading's level
-
-Enable it when:
-- The source PDF has complex, multi-level structure (textbooks, technical reports)
-- OCR produces mismatched heading levels
-- You need accurate `sectionPath` breadcrumbs in your chunks
+| Function | Purpose |
+|---|---|
+| `processDocument(input, config?, options?)` | Full pipeline; `input` is a path or bytes (`options.name` sets `source`) |
+| `planDocument(input, config?)` | Dry run: what would happen, no model calls |
+| `chunkMarkdown(markdown, options?)` | Chunk a markdown string, no providers |
+| `embedTexts(texts, model, options?)` / `embedQuery(query, model, options?)` | Embeddings with caching and input-length protection |
+| `buildSearchIndex(chunks)` + `search(index, query, { queryVector })` | BM25, vector or hybrid (RRF) search |
+| `generateQuestions(…)` / `evaluate(…)` | Retrieval evaluation |
+| `exportToPgvector(client, chunks)` / `exportToQdrant(…)` / `exportToLanceDb(…)` | Vector database exports |
+| `createMcpServer({ dirs })` | MCP server instance |
+| `readOutputDir(dir)` | Load a saved output folder |
+| `loadConfig()` / `resolveConfig()` / `defineConfig()` | Configuration helpers |
+
+Programmatic callers may pass keys directly: `{ providers: { gemini: { apiKey: '…' } } }`. All errors are `RagChunkerError` with a stable `code` and a human-readable `hint`.
+
+## Vector databases
 
 ```bash
-rag-chunker process document.pdf \
-  -m YOUR_MISTRAL_KEY \
-  -k YOUR_GEMINI_KEY \
-  --heading-normalization \
-  -o ./output
+# Postgres + pgvector (or DATABASE_URL)
+npx @msbayindir/rag-chunker export out/book --to pgvector --url postgres://localhost/rag --replace-document --index
+# Qdrant (QDRANT_URL / QDRANT_API_KEY)
+npx @msbayindir/rag-chunker export out/book --to qdrant --url http://localhost:6333
+# LanceDB (embedded, needs: npm install @lancedb/lancedb)
+npx @msbayindir/rag-chunker export out/book --to lancedb --url ./lancedb
 ```
 
-> Phase 1 uses `gemini-2.5-pro` (50 requests/day on free tier). For a 200-page document, this is 1 request. You can process up to 50 documents per day with heading normalization on the free tier.
+`--replace-document` removes chunks of the same document that a new run no longer produces, so re-processing never leaves stale rows. Outputs without embeddings can be embedded during export with `--embedding <model>`.
 
-### Process a Buffer Instead of a File Path
+## Measuring quality
 
-```typescript
-import { readFileSync } from 'fs'
-import { process } from '@msbayindir/rag-chunker'
-
-const pdfBuffer = readFileSync('document.pdf')
-const result = await process(pdfBuffer, {
-  mistralApiKey: process.env.MISTRAL_API_KEY,
-})
+```bash
+npx @msbayindir/rag-chunker process book.pdf -o runs/512 --max-tokens 512 --embedding ollama/embeddinggemma
+npx @msbayindir/rag-chunker process book.pdf -o runs/256 --max-tokens 256 --embedding ollama/embeddinggemma
+npx @msbayindir/rag-chunker eval runs/512 runs/256 --model ollama/gemma4:e4b-it-qat --questions 40
 ```
 
----
+Questions come with a verbatim evidence quote, so they are valid for any chunking of the same document. The table shows hit@1/5/10 and MRR for BM25, vector and hybrid search; the question set is saved and can be reused with `--questions-file`.
 
-## Cost Reference
+## MCP server for agents
 
-| Setup | Approx. cost per 200-page document |
-|-------|-------------------------------------|
-| OCR only (Mistral) | ~$0.05 |
-| OCR + context enrichment (batch) | ~$0.15–0.22 |
-| OCR + heading normalization | ~$0.06 |
-| OCR + context + heading normalization | ~$0.23 |
-| v2 equivalent (LLM-based OCR + chunking) | ~$0.95 |
+```json
+{
+  "mcpServers": {
+    "docs": { "command": "npx", "args": ["-y", "@msbayindir/rag-chunker", "mcp", "/absolute/path/to/out/book"] }
+  }
+}
+```
 
----
+Tools: `search` (hybrid when the chunks have embeddings), `get_chunk` (with neighbours), `get_page`, `list_documents`.
+
+## Caching, cost and privacy
+
+- Cache keys depend on content, model and prompt version — never on API keys. `rag-chunker cache info` shows the size, `cache clear --older-than 30` prunes it.
+- Context requests put the document first so every provider can reuse it: explicit cache blocks for Claude, explicit caches for Gemini, prefix caching for OpenAI-compatible servers and Ollama.
+- Usage (requests, input/output/cached tokens) is recorded per stage in `manifest.json`.
+- With `--local` or Ollama-only models, documents never leave the machine.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `N page(s) have no usable text layer` | Scanned pages: set `MISTRAL_API_KEY`, use `--local`, or `--ocr <vision model>` |
+| `model is not installed in Ollama` | `ollama pull <model>` |
+| `cannot reach Ollama` | Start the Ollama app or `ollama serve`; set `OLLAMA_HOST` for remote hosts |
+| `needs an API key` | Put the key in `.env` or the environment (the error names the variable) |
+| `plan has no quota for this model` | The key works but its plan allows 0 requests for that model (common for Mistral OCR on free plans). Enable billing in the provider console. With `ocr.engine: "auto"` rag-chunker warns and falls back to the vision model or the text layer |
+| `rate limited (429) even after retries` | Lower `providers.<name>.concurrency` and run again — finished pages and chunks come from the cache |
+| Vision OCR needs `@napi-rs/canvas` | `npm install @napi-rs/canvas` (installed by default unless optional dependencies are skipped) |
+| Small local model returns invalid JSON | It is retried and split automatically; persistent failures appear as warnings. Use a larger model for `structure` |
+
+Run `rag-chunker doctor` first; it checks everything above.
 
 ## Requirements
 
-- Node.js ≥ 20
-- At least one of: `MISTRAL_API_KEY` or `GEMINI_API_KEY`
+Node.js 22 or newer. Optional: [Ollama](https://ollama.com) for local models.
 
----
+## Contributing
+
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Adding a provider means implementing the small `LLM` / `Embedder` interfaces in `src/providers/`.
 
 ## License
 
-MIT
+[MIT](LICENSE)

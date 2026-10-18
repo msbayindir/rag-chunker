@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rag-chunker inspector</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header id="topbar">
+      <span class="brand">◆ rag-chunker</span>
+      <span id="title"></span>
+      <span id="chips"></span>
+    </header>
+    <nav id="toolbar">
+      <button type="button" class="nav" id="prev" title="Previous page (←)">←</button>
+      <span id="pageinfo">…</span>
+      <button type="button" class="nav" id="next" title="Next page (→)">→</button>
+      <span class="sep"></span>
+      <button type="button" class="toggle on" data-view="rendered">Rendered</button>
+      <button type="button" class="toggle" data-view="raw">Markdown</button>
+      <button type="button" class="toggle" data-view="pdf" id="pdf-toggle" hidden>PDF</button>
+      <span class="spacer"></span>
+      <input id="search" type="search" placeholder="Search chunks…" autocomplete="off" />
+    </nav>
+    <main id="main">
+      <section id="left">
+        <article id="rendered"></article>
+        <pre id="raw" hidden></pre>
+        <div id="pdf" hidden><img id="pdf-img" alt="PDF page" /><a id="pdf-link" href="/api/pdf" target="_blank" rel="noopener">Open the original PDF</a></div>
+      </section>
+      <section id="right">
+        <div id="list-header"></div>
+        <div id="chunk-list"></div>
+      </section>
+    </main>
+    <details id="warnings" hidden>
+      <summary></summary>
+      <ul></ul>
+    </details>
+    <script src="/static/marked.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

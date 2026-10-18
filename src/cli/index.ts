@@ -1,20 +1,28 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
-import { buildProcessCommand } from './commands/process.js'
-import { buildOcrCommand } from './commands/ocr.js'
-import { buildChunkCommand } from './commands/chunk.js'
-import { buildInspectCommand } from './commands/inspect.js'
-import { buildCacheCommand } from './commands/cache.js'
+import { PACKAGE_VERSION } from '../output/manifest.js'
+import { cacheCommand } from './commands/cache.js'
+import { doctorCommand } from './commands/doctor.js'
+import { evalCommand } from './commands/eval.js'
+import { exportCommand } from './commands/export.js'
+import { initCommand } from './commands/init.js'
+import { inspectCommand } from './commands/inspect.js'
+import { mcpCommand } from './commands/mcp.js'
+import { processCommand } from './commands/process.js'
 
 const program = new Command()
   .name('rag-chunker')
-  .description('PDF OCR + deterministic AST chunker for RAG pipelines')
-  .version('3.0.0')
+  .description('PDF, Office and Markdown → retrieval-ready chunks. Local (Ollama) or any cloud model.')
+  .version(PACKAGE_VERSION, '-v, --version')
+  .showHelpAfterError('(add --help for usage)')
 
-program.addCommand(buildProcessCommand())
-program.addCommand(buildOcrCommand())
-program.addCommand(buildChunkCommand())
-program.addCommand(buildInspectCommand())
-program.addCommand(buildCacheCommand())
+program.addCommand(processCommand(), { isDefault: false })
+program.addCommand(initCommand())
+program.addCommand(doctorCommand())
+program.addCommand(inspectCommand())
+program.addCommand(evalCommand())
+program.addCommand(exportCommand())
+program.addCommand(mcpCommand())
+program.addCommand(cacheCommand())
 
-program.parse()
+await program.parseAsync(process.argv)

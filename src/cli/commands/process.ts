@@ -1,292 +1,272 @@
-import { createInterface } from 'readline'
-import { statSync } from 'fs'
-import { Command } from 'commander'
-import ora from 'ora'
-import chalk from 'chalk'
-import { process as processPdf } from '../../index.js'
-import { createCliLogger } from '../../logger.js'
-import { MISTRAL_MAX_BYTES } from '../../utils/pdf-splitter.js'
+import { readdir, stat } from 'node:fs/promises'
+import { basename, extname, join, resolve } from 'node:path'
+import { Command, Option } from 'commander'
+import pc from 'picocolors'
+import { findConfigFile, loadConfigFile, mergeConfigs } from '../../config/load.js'
+import { localPreset } from '../../config/presets.js'
+import type { RagChunkerConfig } from '../../config/schema.js'
+import { readDocument, SUPPORTED_EXTENSIONS } from '../../documents/input.js'
+import { RagChunkerError } from '../../errors.js'
+import { PACKAGE_VERSION } from '../../output/manifest.js'
+import { planDocument } from '../../pipeline/plan.js'
+import { createContext, runPipeline } from '../../pipeline/process.js'
+import { cliEnv } from '../env.js'
+import {
+  err,
+  formatMs,
+  formatNumber,
+  header,
+  out,
+  ProgressRenderer,
+  parseIntOption,
+  reportError,
+  sym,
+} from '../ui.js'
 
-async function confirm(question: string): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
-  return new Promise(resolve => {
-    rl.question('  ' + chalk.cyan('?') + '  ' + question + chalk.dim(' [y/N] '), answer => {
-      rl.close()
-      resolve(answer.trim().toLowerCase() === 'y' || answer.trim().toLowerCase() === 'yes')
+export interface ProcessFlags {
+  output?: string
+  config?: string
+  local?: boolean
+  ocr?: string
+  ocrPages?: 'auto' | 'all' | 'scanned'
+  vision?: string
+  structure?: string
+  context?: string
+  contextStrategy?: 'auto' | 'full' | 'hierarchical'
+  embedding?: string
+  maxTokens?: number
+  minTokens?: number
+  overlap?: number
+  cache?: boolean
+  dryRun?: boolean
+  json?: boolean
+  verbose?: boolean
+}
+
+export const DEFAULT_OUTPUT_DIR = 'rag-chunker-output'
+
+/** Flags → config overrides (highest priority). */
+export function flagsToConfig(flags: ProcessFlags): RagChunkerConfig {
+  const cfg: RagChunkerConfig = {}
+  if (flags.ocr || flags.ocrPages) cfg.ocr = { engine: flags.ocr, pages: flags.ocrPages }
+  const models = {
+    vision: flags.vision,
+    structure: flags.structure,
+    context: flags.context,
+    embedding: flags.embedding,
+  }
+  if (Object.values(models).some(Boolean)) cfg.models = models
+  if (flags.maxTokens !== undefined || flags.minTokens !== undefined || flags.overlap !== undefined) {
+    cfg.chunk = { maxTokens: flags.maxTokens, minTokens: flags.minTokens, overlapTokens: flags.overlap }
+  }
+  if (flags.contextStrategy) cfg.context = { strategy: flags.contextStrategy }
+  if (flags.cache === false) cfg.cache = { enabled: false }
+  return cfg
+}
+
+/** Expands folders (recursively) into supported files; explicit files are always kept. */
+export async function expandInputs(inputs: string[]): Promise<string[]> {
+  const files: string[] = []
+  const walk = async (dir: string): Promise<void> => {
+    const entries = await readdir(dir, { withFileTypes: true })
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === DEFAULT_OUTPUT_DIR) continue
+      const full = join(dir, e.name)
+      if (e.isDirectory()) await walk(full)
+      else if (SUPPORTED_EXTENSIONS.includes(extname(e.name).toLowerCase())) files.push(full)
+    }
+  }
+  for (const input of inputs) {
+    const info = await stat(input).catch(() => null)
+    if (!info) throw new RagChunkerError('INPUT_INVALID', `Not found: ${input}`)
+    if (info.isDirectory()) await walk(input)
+    else files.push(input)
+  }
+  if (files.length === 0) {
+    throw new RagChunkerError('INPUT_INVALID', 'No supported documents found', {
+      hint: `Supported: ${SUPPORTED_EXTENSIONS.join(', ')}`,
     })
+  }
+  return [...new Set(files.map((f) => resolve(f)))]
+}
+
+/** One output folder per document; `-o` is used as-is for a single input. */
+export function outputDirs(files: string[], output: string | undefined): string[] {
+  if (files.length === 1 && output) return [resolve(output)]
+  const root = resolve(output ?? DEFAULT_OUTPUT_DIR)
+  const used = new Map<string, number>()
+  return files.map((f) => {
+    const name = basename(f, extname(f)) || 'document'
+    const n = (used.get(name) ?? 0) + 1
+    used.set(name, n)
+    return join(root, n === 1 ? name : `${name}-${n}`)
   })
 }
 
-const BRAND = chalk.bold('rag-chunker')
-const VERSION = chalk.dim('v3.0.0')
-const TAGLINE = chalk.dim('PDF  →  OCR  →  Markdown  →  Chunks')
-
-const ok   = chalk.green('✓')
-const fail = chalk.red('✗')
-const warn = chalk.yellow('!')
-
-function w(line = '') { process.stderr.write(line + '\n') }
-
-function printHeader() {
-  w()
-  w('  ' + chalk.bold.cyan('◆') + '  ' + BRAND + '  ' + VERSION)
-  w('  ' + ' '.repeat(5) + TAGLINE)
-  w()
+export async function buildConfig(
+  flags: ProcessFlags,
+  env: Record<string, string | undefined>,
+): Promise<{
+  config: RagChunkerConfig
+  configFile: string | undefined
+}> {
+  const configFile = flags.config ? resolve(flags.config) : findConfigFile()
+  const fromFile = configFile ? await loadConfigFile(configFile) : undefined
+  const preset = flags.local ? await localPreset(env, fromFile) : undefined
+  return { config: mergeConfigs(fromFile, preset, flagsToConfig(flags)), configFile }
 }
 
-function printStep(icon: string, label: string, info: string) {
-  w('  ' + icon + '  ' + chalk.bold(label.padEnd(12)) + chalk.dim(info))
+async function runDryRun(
+  files: string[],
+  config: RagChunkerConfig,
+  env: Record<string, string | undefined>,
+  json: boolean,
+): Promise<void> {
+  const plans = []
+  for (const file of files) {
+    const plan = await planDocument(file, config, { env })
+    plans.push(plan)
+    if (json) continue
+    err(`  ${pc.bold(plan.source.name)}  ${pc.dim(`${plan.source.kind}, ${plan.pages} page(s)`)}`)
+    err(
+      `     OCR        ${plan.ocr.engine}${plan.ocr.pagesToOcr ? pc.dim(`  ${plan.ocr.pagesToOcr} page(s) to OCR`) : ''}`,
+    )
+    err(
+      `     Chunks     ~${plan.estimatedChunks} ${pc.dim(`(${formatNumber(plan.documentTokens)} document tokens)`)}`,
+    )
+    err(`     Headings   ${plan.structure ? plan.structure.model : pc.dim('off')}`)
+    err(
+      `     Context    ${plan.context ? `${plan.context.model}${pc.dim(`  ~${plan.context.estimatedRequests} request(s), ≤${formatNumber(plan.context.fullStrategyInputTokens)} input tokens before caching`)}` : pc.dim('off')}`,
+    )
+    err(
+      `     Embedding  ${plan.embedding ? `${plan.embedding.model}${pc.dim(`  ${plan.embedding.texts} text(s)`)}` : pc.dim('off')}`,
+    )
+    for (const w of plan.warnings) err(`     ${sym.warn} ${pc.yellow(w)}`)
+    err()
+  }
+  if (json) out(JSON.stringify(plans, null, 2))
 }
 
-function printSummary(opts: {
-  result: Awaited<ReturnType<typeof processPdf>>
-  outputDir?: string
-}) {
-  const { result, outputDir } = opts
-  const s = result.manifest.chunkStats
-  const hf = result.manifest.headingFix
-  const durationS = (result.manifest.durationMs / 1000).toFixed(1) + 's'
+export async function runProcess(inputs: string[], flags: ProcessFlags): Promise<number> {
+  const json = flags.json === true
+  if (!json) header(PACKAGE_VERSION)
+  let ctx: ReturnType<typeof createContext> | undefined
+  try {
+    const env = await cliEnv()
+    const { config, configFile } = await buildConfig(flags, env)
+    const files = await expandInputs(inputs)
+    if (!json && configFile) err(`  ${sym.dot} ${pc.dim(`config: ${configFile}`)}`)
 
-  w()
-
-  // ── Step list ──────────────────────────────────────────────────────────────
-  const ocrExtra = result.manifest.ocrCacheHit
-    ? chalk.cyan('cached') + chalk.dim('  ·  ') + chalk.dim(result.manifest.ocrModel)
-    : chalk.dim(result.manifest.ocrModel)
-  printStep(ok, 'OCR', `${result.structure.pageCount} pages  ·  ` + ocrExtra)
-
-  if (hf !== null) {
-    if (hf.skipped) {
-      printStep(warn, 'Normalize', chalk.yellow('skipped'))
-    } else {
-      const hfInfo = [
-        `${hf.corrections} fixes`,
-        hf.documentType ? hf.documentType : null,
-        hf.mainSectionsFound > 0 ? `${hf.mainSectionsFound} sections` : null,
-        chalk.dim(`${(hf.phase1DurationMs / 1000).toFixed(1)}s + ${(hf.phase2DurationMs / 1000).toFixed(1)}s`)
-      ].filter(Boolean).join(chalk.dim('  ·  '))
-      printStep(ok, 'Normalize', hfInfo)
+    if (flags.dryRun) {
+      await runDryRun(files, config, env, json)
+      return 0
     }
+
+    ctx = createContext(config, env)
+    const dirs = outputDirs(files, flags.output)
+    const results: unknown[] = []
+    let failures = 0
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i] as string
+      const dir = dirs[i] as string
+      const renderer = new ProgressRenderer(!json, flags.verbose)
+      if (!json) {
+        err(`  ${pc.bold(basename(file))}${files.length > 1 ? pc.dim(`  (${i + 1}/${files.length})`) : ''}`)
+      }
+      try {
+        const doc = await readDocument(file)
+        const res = await runPipeline(doc, ctx, { onProgress: renderer.handle })
+        await res.save(dir)
+        renderer.stop()
+        const s = res.manifest.stages.chunk
+        if (json) {
+          results.push({ input: file, output: dir, chunks: s.count, manifest: res.manifest })
+        } else {
+          err()
+          err(
+            `  ${pc.bold(String(s.count))} chunks ${sym.dot} avg ${s.avgTokens} tokens ${sym.dot} ${res.structure.pageCount} page(s) ${sym.dot} ${formatMs(res.manifest.durationMs)}`,
+          )
+          const usage = res.manifest.usage.total
+          if (usage.requests > 0) {
+            err(
+              pc.dim(
+                `  ${formatNumber(usage.requests)} model request(s) ${sym.dot} ${formatNumber(usage.inputTokens)} in / ${formatNumber(usage.outputTokens)} out tokens${usage.cachedInputTokens ? ` ${sym.dot} ${formatNumber(usage.cachedInputTokens)} cached` : ''}`,
+              ),
+            )
+          }
+          err(`  ${pc.cyan('→')} ${dir}`)
+          if (res.warnings.length > 0) {
+            err(`  ${sym.warn} ${pc.yellow(`${res.warnings.length} warning(s)`)}`)
+            for (const w of res.warnings.slice(0, flags.verbose ? undefined : 5)) err(`     ${pc.dim(w)}`)
+            if (!flags.verbose && res.warnings.length > 5) err(pc.dim('     … run with --verbose to see all'))
+          }
+          err()
+        }
+      } catch (error) {
+        renderer.stop()
+        failures++
+        if (json) results.push({ input: file, error: (error as Error).message })
+        else reportError(error, flags.verbose)
+        if (
+          error instanceof RagChunkerError &&
+          ['MISSING_API_KEY', 'QUOTA_EXCEEDED', 'CONFIG_INVALID', 'PROVIDER_UNAVAILABLE'].includes(error.code)
+        ) {
+          break
+        }
+      }
+    }
+    if (json) out(JSON.stringify(results, null, 2))
+    return failures > 0 ? 1 : 0
+  } catch (error) {
+    if (json) {
+      out(JSON.stringify({ error: (error as Error).message, hint: (error as RagChunkerError).hint }))
+      return 1
+    }
+    return reportError(error, flags.verbose)
+  } finally {
+    await ctx?.registry.dispose()
   }
-
-  const chunkInfo = [
-    `${s.total} chunks`,
-    `ø${s.avgTokens} tokens`,
-    s.tableChunks > 0 ? `${s.tableChunks} tables` : null,
-    s.codeChunks  > 0 ? `${s.codeChunks} code`   : null
-  ].filter(Boolean).join(chalk.dim('  ·  '))
-  printStep(ok, 'Chunk', chunkInfo)
-
-  const ce = result.manifest.contextEnrichment
-  if (ce !== null) {
-    const ceInfo = [
-      `${ce.chunksEnriched} enriched`,
-      ce.chunksSkipped > 0 ? `${ce.chunksSkipped} skipped` : null,
-      ce.cacheUsed ? chalk.cyan('cached') : null,
-      chalk.dim(`${(ce.durationMs / 1000).toFixed(1)}s`)
-    ].filter(Boolean).join(chalk.dim('  ·  '))
-    printStep(ok, 'Context', ceInfo)
-  }
-
-  if (outputDir) {
-    printStep(ok, 'Saved', chalk.white(outputDir + '/'))
-  }
-
-  // ── Stats bar ──────────────────────────────────────────────────────────────
-  const bar = chalk.dim('╌'.repeat(48))
-  w()
-  w('  ' + bar)
-  w(
-    '  ' +
-    chalk.white.bold(String(s.total)) + chalk.dim(' chunks') +
-    chalk.dim('   ·   ') +
-    chalk.white.bold(String(result.structure.pageCount)) + chalk.dim(' pages') +
-    chalk.dim('   ·   ') +
-    chalk.white.bold(durationS)
-  )
-  w(
-    '  ' +
-    chalk.dim('tokens ') + chalk.dim(`${s.minTokens} – ${s.maxTokens}`) +
-    chalk.dim('   ·   avg ') + chalk.dim(String(s.avgTokens))
-  )
-  w('  ' + bar)
-
-  // ── Output files ───────────────────────────────────────────────────────────
-  if (outputDir) {
-    w()
-    w('  ' + chalk.dim('→  ') + chalk.white(outputDir + '/'))
-    w('  ' + chalk.dim('   document.md  ·  chunks.jsonl  ·  structure.json  ·  manifest.json'))
-  }
-
-  w()
 }
 
-export function buildProcessCommand(): Command {
+export function processCommand(): Command {
+  const int = (name: string) => parseIntOption(name)
   return new Command('process')
-    .description('Process a PDF into chunks, markdown, structure, and manifest')
-    .argument('<pdf>', 'Path to the PDF file')
-    .option('-o, --output <dir>', 'Output directory')
-    .option(
-      '-k, --gemini-api-key <key>',
-      'Gemini API key — context enrichment & fallback OCR (default: GEMINI_API_KEY env)'
+    .description('Turn documents into retrieval-ready chunks')
+    .argument('<inputs...>', 'PDF, DOCX, PPTX, PNG/JPEG/WebP or Markdown files, or folders')
+    .option('-o, --output <dir>', `output folder (default: ./${DEFAULT_OUTPUT_DIR}/<name>)`)
+    .option('-c, --config <file>', 'config file (default: ./rag-chunker.config.{json,mjs,js})')
+    .option('--local', 'run every stage on Ollama (Gemma 4 vision + embeddings), nothing leaves the machine')
+    .option('--ocr <engine>', 'auto | text-layer | mistral | <provider/model>')
+    .addOption(
+      new Option('--ocr-pages <mode>', 'which PDF pages go to the OCR engine').choices([
+        'auto',
+        'all',
+        'scanned',
+      ]),
     )
-    .option(
-      '-m, --mistral-api-key <key>',
-      'Mistral API key — primary OCR provider (default: MISTRAL_API_KEY env)'
+    .option('--vision <model>', 'vision model for scanned pages, e.g. ollama/gemma4:e4b-it-qat')
+    .option('--structure <model>', 'fix heading levels with this model')
+    .option('--context <model>', 'add contextual-retrieval summaries with this model')
+    .addOption(new Option('--context-strategy <strategy>').choices(['auto', 'full', 'hierarchical']))
+    .option('--embedding <model>', 'embed chunks with this model, e.g. ollama/embeddinggemma')
+    .option('--max-tokens <n>', 'max tokens per chunk (default 512)', int('max-tokens'))
+    .option('--min-tokens <n>', 'merge chunks smaller than this (default 64)', int('min-tokens'))
+    .option('--overlap <n>', 'tokens of previous-chunk overlap (default 0)', int('overlap'))
+    .option('--no-cache', 'do not read or write the cache')
+    .option('--dry-run', 'show what would happen without calling any model')
+    .option('--json', 'print a JSON summary to stdout')
+    .option('--verbose', 'show every warning and stack traces')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  $ rag-chunker process book.pdf                       # text layer only, no keys
+  $ rag-chunker process book.pdf --local               # everything on Ollama
+  $ rag-chunker process docs/ --context gemini/gemini-3.5-flash-lite --embedding gemini/gemini-embedding-001
+  $ rag-chunker process scan.pdf --ocr mistral -o out/  # needs MISTRAL_API_KEY`,
     )
-    .option('--context-mode <mode>', 'Context mode: per-chunk | batch | none', 'none')
-    .option('--context-model <model>', 'Gemini model for context summaries')
-    .option('--context-batch-size <n>', 'Chunks per batch in batch mode', '10')
-    .option('--max-chunk-tokens <n>', 'Max tokens per chunk', '512')
-    .option('--min-chunk-tokens <n>', 'Min tokens per chunk', '50')
-    .option('--overlap-tokens <n>', 'Overlap tokens prepended from previous chunk', '0')
-    .option('--no-preserve-tables', 'Do not keep tables in their own chunk')
-    .option('--no-preserve-code', 'Do not keep code blocks in their own chunk')
-    .option('--ocr-cache-path <path>', 'Custom OCR cache JSON path')
-    .option('--ocr-cache-ttl <days>', 'OCR cache TTL in days', '7')
-    .option('--no-ocr-cache', 'Disable OCR caching')
-    .option('--heading-normalization', 'Fix inconsistent heading levels via Gemini (requires --gemini-api-key)')
-    .option('--warn-large-chunk <n>', 'Warn when a table/code chunk exceeds N tokens', '2000')
-    .option('--verbose', 'Show verbose pipeline logs')
-    .action(async (pdfPath: string, opts: {
-      output?: string
-      geminiApiKey?: string
-      mistralApiKey?: string
-      contextMode: string
-      contextModel?: string
-      contextBatchSize: string
-      maxChunkTokens: string
-      minChunkTokens: string
-      overlapTokens: string
-      preserveTables: boolean
-      preserveCode: boolean
-      ocrCachePath?: string
-      ocrCacheTtl: string
-      ocrCache: boolean
-      headingNormalization?: boolean
-      warnLargeChunk: string
-      verbose?: boolean
-    }) => {
-      const geminiApiKey = opts.geminiApiKey ?? globalThis.process.env['GEMINI_API_KEY']
-      const mistralApiKey = opts.mistralApiKey ?? globalThis.process.env['MISTRAL_API_KEY']
-
-      printHeader()
-
-      // ── Large PDF check ─────────────────────────────────────────────────────
-      try {
-        const { size } = statSync(pdfPath)
-        if (size > MISTRAL_MAX_BYTES) {
-          const sizeMB = (size / 1024 / 1024).toFixed(1)
-          w('  ' + chalk.yellow('!') + '  ' + chalk.yellow(`PDF is ${sizeMB} MB — exceeds Mistral's 50 MB limit`))
-          w(chalk.dim('     The document will be split into 40 MB batches and processed sequentially.'))
-          w(chalk.dim('     OCR results will be merged and cached as a single document.'))
-          w()
-          const ok = await confirm('Continue with batch processing?')
-          if (!ok) {
-            w()
-            w('  ' + chalk.dim('Cancelled.'))
-            w()
-            globalThis.process.exit(0)
-          }
-          w()
-        }
-      } catch {
-        // file doesn't exist — processPdf will surface a better error
-      }
-
-      if (!mistralApiKey && !geminiApiKey) {
-        w(chalk.red('  ✗  No API key provided'))
-        w(chalk.dim('     --mistral-api-key   or  MISTRAL_API_KEY   (primary OCR)'))
-        w(chalk.dim('     --gemini-api-key    or  GEMINI_API_KEY    (context + fallback OCR)'))
-        w()
-        globalThis.process.exit(1)
-      }
-
-      const contextMode = opts.contextMode
-      if (!['per-chunk', 'batch', 'none'].includes(contextMode)) {
-        w(chalk.red('  ✗  --context-mode must be "per-chunk", "batch", or "none"'))
-        globalThis.process.exit(1)
-      }
-
-      if (contextMode !== 'none' && !geminiApiKey) {
-        w(chalk.red('  ✗  --gemini-api-key required for context enrichment'))
-        globalThis.process.exit(1)
-      }
-
-      const spinner = ora({
-        stream: process.stderr,
-        prefixText: ' ',
-        color: 'cyan',
-        indent: 1
-      }).start(chalk.dim('Initializing…'))
-
-      const logger = createCliLogger(opts.verbose ?? false)
-
-      const spinnerLabels: Record<string, string> = {
-        'Running Mistral OCR':                  'OCR  →  scanning pages…',
-        'Running Gemini Vision OCR (fallback)': 'OCR  →  Gemini Vision fallback…',
-        'OCR result cached':                    'OCR  →  complete, caching…',
-        'OCR cache hit':                        'OCR  →  loading from cache…',
-        'Heading normalization phase 1: structure discovery': 'Normalize  →  phase 1: analyzing structure…',
-        'Heading normalization phase 2: applying corrections': 'Normalize  →  phase 2: correcting headings…',
-        'Chunking markdown':                    'Chunk  →  splitting document…',
-        'Chunks produced':                      'Chunk  →  finalizing…',
-        'Generating context summaries':         'Context  →  starting…',
-        'Context cache: creating':              'Context  →  creating document cache…',
-        'Context cache: ready':                 'Context  →  cache ready',
-        'Context cache: unavailable — using inline text': 'Context  →  no cache, using inline text',
-      }
-
-      const trackedLogger = {
-        debug: logger.debug.bind(logger),
-        warn:  logger.warn.bind(logger),
-        error: logger.error.bind(logger),
-        info:  (msg: string, meta?: unknown) => {
-          const label = spinnerLabels[msg]
-          if (label) {
-            spinner.text = chalk.dim(label)
-          } else if (msg.startsWith('Context batch ')) {
-            // e.g. "Context batch 3/26 — chunks 21–30"
-            spinner.text = chalk.dim('Context  →  ' + msg)
-          }
-          if (opts.verbose) logger.info(msg, meta)
-        }
-      }
-
-      try {
-        const result = await processPdf(pdfPath, {
-          geminiApiKey,
-          mistralApiKey,
-          contextMode: contextMode as 'per-chunk' | 'batch' | 'none',
-          contextModel: opts.contextModel,
-          contextBatchSize: parseInt(opts.contextBatchSize, 10),
-          maxChunkTokens: parseInt(opts.maxChunkTokens, 10),
-          minChunkTokens: parseInt(opts.minChunkTokens, 10),
-          overlapTokens: parseInt(opts.overlapTokens, 10),
-          preserveTables: opts.preserveTables,
-          preserveCodeBlocks: opts.preserveCode,
-          ocrCachePath: opts.ocrCache ? (opts.ocrCachePath ?? undefined) : false,
-          ocrCacheTtlDays: parseFloat(opts.ocrCacheTtl),
-          headingNormalization: opts.headingNormalization ?? false,
-          warnLargeChunkTokens: parseInt(opts.warnLargeChunk, 10),
-          logger: trackedLogger
-        })
-
-        spinner.stop()
-
-        if (opts.output) {
-          await result.save(opts.output)
-        }
-
-        printSummary({ result, outputDir: opts.output })
-
-      } catch (err) {
-        spinner.stop()
-        w()
-        w('  ' + chalk.red('✗  Processing failed'))
-        w('  ' + chalk.dim('   ' + (err instanceof Error ? err.message : String(err))))
-        w()
-        globalThis.process.exit(1)
-      }
+    .action(async (inputs: string[], flags: ProcessFlags) => {
+      process.exitCode = await runProcess(inputs, flags)
     })
 }
