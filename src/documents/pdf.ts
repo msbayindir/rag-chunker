@@ -1,6 +1,7 @@
 import { PDFDocument } from 'pdf-lib'
 import { getDocumentProxy, renderPageAsImage } from 'unpdf'
 import { RagChunkerError } from '../errors.js'
+import type { LayoutLabel, LayoutRegion, PageLayoutProvider } from '../local/layout.js'
 import { importOptional } from '../util/optional.js'
 import { type Box, type TextSpan, unionBoxes } from './layout.js'
 import {
@@ -59,8 +60,25 @@ interface Line {
   table?: TableData
   /** Exact area (PDF points) when known, e.g. a table's grid. */
   bbox?: Rect
-  /** Never a heading (a table's title row emitted as text). */
+  /** Never a heading (a table's title row emitted as text, captions, footnotes…). */
   plain?: boolean
+  /** Layout-model class of the region the line sits in. */
+  label?: LayoutLabel
+  /** Reading-order rank of that region (lower first). */
+  order?: number
+  /** A heading per the layout model: level 1 for the document title, otherwise inferred. */
+  forceHeading?: 1 | 'auto'
+  /** Lines of one title region merge into one heading whatever their sizes. */
+  headingGroup?: number
+  /** Always its own block (margin stamps, rotated labels). */
+  standalone?: boolean
+  /** Inside a body-text region, below its first line: only a larger font still makes it a heading. */
+  inBody?: boolean
+}
+
+export interface TextLayerOptions {
+  /** Layout analysis per page (classes + reading order); without it, position heuristics decide. */
+  layout?: PageLayoutProvider
 }
 
 /** Document-wide typography used to recognise headings. */
@@ -110,7 +128,7 @@ export class PdfDocumentHandle {
   }
 
   /** Converts the text layer of every page into markdown with inferred headings, paragraphs and lists. */
-  async textLayer(): Promise<PdfTextPage[]> {
+  async textLayer(options: TextLayerOptions = {}): Promise<PdfTextPage[]> {
     const pages: Array<{
       pageNumber: number
       lines: Line[]
@@ -140,16 +158,18 @@ export class PdfDocumentHandle {
         })
       }
       const raw = items.map((it) => it.str).join('')
-      const lines = toLines(items, width)
+      let lines = toLines(items, width)
+      const regions = options.layout ? await options.layout(this, n) : null
+      if (regions) lines = applyLayout(lines, regions)
       // Tables leave the text flow; a pseudo-line at the table's top keeps its place in reading order.
       const rulings = await extractRulings(page).catch(() => ({ h: [], v: [] }))
-      const { tables, remaining } = detectTables(lines, rulings, { width })
-      const withTables = [...remaining, ...tables.flatMap(tableLines)].sort(
-        (a, b) => b.y - a.y || a.x0 - b.x0,
-      )
+      const hints = regions?.filter((r) => r.label === 'table').map((r) => r.bbox)
+      const { tables, remaining } = detectTables(lines, rulings, { width, hints })
+      const tableFlow = tables.flatMap((t) => tableLines(t, regions))
+      const withTables = [...remaining, ...tableFlow].sort((a, b) => b.y - a.y || a.x0 - b.x0)
       pages.push({
         pageNumber: n,
-        lines: orderColumns(withTables, width),
+        lines: regions ? orderByLayout(withTables) : orderColumns(withTables, width),
         width,
         height,
         chars: raw.replace(/\s+/g, '').length,
@@ -636,8 +656,12 @@ function rawHeadingLevel(
   following: Line[],
 ): number | undefined {
   if (line.table || line.plain) return undefined
+  if (line.forceHeading === 1) return 1
   if (isSizeHeading(line, typo.body)) return typo.sizeLevels.get(roundSize(line.size))
+  if (line.inBody) return undefined
   if (isStyleHeading(line, prev, typo, gapAbove, following)) return styleLevel(line.text, typo)
+  // The layout model saw a section title the typography did not reveal.
+  if (line.forceHeading === 'auto') return styleLevel(line.text, typo)
   return undefined
 }
 
@@ -712,10 +736,11 @@ function linesToMarkdown(
 ): { markdown: string; spans: TextSpan[] } {
   const { body, lineGap } = typo
   const blocks: Array<{ text: string; lines: Line[]; table?: TableData }> = []
+  const labelOf = (ls: Line[]) => ls.find((l) => l.label)?.label
   let para: string | null = null
   let paraLines: Line[] = []
   let paraKind: 'p' | 'li' = 'p'
-  let heading: { level: number; text: string; size: number; lines: Line[] } | null = null
+  let heading: { level: number; text: string; size: number; lines: Line[]; group?: number } | null = null
   let prev: Line | null = null
 
   const flushPara = () => {
@@ -732,10 +757,10 @@ function linesToMarkdown(
   const repeated = repeatedOnPage(lines)
   for (const [i, line] of lines.entries()) {
     const gap = prev ? prev.y - line.y : 0
-    if (line.table) {
+    if (line.table || line.standalone || line.rotated) {
       flushPara()
       flushHeading()
-      blocks.push({ text: line.text, lines: [line], table: line.table })
+      blocks.push({ text: line.text, lines: [line], ...(line.table ? { table: line.table } : {}) })
       prev = line
       continue
     }
@@ -745,13 +770,23 @@ function linesToMarkdown(
     const level = raw === undefined ? undefined : (typo.levelMap.get(raw) ?? raw)
     if (level !== undefined) {
       flushPara()
-      const current = heading as { level: number; text: string; size: number; lines: Line[] } | null
-      if (current && current.level === level && gap >= 0 && gap < line.size * 1.8) {
+      const current = heading as {
+        level: number
+        text: string
+        size: number
+        lines: Line[]
+        group?: number
+      } | null
+      // Lines of one title region always merge; a title region never absorbs a neighbour.
+      const grouped = current?.group !== undefined || line.headingGroup !== undefined
+      const sameGroup = current?.group !== undefined && current.group === line.headingGroup
+      const adjacent = !grouped && current?.level === level && gap >= 0 && gap < line.size * 1.8
+      if (current && (sameGroup || adjacent)) {
         current.text = `${current.text} ${line.text}`
         current.lines.push(line)
       } else {
         flushHeading()
-        heading = { level, text: line.text, size: line.size, lines: [line] }
+        heading = { level, text: line.text, size: line.size, lines: [line], group: line.headingGroup }
       }
       prev = line
       continue
@@ -795,14 +830,138 @@ function linesToMarkdown(
   const spans: TextSpan[] = []
   for (const b of blocks) {
     const box = unionBoxes(b.lines.map((l) => lineBox(l, page)))
-    if (box) spans.push(b.table ? { text: b.text, box, table: b.table } : { text: b.text, box })
+    if (!box) continue
+    const label = labelOf(b.lines)
+    spans.push({ text: b.text, box, ...(b.table ? { table: b.table } : {}), ...(label ? { label } : {}) })
   }
   return { markdown: out, spans }
 }
 
+/** Text in these regions never reaches the markdown: page furniture and the labels inside figures. */
+const DROP_LABELS = new Set<LayoutLabel>([
+  'header',
+  'footer',
+  'number',
+  'header_image',
+  'footer_image',
+  'seal',
+  'image',
+  'chart',
+])
+/** Text in these regions is never a heading (body text is handled by `inBody`). */
+const PLAIN_LABELS = new Set<LayoutLabel>([
+  'figure_title',
+  'footnote',
+  'vision_footnote',
+  'reference',
+  'reference_content',
+  'aside_text',
+  'abstract',
+  'algorithm',
+  'display_formula',
+  'inline_formula',
+  'formula_number',
+  'content',
+  'vertical_text',
+])
+/** Regions read after everything else on the page (margin stamps, vertical labels). */
+const LAST_LABELS = new Set<LayoutLabel>(['aside_text', 'vertical_text'])
+const CONFIDENT = 0.6
+
+function regionAt(cx: number, cy: number, regions: LayoutRegion[]): LayoutRegion | null {
+  let best: LayoutRegion | null = null
+  let bestArea = Number.POSITIVE_INFINITY
+  for (const r of regions) {
+    const { x0, x1, y0, y1 } = r.bbox
+    if (cx < x0 || cx > x1 || cy < y0 || cy > y1) continue
+    const a = (x1 - x0) * (y1 - y0)
+    if (a < bestArea) {
+      best = r
+      bestArea = a
+    }
+  }
+  if (best) return best
+  // Not inside any region: the nearest one (gaps between regions are narrow).
+  let bestDist = Number.POSITIVE_INFINITY
+  for (const r of regions) {
+    const { x0, x1, y0, y1 } = r.bbox
+    const dx = Math.max(x0 - cx, 0, cx - x1)
+    const dy = Math.max(y0 - cy, 0, cy - y1)
+    const d = Math.hypot(dx, dy)
+    if (d < bestDist) {
+      best = r
+      bestDist = d
+    }
+  }
+  return best
+}
+
+/**
+ * Tags lines with the layout model's verdict: drops page furniture and figure labels, marks blocks
+ * that are never headings, promotes titles, and records the region's reading-order rank.
+ */
+function applyLayout(lines: Line[], regions: LayoutRegion[]): Line[] {
+  if (regions.length === 0) return lines
+  const out: Line[] = []
+  // The first (topmost) line of a body-text region may still be a title the model merged into it.
+  const leading = new Map<LayoutRegion, Line>()
+  const regionOf = new Map<Line, LayoutRegion | null>()
+  for (const line of lines) {
+    const r = regionAt((line.x0 + line.x1) / 2, line.y + line.size * 0.35, regions)
+    regionOf.set(line, r)
+    if (r && (!leading.has(r) || line.y > (leading.get(r) as Line).y)) leading.set(r, line)
+  }
+  for (const line of lines) {
+    const r = regionOf.get(line) ?? null
+    if (!r) {
+      out.push(line)
+      continue
+    }
+    // Figure labels are short fragments; a confident region drops everything inside it.
+    if (DROP_LABELS.has(r.label) && (r.score >= CONFIDENT || line.text.length < 30)) continue
+    line.label = r.label
+    line.order = LAST_LABELS.has(r.label) ? Number.POSITIVE_INFINITY : r.order
+    if (LAST_LABELS.has(r.label)) line.standalone = true
+    // Captions, footnotes, references… never become headings, however bold they are; inside a
+    // body-text block only its first line keeps that chance.
+    if (PLAIN_LABELS.has(r.label)) line.plain = true
+    if (r.label === 'text' && r.score >= CONFIDENT && leading.get(r) !== line) line.inBody = true
+    if (r.score >= CONFIDENT && r.label === 'doc_title') {
+      line.forceHeading = 1
+      line.headingGroup = regions.indexOf(r)
+    } else if (
+      r.score >= 0.7 &&
+      r.label === 'paragraph_title' &&
+      line.text.length <= 200 &&
+      !/[=[\]{}|]/.test(line.text)
+    ) {
+      line.forceHeading = 'auto'
+      line.headingGroup = regions.indexOf(r)
+    }
+    out.push(line)
+  }
+  return out
+}
+
+/** Reading order from the layout model: region rank, then top to bottom and left to right inside it. */
+function orderByLayout(lines: Line[]): Line[] {
+  return [...lines].sort((a, b) => {
+    const oa = a.order ?? Number.POSITIVE_INFINITY
+    const ob = b.order ?? Number.POSITIVE_INFINITY
+    if (oa !== ob) return oa - ob
+    return b.y - a.y || a.x0 - b.x0
+  })
+}
+
 /** The pseudo-lines that stand for a table in the text flow: its title row, if any, then the table. */
-function tableLines(t: DetectedTable): Line[] {
-  const base = { size: 6, font: '', fontShare: 1 }
+function tableLines(t: DetectedTable, regions: LayoutRegion[] | null): Line[] {
+  const region = regions ? regionAt((t.bbox.x0 + t.bbox.x1) / 2, (t.bbox.y0 + t.bbox.y1) / 2, regions) : null
+  const base = {
+    size: 6,
+    font: '',
+    fontShare: 1,
+    ...(region ? { order: region.order, label: 'table' as const } : {}),
+  }
   const lines: Line[] = []
   if (t.caption) {
     const c = t.caption

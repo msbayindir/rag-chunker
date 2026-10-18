@@ -165,6 +165,8 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 | `context.batchSize` | `8` | Chunks per request |
 | `embedding.dimensions` | — | Output size for models that support it |
 | `providers.<name>` | — | `type`, `baseURL`, `apiKeyEnv`, `headers`, `contextWindow`, `maxContext` (Ollama `num_ctx` cap, default 32768), `concurrency`, `timeoutMs`, `maxRetries` |
+| `layout.engine` | `auto` | Page layout analysis for PDFs with a local ONNX model: `auto` (on when `onnxruntime-node` and the downloaded model are present), `pp-doclayout-v3` (on; downloads the model once), `off` |
+| `layout.minScore`, `layout.render` | `0.5`, `1024` | Detection confidence; longer page side in pixels rendered for the model |
 | `cache.enabled` / `cache.dir` | `true` / `~/.rag-chunker/cache` | On-disk cache |
 
 ## CLI
@@ -216,6 +218,8 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
   "embedding": [0.0123, …]                     // [] when no embedding model is set
 }
 ```
+
+**Layout analysis (local, no keys).** With `--layout` (or `--local`), every PDF page also goes through [PP-DocLayoutV3](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3), a 130 MB ONNX model that labels the blocks of the page (title, section title, text, table, figure, caption, footnote, header/footer, page number, formula, reference…) and gives their reading order. rag-chunker still takes the text from the text layer; the model decides what each block is and in which order it is read: running headers, footers, page numbers and the labels inside figures are dropped, captions and footnotes never become headings, titles do (wrapped title lines merge), tables are looked for where the model sees one, and two-column or magazine-style pages follow the model's order. Blocks in `document.json` carry the class as `label`. Needs the optional `onnxruntime-node` package (`npm install onnxruntime-node`, ~260 MB of runtime binaries); the model is downloaded to `~/.rag-chunker/models` on first use (override with `RAG_CHUNKER_MODELS_DIR`) and verified by hash. Cost: about one second per page on a laptop CPU, cached per page. `rag-chunker doctor` shows whether the runtime and model are ready; `--dry-run` shows what a run would use.
 
 **Tables.** Tables in a PDF text layer are rebuilt as tables: grids drawn with lines (including merged cells and two-row headers), tables between horizontal rules only (papers) and tables with no lines at all, found from aligned columns. They become GFM tables in `document.md` and table chunks (a short table travels with its caption; a long one is split with its header row repeated). `document.json` keeps the cell structure with spans (`table.cells`, `tableToHtml()` renders it with `colspan`/`rowspan`); a table that runs onto the next page gets its header carried over and the two parts are linked (`continues`). `teds()` measures a recognised table against a reference (TEDS, 0–1).
 

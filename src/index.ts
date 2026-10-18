@@ -59,6 +59,15 @@ export {
   exportToQdrant,
   type SqlClient,
 } from './export/export.js'
+export {
+  analyzeLayoutImage,
+  createLayoutProvider,
+  LAYOUT_LABELS,
+  type LayoutLabel,
+  type LayoutRegion,
+  type PageLayoutProvider,
+} from './local/layout.js'
+export { ensureModel, hasModel, MODELS, type ModelId, modelsDir } from './local/models.js'
 export { createMcpServer, type McpOptions } from './mcp/server.js'
 export type { DocumentLayout, LayoutBlock, LayoutPage } from './output/layout.js'
 export type { Manifest } from './output/manifest.js'
@@ -66,7 +75,13 @@ export type { DocumentStructure } from './output/structure.js'
 export { type LoadedOutput, OUTPUT_FILES, type OutputPaths, readOutputDir } from './output/writer.js'
 export type { ProgressEvent, ProgressListener, Stage } from './pipeline/events.js'
 export { type PlanReport, planDocument } from './pipeline/plan.js'
-export { type ProcessOptions, type ProcessResult, processDocument } from './pipeline/process.js'
+export {
+  type LayoutPlan,
+  type ProcessOptions,
+  type ProcessResult,
+  processDocument,
+  resolveLayout,
+} from './pipeline/process.js'
 export { createEmbedder, createLLM, parseModelRef } from './providers/registry.js'
 export type {
   ContentPart,

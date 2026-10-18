@@ -102,5 +102,5 @@ export async function localPreset(
   const ref = `ollama/${llm}`
   const models: NonNullable<RagChunkerConfig['models']> = { vision: ref, structure: ref, context: ref }
   if (embedding) models.embedding = `ollama/${embedding}`
-  return { ocr: { engine: ref }, models }
+  return { ocr: { engine: ref }, models, layout: { engine: 'pp-doclayout-v3' } }
 }

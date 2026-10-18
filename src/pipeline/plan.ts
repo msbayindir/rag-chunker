@@ -5,7 +5,13 @@ import { FULL_STRATEGY_MAX_TOKENS, isLowQuality } from '../context/enrich.js'
 import { readDocument } from '../documents/input.js'
 import { extractDocument } from '../ocr/extract.js'
 import { Reporter } from './events.js'
-import { createContext, type ProcessOptions, resolveOcrEngine } from './process.js'
+import {
+  createContext,
+  type LayoutPlan,
+  type ProcessOptions,
+  resolveLayout,
+  resolveOcrEngine,
+} from './process.js'
 
 export interface PlanReport {
   source: { name: string; kind: string; bytes: number }
@@ -14,6 +20,8 @@ export interface PlanReport {
   ocr: { engine: string; pagesToOcr: number }
   documentTokens: number
   estimatedChunks: number
+  /** Layout analysis of PDF pages: which model, or why none. */
+  layout: LayoutPlan
   structure: { model: string } | null
   context: {
     model: string
@@ -103,6 +111,7 @@ export async function planDocument(
     pages: pageCount,
     scannedPages: scanned,
     ocr: { engine: engine.type === 'vision' ? engine.ref : engine.type, pagesToOcr },
+    layout: doc.kind === 'pdf' ? await resolveLayout(ctx.config) : { engine: null },
     documentTokens,
     estimatedChunks: chunks.length,
     structure: models.structure ? { model: models.structure } : null,

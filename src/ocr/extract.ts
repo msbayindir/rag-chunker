@@ -5,6 +5,7 @@ import type { TextSpan } from '../documents/layout.js'
 import { PdfDocumentHandle, planPageBatches, subsetPdf } from '../documents/pdf.js'
 import { pptxToMarkdown } from '../documents/pptx.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
+import type { PageLayoutProvider } from '../local/layout.js'
 import type { Reporter } from '../pipeline/events.js'
 import {
   MISTRAL_MAX_BYTES,
@@ -30,6 +31,8 @@ export interface ExtractOptions {
   stripImages: boolean
   removeHeaderFooter: boolean
   concurrency?: number
+  /** Layout analysis for PDF pages (classes + reading order). */
+  layout?: PageLayoutProvider
   registry: ProviderRegistry
   cache: CacheStore
   reporter: Reporter
@@ -56,6 +59,8 @@ export interface ExtractStats {
   scannedPages: number
   emptyPages: number
   headerFooterLinesRemoved: number
+  /** PDF pages that went through layout analysis. */
+  layoutPages: number
 }
 
 export interface ExtractResult {
@@ -87,6 +92,7 @@ export async function extractDocument(doc: DocumentInput, opts: ExtractOptions):
     scannedPages: 0,
     emptyPages: 0,
     headerFooterLinesRemoved: 0,
+    layoutPages: 0,
   }
   let pages: ExtractedPage[]
 
@@ -200,7 +206,8 @@ async function extractPdf(
 ): Promise<ExtractedPage[]> {
   const handle = await PdfDocumentHandle.open(doc.bytes)
   try {
-    const textPages = await handle.textLayer()
+    const textPages = await handle.textLayer({ layout: opts.layout })
+    if (opts.layout) stats.layoutPages = textPages.length
     const scanned = textPages.filter((p) => p.chars < opts.minTextChars || p.garbled).map((p) => p.pageNumber)
     stats.scannedPages = scanned.length
     const engine = opts.engine

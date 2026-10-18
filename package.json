@@ -1,7 +1,7 @@
 {
   "name": "@msbayindir/rag-chunker",
   "version": "4.0.0",
-  "description": "PDF, Office and Markdown to retrieval-ready chunks \u2014 multi-provider (Ollama, Gemini, Claude, OpenAI, OpenRouter, Mistral OCR), works fully local, with contextual retrieval",
+  "description": "PDF, Office and Markdown to retrieval-ready chunks — multi-provider (Ollama, Gemini, Claude, OpenAI, OpenRouter, Mistral OCR), works fully local, with contextual retrieval",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -64,6 +64,7 @@
     "@google/genai": "^2.30.0",
     "@napi-rs/canvas": "^1.0.11",
     "ollama": "^0.6.4",
+    "onnxruntime-node": "^1.30.0",
     "openai": "^7.37.0"
   },
   "peerDependencies": {

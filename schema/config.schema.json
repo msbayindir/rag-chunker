@@ -268,6 +268,38 @@
       },
       "additionalProperties": false
     },
+    "layout": {
+      "description": "Local page layout analysis (PDF).",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "engine": {
+          "default": "auto",
+          "description": "Page layout analysis for PDFs with a local ONNX model (block classes + reading order). \"auto\": on when onnxruntime-node and the downloaded model are present; \"pp-doclayout-v3\": on, downloading the model (130 MB) on first use; \"off\": position heuristics only.",
+          "type": "string",
+          "enum": [
+            "auto",
+            "off",
+            "pp-doclayout-v3"
+          ]
+        },
+        "minScore": {
+          "default": 0.5,
+          "description": "Minimum detection confidence.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "render": {
+          "default": 1024,
+          "description": "Longer page side, in pixels, of the render the model sees.",
+          "type": "integer",
+          "minimum": 512,
+          "maximum": 2048
+        }
+      },
+      "additionalProperties": false
+    },
     "cache": {
       "description": "On-disk cache.",
       "default": {},

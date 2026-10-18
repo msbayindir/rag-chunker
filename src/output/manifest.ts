@@ -26,6 +26,9 @@ export interface Manifest {
       scannedPages: number
       emptyPages: number
       headerFooterLinesRemoved: number
+      /** Layout model used for PDF pages, null when layout analysis was off. */
+      layout: string | null
+      layoutPages: number
       durationMs: number
     }
     structure: {

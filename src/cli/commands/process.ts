@@ -38,6 +38,7 @@ export interface ProcessFlags {
   minTokens?: number
   overlap?: number
   cache?: boolean
+  layout?: boolean
   dryRun?: boolean
   json?: boolean
   verbose?: boolean
@@ -61,6 +62,8 @@ export function flagsToConfig(flags: ProcessFlags): RagChunkerConfig {
   }
   if (flags.contextStrategy) cfg.context = { strategy: flags.contextStrategy }
   if (flags.cache === false) cfg.cache = { enabled: false }
+  if (flags.layout === true) cfg.layout = { engine: 'pp-doclayout-v3' }
+  if (flags.layout === false) cfg.layout = { engine: 'off' }
   return cfg
 }
 
@@ -133,6 +136,9 @@ async function runDryRun(
     )
     err(
       `     Chunks     ~${plan.estimatedChunks} ${pc.dim(`(${formatNumber(plan.documentTokens)} document tokens)`)}`,
+    )
+    err(
+      `     Layout     ${plan.layout.engine ? `${plan.layout.engine}${plan.layout.download ? pc.dim('  (downloads the model, 130 MB)') : ''}` : pc.dim(plan.layout.reason ? `off (${plan.layout.reason})` : 'off')}`,
     )
     err(`     Headings   ${plan.structure ? plan.structure.model : pc.dim('off')}`)
     err(
@@ -253,6 +259,8 @@ export function processCommand(): Command {
     .option('--max-tokens <n>', 'max tokens per chunk (default 512)', int('max-tokens'))
     .option('--min-tokens <n>', 'merge chunks smaller than this (default 64)', int('min-tokens'))
     .option('--overlap <n>', 'tokens of previous-chunk overlap (default 0)', int('overlap'))
+    .option('--layout', 'analyse page layout with the local PP-DocLayoutV3 model (downloads 130 MB once)')
+    .option('--no-layout', 'position heuristics only, no layout model')
     .option('--no-cache', 'do not read or write the cache')
     .option('--dry-run', 'show what would happen without calling any model')
     .option('--json', 'print a JSON summary to stdout')
@@ -262,7 +270,8 @@ export function processCommand(): Command {
       `
 Examples:
   $ rag-chunker process book.pdf                       # text layer only, no keys
-  $ rag-chunker process book.pdf --local               # everything on Ollama
+  $ rag-chunker process book.pdf --local               # everything on Ollama (+ local layout model)
+  $ rag-chunker process paper.pdf --layout             # page layout model, no keys (downloads 130 MB once)
   $ rag-chunker process docs/ --context gemini/gemini-3.5-flash-lite --embedding gemini/gemini-embedding-001
   $ rag-chunker process scan.pdf --ocr mistral -o out/  # needs MISTRAL_API_KEY`,
     )

@@ -76,6 +76,8 @@ describe('process command helpers', () => {
       cache: { enabled: false },
     })
     expect(flagsToConfig({})).toEqual({})
+    expect(flagsToConfig({ layout: true })).toEqual({ layout: { engine: 'pp-doclayout-v3' } })
+    expect(flagsToConfig({ layout: false })).toEqual({ layout: { engine: 'off' } })
   })
 
   it('expands folders recursively and names output folders uniquely', async () => {

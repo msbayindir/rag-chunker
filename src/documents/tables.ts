@@ -865,18 +865,58 @@ function alignedTables(
 }
 
 /** Finds the tables of a page and returns the text pieces that are not part of any table. */
+/** Share of `a` covered by `b`. */
+function coverage(a: Rect, b: Rect): number {
+  const inter = overlap(a.x0, a.x1, b.x0, b.x1) * overlap(a.y0, a.y1, b.y0, b.y1)
+  const area = (a.x1 - a.x0) * (a.y1 - a.y0)
+  return area > 0 ? inter / area : 0
+}
+
+/**
+ * Finds the tables of a page and returns the text pieces that are not part of any table. With
+ * `hints` (table regions from a layout model) line-less tables are only accepted inside a hint, and
+ * a hint that no detector covered gets its columns from alignment with relaxed limits.
+ */
 export function detectTables<T extends TextPiece>(
   pieces: T[],
   rulings: Rulings,
-  page: { width: number },
+  page: { width: number; hints?: Rect[] },
 ): { tables: DetectedTable[]; remaining: T[] } {
   const ruled = ruledTables(pieces, rulings)
   let rest = pieces.filter((p) => !ruled.used.has(p))
   const bounded = ruleBoundedTables(rest, rulings, page.width, ruled.regions)
   rest = rest.filter((p) => !bounded.used.has(p))
   const aligned = alignedTables(rest, page.width)
-  rest = rest.filter((p) => !aligned.used.has(p))
-  const tables = [...ruled.tables, ...bounded.tables, ...aligned.tables]
+  const found = [...ruled.tables, ...bounded.tables]
+  if (page.hints) {
+    const inHint = (t: DetectedTable) => (page.hints as Rect[]).some((h) => coverage(t.bbox, h) >= 0.5)
+    aligned.tables = aligned.tables.filter(inHint)
+    const keep = new Set<TextPiece>(aligned.tables.flatMap((t) => rest.filter((p) => inRect(p, t.bbox, TOL))))
+    aligned.used = new Set<TextPiece>([...aligned.used].filter((p) => keep.has(p)))
+    rest = rest.filter((p) => !aligned.used.has(p))
+    for (const hint of page.hints) {
+      if ([...found, ...aligned.tables].some((t) => coverage(hint, t.bbox) >= 0.5)) continue
+      const inside = rest.filter((p) => inRect(p, hint, 4))
+      if (inside.length < 2) continue
+      const table = alignTable(inside, {
+        gapEm: 0.7,
+        minCols: 2,
+        minRows: 2,
+        fullShare: 0.4,
+        minFullRows: 1,
+        maxMedianLength: 80,
+        maxCellWidth: (hint.x1 - hint.x0) * 0.9,
+        pageWidth: page.width,
+      })
+      if (!table) continue
+      aligned.tables.push(table)
+      for (const p of inside) aligned.used.add(p)
+      rest = rest.filter((p) => !aligned.used.has(p))
+    }
+  } else {
+    rest = rest.filter((p) => !aligned.used.has(p))
+  }
+  const tables = [...found, ...aligned.tables]
     .filter((t) => t.data.cells.some((c) => c.text !== ''))
     .sort((a, b) => b.bbox.y1 - a.bbox.y1)
   return { tables, remaining: rest }

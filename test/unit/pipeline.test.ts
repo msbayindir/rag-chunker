@@ -10,6 +10,8 @@ import {
   processDocument,
   type RagChunkerConfig,
   readOutputDir,
+  resolveConfig,
+  resolveLayout,
 } from '../../src/index.js'
 import { PAGE1, SCANNED } from '../fixtures/content.js'
 import { fixture } from '../fixtures/generate.js'
@@ -162,6 +164,26 @@ describe('processDocument without providers', () => {
     const lastOnPage2 = blocks.filter((b) => b.kind === 'table' && b.page === 2).at(-1)
     const firstOnPage3 = blocks.find((b) => b.page === 3)
     expect(firstOnPage3).toMatchObject({ kind: 'table', continues: lastOnPage2?.id })
+  })
+
+  it('turns layout analysis on only when the runtime and the model are present', async () => {
+    const dir = await tmp('rc-models-')
+    const prev = process.env.RAG_CHUNKER_MODELS_DIR
+    process.env.RAG_CHUNKER_MODELS_DIR = dir
+    try {
+      const off = await resolveLayout(resolveConfig({ layout: { engine: 'off' } }))
+      expect(off).toEqual({ engine: null })
+      const auto = await resolveLayout(resolveConfig({}))
+      expect(auto.engine).toBeNull()
+      expect(auto.reason).toMatch(/not downloaded|not installed/)
+      const plan = await planDocument(fixture('turkish.pdf'), {}, { env: {} })
+      expect(plan.layout.engine).toBeNull()
+      const res = await processDocument(fixture('turkish.pdf'), { cache: { enabled: false } }, { env: {} })
+      expect(res.manifest.stages.ocr).toMatchObject({ layout: null, layoutPages: 0 })
+    } finally {
+      if (prev === undefined) delete process.env.RAG_CHUNKER_MODELS_DIR
+      else process.env.RAG_CHUNKER_MODELS_DIR = prev
+    }
   })
 
   it('processes markdown, DOCX and PPTX inputs', async () => {

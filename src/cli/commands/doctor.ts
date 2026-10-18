@@ -8,6 +8,8 @@ import { recommendedGemma } from '../../config/presets.js'
 import { BUILTIN_PROVIDERS, resolveProvider } from '../../config/providers.js'
 import type { ResolvedConfig } from '../../config/schema.js'
 import { errorMessage, RagChunkerError } from '../../errors.js'
+import { LAYOUT_MODEL } from '../../local/layout.js'
+import { hasModel, MODELS, modelsDir } from '../../local/models.js'
 import { PACKAGE_VERSION } from '../../output/manifest.js'
 import { ollamaListModels } from '../../providers/ollama.js'
 import { ProviderRegistry } from '../../providers/registry.js'
@@ -80,6 +82,23 @@ export async function runChecks(
     label: 'Page rendering',
     detail: canvas ? '@napi-rs/canvas' : 'not available',
     hint: canvas ? undefined : 'Vision OCR of scanned PDF pages needs it: npm install @napi-rs/canvas',
+  })
+
+  const onnx = await canImport(() => import('onnxruntime-node'))
+  const layoutModel = await hasModel(LAYOUT_MODEL)
+  checks.push({
+    status: onnx && layoutModel ? 'ok' : 'info',
+    label: 'Layout model',
+    detail: !onnx
+      ? 'onnxruntime-node not installed'
+      : layoutModel
+        ? `${MODELS[LAYOUT_MODEL].file} in ${modelsDir(env)}`
+        : 'onnxruntime-node ready, model not downloaded',
+    hint: !onnx
+      ? 'Page layout analysis (classes + reading order) needs it: npm install onnxruntime-node'
+      : layoutModel
+        ? undefined
+        : 'Run `rag-chunker process <pdf> --layout` once to download PP-DocLayoutV3 (130 MB).',
   })
 
   for (const [name, def] of Object.entries(BUILTIN_PROVIDERS)) {

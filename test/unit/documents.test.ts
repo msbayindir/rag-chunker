@@ -2,11 +2,12 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { docxToMarkdown } from '../../src/documents/docx.js'
 import { detectKind, readDocument } from '../../src/documents/input.js'
-import { PdfDocumentHandle, planPageBatches, subsetPdf } from '../../src/documents/pdf.js'
+import { PdfDocumentHandle, type PdfTextPage, planPageBatches, subsetPdf } from '../../src/documents/pdf.js'
 import { pptxToMarkdown } from '../../src/documents/pptx.js'
 import type { TableData } from '../../src/documents/tables.js'
 import { RagChunkerError } from '../../src/errors.js'
 import { teds } from '../../src/eval/teds.js'
+import type { LayoutLabel, PageLayoutProvider } from '../../src/local/layout.js'
 import {
   cleanPageMarkdown,
   joinPages,
@@ -189,6 +190,93 @@ describe('PDF text layer', () => {
     ] as const) {
       for (const text of t.flat()) expect(pages[n]?.markdown).toContain(text)
     }
+  })
+
+  it('follows a layout provider: drops figure text, promotes titles, orders regions and gates line-less tables', async () => {
+    const open = async (name: string) => PdfDocumentHandle.open(await bytes(name))
+    // Regions are built from the page's own spans so the test does not depend on fixture geometry.
+    const regionOf = (
+      page: PdfTextPage,
+      pick: (text: string) => boolean,
+      label: LayoutLabel,
+      order: number,
+      score = 0.9,
+    ) => {
+      const spans = page.spans.filter((s) => pick(s.text))
+      expect(spans.length).toBeGreaterThan(0)
+      const x0 = Math.min(...spans.map((s) => s.box.x)) * page.width
+      const x1 = Math.max(...spans.map((s) => s.box.x + s.box.w)) * page.width
+      const top = Math.min(...spans.map((s) => s.box.y))
+      const bottom = Math.max(...spans.map((s) => s.box.y + s.box.h))
+      return {
+        label,
+        score,
+        order,
+        bbox: { x0, x1, y0: page.height - bottom * page.height, y1: page.height - top * page.height },
+      }
+    }
+
+    let pdf = await open('turkish.pdf')
+    const plain = await pdf.textLayer()
+    await pdf.close()
+    const [p1, p2, p3] = plain as [PdfTextPage, PdfTextPage, PdfTextPage]
+    const firstLine = PAGE2.paragraph.slice(0, 20)
+    const layout: PageLayoutProvider = async (_doc, n) => {
+      if (n === 2) {
+        return [
+          regionOf(p2, (t) => t.startsWith(`### ${PAGE2.heading}`), 'paragraph_title', 0),
+          regionOf(p2, (t) => t.startsWith(firstLine), 'text', 1),
+          // The bullets are "inside a figure": their text disappears.
+          regionOf(p2, (t) => t.startsWith('- '), 'image', 2),
+          regionOf(
+            p2,
+            (t) => /\p{L}/u.test(t) && !t.startsWith('-') && !t.startsWith('#') && !t.startsWith(firstLine),
+            'text',
+            3,
+          ),
+        ]
+      }
+      if (n === 3) {
+        // Reading order from the model wins: the second paragraph comes first.
+        const paras = p3.spans.filter((s) => !s.text.startsWith('#'))
+        return [
+          regionOf(p3, (t) => t === paras[0]?.text, 'text', 5),
+          regionOf(p3, (t) => t === paras[1]?.text, 'text', 1),
+          regionOf(p3, (t) => t.startsWith('#'), 'paragraph_title', 0),
+        ]
+      }
+      return [regionOf(p1, () => true, 'text', 0, 0.55)]
+    }
+    pdf = await open('turkish.pdf')
+    const pages = await pdf.textLayer({ layout })
+    await pdf.close()
+    const md2 = pages[1]?.markdown ?? ''
+    expect(md2).toContain(`### ${PAGE2.heading}`)
+    for (const b of PAGE2.bullets) expect(md2).not.toContain(b)
+    expect(pages[1]?.spans.find((s) => s.text.startsWith('###'))?.label).toBe('paragraph_title')
+    const md3 = pages[2]?.markdown ?? ''
+    const [a, b] = p3.spans.filter((s) => !s.text.startsWith('#')).map((s) => s.text)
+    expect(md3.indexOf(b as string)).toBeLessThan(md3.indexOf(a as string))
+    // A confident "text" region keeps the title from being a heading; page 1's low score does not.
+    expect(pages[0]?.markdown).toContain(`# ${PAGE1.title}`)
+
+    // Line-less tables need a table region when a layout is available.
+    pdf = await open('tables.pdf')
+    const bare = await pdf.textLayer()
+    await pdf.close()
+    const page2 = bare[1] as PdfTextPage
+    const aligned = page2.spans.find((s) => s.table?.source === 'aligned') as (typeof page2.spans)[number]
+    const tableRegion = regionOf(page2, (t) => t === aligned.text, 'table', 1)
+    const everything = regionOf(page2, () => true, 'text', 0)
+    pdf = await open('tables.pdf')
+    const withHint = await pdf.textLayer({
+      layout: async (_d, n) => (n === 2 ? [tableRegion, everything] : []),
+    })
+    const withoutHint = await pdf.textLayer({ layout: async (_d, n) => (n === 2 ? [everything] : []) })
+    await pdf.close()
+    expect(withHint[1]?.spans.filter((s) => s.table?.source === 'aligned')).toHaveLength(1)
+    expect(withoutHint[1]?.spans.filter((s) => s.table?.source === 'aligned')).toHaveLength(0)
+    expect(withoutHint[1]?.markdown).toContain(TABLES.aligned.rows[0]?.[1] as string)
   })
 
   it('renders pages to PNG and builds page subsets', async () => {

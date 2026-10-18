@@ -18,6 +18,8 @@ export interface LayoutBlock {
   text: string
   /** Position as fractions of the page (origin top-left), null when unknown. */
   box: Box | null
+  /** Layout-model class (e.g. "figure_title", "footnote") when layout analysis ran. */
+  label?: string
   /** Cell structure (with spans) for tables read from a PDF text layer. */
   table?: TableData
   /** For a table that continues one from the previous page: that table's block id. */
@@ -78,6 +80,7 @@ export function buildDocumentLayout(input: {
     const matched = spans ? matchSpans(b.text, spans) : []
     const box = spans ? unionBoxes(matched.map((s) => s.box)) : null
     const table = b.kind === 'table' ? matched.find((s) => s.table)?.table : undefined
+    const label = matched.find((s) => s.label)?.label
     const chunkIds = chunksOnPage(b.page)
       .filter((c) => matchSpans(c.rawContent, [{ text: b.text }]).length > 0)
       .map((c) => c.chunkId)
@@ -89,6 +92,7 @@ export function buildDocumentLayout(input: {
       ...(b.kind === 'heading' ? { level: b.depth } : {}),
       text: b.text,
       box,
+      ...(label ? { label } : {}),
       ...(table ? { table } : {}),
       ...(continues ? { continues } : {}),
       chunkIds,

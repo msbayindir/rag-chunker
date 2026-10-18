@@ -184,6 +184,23 @@ const embeddingSchema = z.strictObject({
   batchSize: z.number().int().min(1).max(2048).optional().describe('Texts per embedding request.'),
 })
 
+const layoutSchema = z.strictObject({
+  engine: z
+    .enum(['auto', 'off', 'pp-doclayout-v3'])
+    .default('auto')
+    .describe(
+      'Page layout analysis for PDFs with a local ONNX model (block classes + reading order). "auto": on when onnxruntime-node and the downloaded model are present; "pp-doclayout-v3": on, downloading the model (130 MB) on first use; "off": position heuristics only.',
+    ),
+  minScore: z.number().min(0).max(1).default(0.5).describe('Minimum detection confidence.'),
+  render: z
+    .number()
+    .int()
+    .min(512)
+    .max(2048)
+    .default(1024)
+    .describe('Longer page side, in pixels, of the render the model sees.'),
+})
+
 const cacheSchema = z.strictObject({
   enabled: z
     .boolean()
@@ -213,6 +230,7 @@ export const configSchema = z
     chunk: chunkSchema.prefault({}).describe('Chunk sizes and boundaries.'),
     context: contextSchema.prefault({}).describe('Contextual retrieval settings.'),
     embedding: embeddingSchema.prefault({}).describe('Embedding settings.'),
+    layout: layoutSchema.prefault({}).describe('Local page layout analysis (PDF).'),
     cache: cacheSchema.prefault({}).describe('On-disk cache.'),
   })
   .superRefine((cfg, ctx) => {

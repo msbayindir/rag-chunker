@@ -9,6 +9,9 @@ import { type DocumentInput, readDocument } from '../documents/input.js'
 import { locateChunk, type TextSpan } from '../documents/layout.js'
 import { embedTexts } from '../embeddings/embed.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
+import { createLayoutProvider, LAYOUT_MODEL, type PageLayoutProvider } from '../local/layout.js'
+import { hasModel } from '../local/models.js'
+import { hasOnnxRuntime } from '../local/runtime.js'
 import { extractDocument, type OcrEngine } from '../ocr/extract.js'
 import { buildDocumentLayout, type DocumentLayout } from '../output/layout.js'
 import { chunkStats, type Manifest, PACKAGE_VERSION, sanitizeConfig } from '../output/manifest.js'
@@ -116,6 +119,45 @@ function engineName(engine: OcrEngine): string {
   return engine.type === 'vision' ? engine.ref : engine.type
 }
 
+export interface LayoutPlan {
+  /** Model that will analyse PDF pages, or null. */
+  engine: string | null
+  /** Why "auto" stays off: what is missing. */
+  reason?: string
+  /** True when the model file still has to be downloaded. */
+  download?: boolean
+}
+
+/**
+ * Whether PDF pages get layout analysis: "off" never, "pp-doclayout-v3" always (downloading the
+ * model on first use), "auto" only when the runtime and the model are already on the machine.
+ */
+export async function resolveLayout(config: ResolvedConfig): Promise<LayoutPlan> {
+  const { engine } = config.layout
+  if (engine === 'off') return { engine: null }
+  const runtime = await hasOnnxRuntime()
+  const model = await hasModel(LAYOUT_MODEL)
+  if (engine === 'pp-doclayout-v3') {
+    if (!runtime) {
+      throw new RagChunkerError(
+        'OPTIONAL_DEPENDENCY_MISSING',
+        'Layout analysis needs the "onnxruntime-node" package',
+        {
+          hint: 'Install it with: npm install onnxruntime-node  (or set layout.engine to "off")',
+        },
+      )
+    }
+    return { engine: LAYOUT_MODEL, download: !model }
+  }
+  if (runtime && model) return { engine: LAYOUT_MODEL }
+  return {
+    engine: null,
+    reason: !runtime
+      ? 'onnxruntime-node is not installed'
+      : 'the layout model is not downloaded (run once with --layout)',
+  }
+}
+
 /**
  * Full pipeline: read → OCR → (heading fix) → chunk → (context) → (embeddings).
  * Stages without a configured model are skipped. Results are cached per page/chunk, so an
@@ -155,6 +197,21 @@ export async function runPipeline(
   let { engine } = plan
   let t = Date.now()
   reporter.start('ocr', engineName(engine))
+  let layoutProvider: PageLayoutProvider | undefined
+  const layoutPlan = doc.kind === 'pdf' ? await resolveLayout(config) : { engine: null }
+  if (layoutPlan.engine) {
+    const mb = (n: number) => Math.round(n / 1024 / 1024)
+    layoutProvider = await createLayoutProvider({
+      render: config.layout.render,
+      minScore: config.layout.minScore,
+      cache,
+      documentId: doc.documentId,
+      onModelDownload: (done, total) =>
+        reporter.progress('ocr', mb(done), mb(total), 'downloading PP-DocLayoutV3 (MB)'),
+      onPage: (page, total) => reporter.progress('ocr', page, total, 'layout'),
+      signal,
+    })
+  }
   const extract = (e: OcrEngine, p: 'all' | 'scanned') =>
     extractDocument(doc, {
       engine: e,
@@ -163,6 +220,7 @@ export async function runPipeline(
       stripImages: config.ocr.stripImages,
       removeHeaderFooter: config.ocr.removeHeaderFooter,
       concurrency: config.ocr.concurrency,
+      layout: layoutProvider,
       registry,
       cache,
       reporter,
@@ -191,9 +249,14 @@ export async function runPipeline(
     scannedPages: extracted.stats.scannedPages,
     emptyPages: extracted.stats.emptyPages,
     headerFooterLinesRemoved: extracted.stats.headerFooterLinesRemoved,
+    layout: layoutPlan.engine,
+    layoutPages: extracted.stats.layoutPages,
     durationMs: Date.now() - t,
   }
-  reporter.end('ocr', `${extracted.pageCount} page(s), ${extracted.ocrModel}`)
+  reporter.end(
+    'ocr',
+    `${extracted.pageCount} page(s), ${extracted.ocrModel}${layoutPlan.engine ? ' + layout' : ''}`,
+  )
   if (extracted.pages.every((p) => p.markdown.trim() === '')) {
     reporter.warn('ocr', `No text could be extracted from ${doc.name}.`)
   }

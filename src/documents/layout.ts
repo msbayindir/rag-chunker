@@ -19,6 +19,8 @@ export interface TextSpan {
   box: Box
   /** Cell structure when the block is a table read from the page. */
   table?: TableData
+  /** Layout-model class of the block, when layout analysis ran. */
+  label?: string
 }
 
 /** A box on a given page. */
