@@ -44,13 +44,37 @@ upper bound and the differences between runs as the signal.
 Numbers from `results/`, rag-chunker 4.0.0, Apple M1 (CPU only), Node 22.
 
 <!-- results:start -->
-_Run `npm run bench` to fill this table; the latest JSON files in `results/` are the source._
+Run `local-layout` on 2026-10-18: rag-chunker 4.0.0, darwin-arm64, Node v22.23.2; layout `auto`, embedding `off`, reranker `mmarco-minilm`, chunks 512/64 tokens.
+
+| Document | Pages | Time | Chunks | Headings | Tables | Figures | MRR bm25 | MRR hybrid | MRR rerank |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| anayasa | 75 | 80.7 s | 257 | 243 | 3 | 0 | 0.764 (hit@1 66%) | – | 0.902 (hit@1 86%) |
+| hipertansiyon-2022 | 222 | 255.4 s | 463 | 316 | 43 | 11 | 0.579 (hit@1 46%) | – | 0.748 (hit@1 62%) |
+| diyabet-protokol | 101 | 119.0 s | 200 | 202 | 17 | 19 | – | – | – |
+| bert | 16 | 21.1 s | 44 | 36 | 8 | 8 | 0.771 (hit@1 63%) | – | 0.874 (hit@1 83%) |
+| llama2 | 77 | 114.8 s | 219 | 69 | 62 | 48 | 0.752 (hit@1 66%) | – | 0.679 (hit@1 56%) |
+
+Quality findings per document:
+- `anayasa`: 3 block(s) with few letters (broken text layer or OCR noise), e.g. page 38; 1 heading(s) longer than 120 characters — probably body text; 47 chunk(s) (18 %) below minTokens
+- `hipertansiyon-2022`: 8 page(s) without text — scanned pages need an OCR engine (--ocr pp-ocr, --local or a key); 26 block(s) with few letters (broken text layer or OCR noise), e.g. page 11; 3 heading(s) longer than 120 characters — probably body text; heading levels skip a level 13 time(s); 3 of 11 figure(s) without a caption
+- `diyabet-protokol`: 2 page(s) without text — scanned pages need an OCR engine (--ocr pp-ocr, --local or a key); 5 block(s) with few letters (broken text layer or OCR noise), e.g. page 6; 1 heading(s) longer than 120 characters — probably body text; heading levels skip a level 17 time(s); 22 chunk(s) (11 %) below minTokens; 18 of 19 figure(s) without a caption
+- `bert`: heading levels skip a level 1 time(s); 2 of 8 figure(s) without a caption
+- `llama2`: 20 block(s) with few letters (broken text layer or OCR noise), e.g. page 2; heading levels skip a level 6 time(s)
 <!-- results:end -->
 
-Notes on reading the table: "Time" is the whole pipeline without any model request (text layer,
-layout model, tables, figures, chunking); MRR columns compare search modes on the same chunks —
-`bm25` is keyword search, `hybrid` fuses it with vector search of the given embedding model, and
-`rerank` reorders the top 30 hybrid (or BM25) candidates with the local cross-encoder.
+Notes on reading the table: "Time" is the whole pipeline with the cache off and without any model
+request (text layer, layout model, table structure, figures, chunking); MRR columns compare search
+modes on the same chunks — `bm25` is keyword search, `hybrid` fuses it with vector search of the
+given embedding model, and `rerank` reorders the top 30 hybrid (or, without embeddings, BM25)
+candidates with the local cross-encoder.
+
+Two things the numbers taught us so far. First, the reranker gains most where keyword search is
+weakest (the Turkish guideline, the constitution), and it needs good candidates: on the Llama 2
+paper with BM25-only candidates it ranked worse than BM25 (0.75 → 0.68), while with hybrid
+candidates it helped (0.74 → 0.79); fusing the reranker's order with the first stage's (RRF, a
+weighted blend, fewer candidates) did not change that picture. So give it embeddings when you
+can. Second, with 50 synthetic questions per document the standard error of an MRR is about 0.03:
+read differences smaller than that as noise.
 
 ## Adding a document
 

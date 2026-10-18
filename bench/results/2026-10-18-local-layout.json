@@ -1,0 +1,174 @@
+{
+  "date": "2026-10-18",
+  "label": "local-layout",
+  "version": "4.0.0",
+  "node": "v22.23.2",
+  "platform": "darwin-arm64",
+  "settings": {
+    "layout": "auto",
+    "embedding": null,
+    "rerank": "mmarco-minilm",
+    "chunk": {
+      "maxTokens": 512,
+      "minTokens": 64,
+      "overlapTokens": 0,
+      "hardBoundaryDepth": 2,
+      "preserveTables": true,
+      "preserveCode": true,
+      "tokenizer": "o200k"
+    }
+  },
+  "results": [
+    {
+      "name": "anayasa",
+      "pages": 75,
+      "processMs": 80695,
+      "chunks": 257,
+      "avgTokens": 235,
+      "located": 257,
+      "headings": 243,
+      "tables": 3,
+      "tablesBySource": {
+        "rules": 1,
+        "ruled": 2
+      },
+      "figures": 0,
+      "flags": [
+        "3 block(s) with few letters (broken text layer or OCR noise), e.g. page 38",
+        "1 heading(s) longer than 120 characters — probably body text",
+        "47 chunk(s) (18 %) below minTokens"
+      ],
+      "metrics": {
+        "bm25": {
+          "mrr": 0.7638888888888888,
+          "hitAt1": 0.66,
+          "hitAt5": 0.9
+        },
+        "rerank": {
+          "mrr": 0.9016666666666667,
+          "hitAt1": 0.86,
+          "hitAt5": 0.96
+        }
+      }
+    },
+    {
+      "name": "hipertansiyon-2022",
+      "pages": 222,
+      "processMs": 255450,
+      "chunks": 463,
+      "avgTokens": 398,
+      "located": 463,
+      "headings": 316,
+      "tables": 43,
+      "tablesBySource": {
+        "ruled": 41,
+        "rules": 2
+      },
+      "figures": 11,
+      "flags": [
+        "8 page(s) without text — scanned pages need an OCR engine (--ocr pp-ocr, --local or a key)",
+        "26 block(s) with few letters (broken text layer or OCR noise), e.g. page 11",
+        "3 heading(s) longer than 120 characters — probably body text",
+        "heading levels skip a level 13 time(s)",
+        "3 of 11 figure(s) without a caption"
+      ],
+      "metrics": {
+        "bm25": {
+          "mrr": 0.5793888888888888,
+          "hitAt1": 0.46,
+          "hitAt5": 0.72
+        },
+        "rerank": {
+          "mrr": 0.7476666666666665,
+          "hitAt1": 0.62,
+          "hitAt5": 0.92
+        }
+      }
+    },
+    {
+      "name": "diyabet-protokol",
+      "pages": 101,
+      "processMs": 118993,
+      "chunks": 200,
+      "avgTokens": 259,
+      "located": 200,
+      "headings": 202,
+      "tables": 17,
+      "tablesBySource": {
+        "ruled": 16,
+        "rules": 1
+      },
+      "figures": 19,
+      "flags": [
+        "2 page(s) without text — scanned pages need an OCR engine (--ocr pp-ocr, --local or a key)",
+        "5 block(s) with few letters (broken text layer or OCR noise), e.g. page 6",
+        "1 heading(s) longer than 120 characters — probably body text",
+        "heading levels skip a level 17 time(s)",
+        "22 chunk(s) (11 %) below minTokens",
+        "18 of 19 figure(s) without a caption"
+      ],
+      "metrics": null
+    },
+    {
+      "name": "bert",
+      "pages": 16,
+      "processMs": 21129,
+      "chunks": 44,
+      "avgTokens": 359,
+      "located": 44,
+      "headings": 36,
+      "tables": 8,
+      "tablesBySource": {
+        "rules": 4,
+        "aligned": 2,
+        "model": 2
+      },
+      "figures": 8,
+      "flags": ["heading levels skip a level 1 time(s)", "2 of 8 figure(s) without a caption"],
+      "metrics": {
+        "bm25": {
+          "mrr": 0.7710714285714285,
+          "hitAt1": 0.625,
+          "hitAt5": 0.95
+        },
+        "rerank": {
+          "mrr": 0.87375,
+          "hitAt1": 0.825,
+          "hitAt5": 0.95
+        }
+      }
+    },
+    {
+      "name": "llama2",
+      "pages": 77,
+      "processMs": 114795,
+      "chunks": 219,
+      "avgTokens": 347,
+      "located": 219,
+      "headings": 69,
+      "tables": 62,
+      "tablesBySource": {
+        "rules": 47,
+        "model": 14,
+        "aligned": 1
+      },
+      "figures": 48,
+      "flags": [
+        "20 block(s) with few letters (broken text layer or OCR noise), e.g. page 2",
+        "heading levels skip a level 6 time(s)"
+      ],
+      "metrics": {
+        "bm25": {
+          "mrr": 0.7515476190476191,
+          "hitAt1": 0.66,
+          "hitAt5": 0.86
+        },
+        "rerank": {
+          "mrr": 0.679079365079365,
+          "hitAt1": 0.56,
+          "hitAt5": 0.82
+        }
+      }
+    }
+  ]
+}

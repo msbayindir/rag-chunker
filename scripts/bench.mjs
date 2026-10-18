@@ -33,8 +33,44 @@ const layoutFlag = args.includes('--layout') ? true : args.includes('--no-layout
 
 const dist = (p) => import(pathToFileURL(join(root, 'dist', p)).href)
 const api = await dist('index.js')
+const { PACKAGE_VERSION } = await dist('output/manifest.js')
 const { processDocument, resolveConfig, evaluate, createReranker, resolveReranker, readDotEnv } = api
 const env = { ...(await readDotEnv().catch(() => ({}))), ...process.env }
+
+/** Rewrites the results block of bench/README.md from a results file. */
+async function updateReadme(summary) {
+  const readmePath = join(root, 'bench', 'README.md')
+  const readme = await readFile(readmePath, 'utf8')
+  const cell = (r, mode) =>
+    r.metrics?.[mode] ? `${r.metrics[mode].mrr.toFixed(3)} (hit@1 ${pct(r.metrics[mode].hitAt1)})` : '–'
+  const lines = [
+    `Run \`${summary.label}\` on ${summary.date}: rag-chunker ${summary.version ?? '?'}, ${summary.platform}, Node ${summary.node}; layout \`${summary.settings.layout}\`, embedding \`${summary.settings.embedding ?? 'off'}\`, reranker \`${summary.settings.rerank ?? 'off'}\`, chunks ${summary.settings.chunk.maxTokens}/${summary.settings.chunk.minTokens} tokens.`,
+    '',
+    '| Document | Pages | Time | Chunks | Headings | Tables | Figures | MRR bm25 | MRR hybrid | MRR rerank |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    ...summary.results.map(
+      (r) =>
+        `| ${r.name} | ${r.pages} | ${(r.processMs / 1000).toFixed(1)} s | ${r.chunks} | ${r.headings} | ${r.tables} | ${r.figures} | ${cell(r, 'bm25')} | ${cell(r, 'hybrid')} | ${cell(r, 'rerank')} |`,
+    ),
+    '',
+    'Quality findings per document:',
+    ...summary.results.map((r) => `- \`${r.name}\`: ${r.flags.length ? r.flags.join('; ') : 'none'}`),
+  ]
+  const next = readme.replace(
+    /<!-- results:start -->[\s\S]*<!-- results:end -->/,
+    `<!-- results:start -->\n${lines.join('\n')}\n<!-- results:end -->`,
+  )
+  await writeFile(readmePath, next)
+}
+
+const pct = (n) => `${(100 * n).toFixed(0)}%`
+
+const readmeFrom = typeof flag('--readme-from') === 'string' ? flag('--readme-from') : undefined
+if (readmeFrom) {
+  await updateReadme(JSON.parse(await readFile(readmeFrom, 'utf8')))
+  console.log(`bench/README.md updated from ${readmeFrom}`)
+  process.exit(0)
+}
 
 const corpus = JSON.parse(await readFile(join(root, 'bench', 'corpus.json'), 'utf8')).documents.filter(
   (d) => !only || only.includes(d.name),
@@ -77,12 +113,13 @@ const config = resolveConfig({
   ...(layoutFlag === false ? { layout: { engine: 'off' } } : {}),
   ...(embeddingModel ? { models: { embedding: embeddingModel } } : {}),
   ocr: { engine: 'text-layer' },
+  // No cache: the times in the table are real end-to-end times.
+  cache: { enabled: false },
 })
 const rerankPlan = await resolveReranker(config, rerankFlag)
 const reranker = rerankPlan.id ? await createReranker(rerankPlan.id) : undefined
 
 const results = []
-const pct = (n) => `${(100 * n).toFixed(0)}%`
 console.log(
   `rag-chunker bench · label ${label} · layout ${config.layout.engine} · embedding ${embeddingModel ?? 'off'} · rerank ${rerankPlan.id ?? 'off'}\n`,
 )
@@ -140,7 +177,7 @@ const file = join(outDir, `${date}-${label}.json`)
 const summary = {
   date,
   label,
-  version: api.PACKAGE_VERSION ?? null,
+  version: PACKAGE_VERSION,
   node: process.version,
   platform: `${process.platform}-${process.arch}`,
   settings: {
@@ -152,6 +189,7 @@ const summary = {
   results,
 }
 await writeFile(file, `${JSON.stringify(summary, null, 2)}\n`)
+await updateReadme(summary)
 
 console.log(
   `\n| Document | Pages | Time | Chunks | Headings | Tables | Figures | ${['bm25', 'hybrid', 'rerank'].map((mode) => `MRR ${mode}`).join(' | ')} |`,
