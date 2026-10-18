@@ -84,6 +84,8 @@ A stage without a model is skipped. With no configuration you get the text layer
 | PDF | Text layer (headings from font sizes, lists, two-column order, de-hyphenation); scanned pages through the OCR engine |
 | DOCX | Word headings, paragraphs and tables (mammoth → GFM) |
 | PPTX | One page per slide: title, nested bullets, tables, speaker notes |
+| XLSX | One page per visible sheet: cell blocks as GFM tables (blank rows split them, a lone cell above is a title), dates, percentages, booleans and formula results resolved, merged cells repeated |
+| HTML | The main content (`<main>`, a single `<article>`, else the body) without scripts, navigation, site header/footer and hidden elements; tables of any shape, code blocks, alt texts |
 | PNG / JPEG / WebP | OCR engine (Mistral or a vision model) |
 | Markdown / text | As is; `<!-- page N -->` markers set page numbers |
 
@@ -167,6 +169,9 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 | `providers.<name>` | — | `type`, `baseURL`, `apiKeyEnv`, `headers`, `contextWindow`, `maxContext` (Ollama `num_ctx` cap, default 32768), `concurrency`, `timeoutMs`, `maxRetries` |
 | `layout.engine` | `auto` | Page layout analysis for PDFs with a local ONNX model: `auto` (on when `onnxruntime-node` and the downloaded model are present), `pp-doclayout-v3` (on; downloads the models once), `off` |
 | `layout.minScore`, `layout.render` | `0.5`, `1024` | Detection confidence; longer page side in pixels rendered for the model |
+| `figures.extract` | `true` | Cut the figures of PDF pages and images out as PNG files under `figures/` and reference them from the markdown (`--no-figures` turns it off) |
+| `figures.describe` | `false` | Describe every figure with `models.vision` (two to five sentences stored under the image, for retrieval); one vision request per figure (`--describe-figures`) |
+| `figures.minSize` | `0.015` | Smallest figure kept, as a share of the page area (icons and logos fall below it) |
 | `cache.enabled` / `cache.dir` | `true` / `~/.rag-chunker/cache` | On-disk cache |
 
 ## CLI
@@ -225,7 +230,9 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 
 **Tables.** Tables in a PDF text layer are rebuilt as tables: grids drawn with lines (including merged cells and two-row headers), tables between horizontal rules only (papers) and tables with no lines at all, found from aligned columns. With `--layout`, table regions that no drawn grid explains also go through [SLANet_plus](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/module_usage/table_structure_recognition.en.md), an 8 MB table-structure model: it predicts rows, columns and spans from the image, the page text is matched into its cells, and it is used where it explains more of the text than alignment does, which is how scanned pages, images and tables with multi-level headers get a structure (it also splits narrow columns that alignment merged between rules). `table.source` in `document.json` names the detector (`ruled`, `rules`, `aligned`, `model`). They become GFM tables in `document.md` and table chunks (a short table travels with its caption; a long one is split with its header row repeated). `document.json` keeps the cell structure with spans (`table.cells`, `tableToHtml()` renders it with `colspan`/`rowspan`); a table that runs onto the next page gets its header carried over and the two parts are linked (`continues`). `teds()` measures a recognised table against a reference (TEDS, 0–1).
 
-**Positions.** Chunks read from a PDF text layer carry `boxes`: one rectangle per paragraph, heading or list item, as fractions of the page size (`x`, `y`, `w`, `h`, origin top-left), so an application can highlight the source of an answer on the page at any zoom level. `document.json` has the same positions for every block plus `chunkIds`; `rag-chunker inspect --ui --pdf` draws them over the page. OCR'd pages, DOCX, PPTX and Markdown have no positions (`boxes: []`, `box: null`).
+**Figures.** Pictures embedded in PDF pages are cut out of a page render as PNG files (`figures/p<page>-<n>.png`, next to the other outputs) and referenced from `document.md` where they sit in the reading order: `![caption](figures/p3-1.png)`. The caption comes from the `figure_title` region when layout analysis ran, else from the nearest line that starts like one ("Figure 3", "Fig. 2a", "Şekil 1", "Abbildung 4"…) below or above the picture; the caption text itself stays in the flow. With `--layout`, charts and drawings made of vector graphics are figures too (`image` and `chart` regions), which is what papers mostly contain; without it only raster images are found. Icons, logos, full-page scans and pictures with paragraphs written over them are left out. `document.json` lists every figure as a `figure` block with its box, file, caption and (with `--describe-figures`) the description a vision model wrote — `--local` uses Gemma 4 for that, so a chart's axes, legend and trend become searchable text under the image. `rag-chunker inspect --ui` shows the figures inline.
+
+**Positions.** Chunks read from a PDF text layer carry `boxes`: one rectangle per paragraph, heading or list item, as fractions of the page size (`x`, `y`, `w`, `h`, origin top-left), so an application can highlight the source of an answer on the page at any zoom level. `document.json` has the same positions for every block plus `chunkIds`; `rag-chunker inspect --ui --pdf` draws them over the page. OCR'd pages, DOCX, PPTX, XLSX, HTML and Markdown have no positions (`boxes: []`, `box: null`).
 
 **What to embed:** `content` (it includes the context summary and overlap). For hybrid search index `content` in the vector store and `rawContent` for keyword search. Embed queries with the same model and `embedQuery()` — Gemini and EmbeddingGemma use different prompts for documents and queries.
 

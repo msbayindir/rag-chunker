@@ -3,6 +3,7 @@
  * item; chunks and document blocks are located by matching their text against these spans.
  */
 
+import type { FigureData } from './figures.js'
 import type { TableData } from './tables.js'
 
 /** A rectangle as fractions of the page size (0-1), origin top-left. */
@@ -19,6 +20,8 @@ export interface TextSpan {
   box: Box
   /** Cell structure when the block is a table read from the page. */
   table?: TableData
+  /** File, caption and description when the block is a figure cut out of the page. */
+  figure?: FigureData
   /** Layout-model class of the block, when layout analysis ran. */
   label?: string
   /** Lowest OCR confidence (0-1) in the block, for text read by local OCR. */

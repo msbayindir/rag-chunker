@@ -1,10 +1,13 @@
 import type { CacheStore } from '../cache/store.js'
 import { docxToMarkdown } from '../documents/docx.js'
+import type { FigureSink } from '../documents/figures.js'
+import { htmlToMarkdown } from '../documents/html.js'
 import type { DocumentInput } from '../documents/input.js'
 import type { TextSpan } from '../documents/layout.js'
 import { ocrItems, PdfDocumentHandle, pageFromItems, planPageBatches, subsetPdf } from '../documents/pdf.js'
 import { pptxToMarkdown } from '../documents/pptx.js'
 import type { Rect } from '../documents/tables.js'
+import { xlsxToMarkdown } from '../documents/xlsx.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
 import type { PageLayoutProvider, PageLike } from '../local/layout.js'
 import type { OcrResult, PageOcrProvider } from '../local/ocr.js'
@@ -50,6 +53,8 @@ export interface ExtractOptions {
   localOcr?: LocalOcr
   /** Table structure model for the table regions the layout model reports. */
   tables?: TableStructureProvider
+  /** Saves the figures of PDF pages and images; without it none are extracted. */
+  figures?: { save: FigureSink; minSize?: number }
   registry: ProviderRegistry
   cache: CacheStore
   reporter: Reporter
@@ -59,7 +64,7 @@ export interface ExtractOptions {
 export interface ExtractedPage {
   pageNumber: number
   markdown: string
-  /** text-layer | pp-ocr | mistral | <provider/model> | markdown | docx | pptx */
+  /** text-layer | pp-ocr | mistral | <provider/model> | markdown | docx | pptx | xlsx | html */
   source: string
   /** Page size in PDF points (PDF input only). */
   width?: number
@@ -138,6 +143,17 @@ export async function extractDocument(doc: DocumentInput, opts: ExtractOptions):
       pages = splitPages(markdown).map((p) => ({ ...p, source: 'pptx' }))
       break
     }
+    case 'xlsx': {
+      const { markdown, warnings } = await xlsxToMarkdown(doc.bytes)
+      for (const w of warnings) opts.reporter.warn('ocr', w)
+      pages = splitPages(markdown).map((p) => ({ ...p, source: 'xlsx' }))
+      break
+    }
+    case 'html': {
+      const text = new TextDecoder('utf-8').decode(doc.bytes).replace(/^\uFEFF/, '')
+      pages = [{ pageNumber: 1, markdown: htmlToMarkdown(text).markdown, source: 'html' }]
+      break
+    }
     case 'image':
       pages = [await ocrImage(doc, opts, usage, stats)]
       break
@@ -149,7 +165,10 @@ export async function extractDocument(doc: DocumentInput, opts: ExtractOptions):
   if (doc.kind === 'pdf' || doc.kind === 'image') {
     pages = pages.map((p) => ({
       ...p,
-      markdown: cleanPageMarkdown(p.markdown, { stripImages: opts.stripImages }),
+      // Placeholders come from OCR engines; the text layer's image references are real figures.
+      markdown: cleanPageMarkdown(p.markdown, {
+        stripImages: opts.stripImages && p.source !== 'text-layer' && p.source !== 'pp-ocr',
+      }),
     }))
     if (opts.removeHeaderFooter && pages.length >= 3) {
       const res = removeRepeatedHeaderFooter(pages.map((p) => p.markdown))
@@ -197,9 +216,11 @@ async function ocrImage(
     const asPage: PageLike = { pageCount: 1, renderPng: async () => doc.bytes, pageSize: async () => size }
     const regions = opts.layout ? await opts.layout(asPage, 1) : null
     const tables = opts.tables
+    const figures = opts.figures
     const page = await pageFromItems(ocrItems(result, size), size, {
       regions,
       ...(tables ? { tables: (region: Rect) => tables(asPage, 1, region) } : {}),
+      ...(figures ? { figures: { save: (f) => figures.save(asPage, 1, f), minSize: figures.minSize } } : {}),
     })
     stats.ocrPages++
     await opts.cache.set('ocr', key, page.markdown)
@@ -258,6 +279,7 @@ async function extractPdf(
     const textPages = await handle.textLayer({
       layout: opts.layout,
       tables: opts.tables,
+      figures: opts.figures,
       ...(local
         ? {
             ocr: {

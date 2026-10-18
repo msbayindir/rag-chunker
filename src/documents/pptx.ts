@@ -1,36 +1,16 @@
-import { XMLParser } from 'fast-xml-parser'
 import JSZip from 'jszip'
 import { RagChunkerError } from '../errors.js'
-
-type XNode = Record<string, unknown>
-
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: '@',
-  preserveOrder: true,
-  trimValues: false,
-  parseTagValue: false,
-})
-
-const tagOf = (node: XNode): string | undefined => Object.keys(node).find((k) => k !== ':@')
-const childrenOf = (node: XNode): XNode[] => {
-  const tag = tagOf(node)
-  const value = tag ? node[tag] : undefined
-  return Array.isArray(value) ? (value as XNode[]) : []
-}
-const attrsOf = (node: XNode): Record<string, string> => (node[':@'] as Record<string, string>) ?? {}
-
-function* walk(nodes: XNode[]): Generator<XNode> {
-  for (const n of nodes) {
-    yield n
-    yield* walk(childrenOf(n))
-  }
-}
-
-function find(nodes: XNode[], tag: string): XNode | undefined {
-  for (const n of walk(nodes)) if (tagOf(n) === tag) return n
-  return undefined
-}
+import {
+  attrsOf,
+  childrenOf,
+  find,
+  xmlParser as parser,
+  relTargets,
+  resolvePath,
+  tagOf,
+  walk,
+  type XNode,
+} from './ooxml.js'
 
 /** Text of a DrawingML paragraph (<a:p>): runs, fields and line breaks. */
 function paragraphText(p: XNode): string {
@@ -138,27 +118,6 @@ function notesText(xml: string): string {
     if (text) out.push(text)
   }
   return out.join('\n\n')
-}
-
-function relTargets(xml: string): Map<string, string> {
-  const doc = parser.parse(xml) as XNode[]
-  const out = new Map<string, string>()
-  for (const n of walk(doc)) {
-    if (tagOf(n) !== 'Relationship') continue
-    const a = attrsOf(n)
-    if (a['@Id'] && a['@Target']) out.set(a['@Id'], a['@Target'])
-  }
-  return out
-}
-
-function resolvePath(base: string, target: string): string {
-  if (target.startsWith('/')) return target.slice(1)
-  const parts = base.split('/').slice(0, -1)
-  for (const seg of target.split('/')) {
-    if (seg === '..') parts.pop()
-    else if (seg !== '.') parts.push(seg)
-  }
-  return parts.join('/')
 }
 
 /** Converts a .pptx file to markdown with one `<!-- page N -->` section per slide (speaker notes included). */

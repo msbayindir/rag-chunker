@@ -3,7 +3,7 @@ import { basename, extname } from 'node:path'
 import { RagChunkerError } from '../errors.js'
 import { sha256 } from '../util/hash.js'
 
-export type DocumentKind = 'pdf' | 'docx' | 'pptx' | 'image' | 'markdown'
+export type DocumentKind = 'pdf' | 'docx' | 'pptx' | 'xlsx' | 'html' | 'image' | 'markdown'
 
 export interface DocumentInput {
   kind: DocumentKind
@@ -19,6 +19,8 @@ const MIME: Record<string, string> = {
   pdf: 'application/pdf',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  html: 'text/html',
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -30,6 +32,10 @@ export const SUPPORTED_EXTENSIONS = [
   '.pdf',
   '.docx',
   '.pptx',
+  '.xlsx',
+  '.xlsm',
+  '.html',
+  '.htm',
   '.png',
   '.jpg',
   '.jpeg',
@@ -57,13 +63,14 @@ function imageMime(bytes: Uint8Array): string | undefined {
   return undefined
 }
 
-function zipKind(bytes: Uint8Array): 'docx' | 'pptx' | undefined {
+function zipKind(bytes: Uint8Array): 'docx' | 'pptx' | 'xlsx' | undefined {
   if (!startsWith(bytes, 0x50, 0x4b, 0x03, 0x04)) return undefined
   // Office files list their main part names in the first entries; scanning the raw bytes is enough
   // to tell Word and PowerPoint apart without unzipping.
   const head = Buffer.from(bytes.subarray(0, Math.min(bytes.length, 1 << 20))).toString('latin1')
   if (head.includes('word/')) return 'docx'
   if (head.includes('ppt/')) return 'pptx'
+  if (head.includes('xl/')) return 'xlsx'
   return undefined
 }
 
@@ -76,14 +83,24 @@ export function detectKind(bytes: Uint8Array, name: string): { kind: DocumentKin
   if (zip) return { kind: zip, mime: MIME[zip] as string }
 
   const ext = extname(name).toLowerCase().slice(1)
+  if (ext === 'html' || ext === 'htm' || looksLikeHtml(bytes))
+    return { kind: 'html', mime: MIME.html as string }
   if (ext === 'md' || ext === 'markdown' || ext === 'txt') return { kind: 'markdown', mime: 'text/markdown' }
-  if (ext === 'docx' || ext === 'pptx') {
+  if (ext === 'docx' || ext === 'pptx' || ext === 'xlsx' || ext === 'xlsm') {
     throw new RagChunkerError('INPUT_INVALID', `${name} does not look like a valid .${ext} file`)
   }
   if (looksLikeText(bytes)) return { kind: 'markdown', mime: 'text/markdown' }
   throw new RagChunkerError('UNSUPPORTED_INPUT', `Unsupported file type: ${name}`, {
     hint: `Supported: ${SUPPORTED_EXTENSIONS.join(', ')}`,
   })
+}
+
+function looksLikeHtml(bytes: Uint8Array): boolean {
+  const head = new TextDecoder('utf-8')
+    .decode(bytes.subarray(0, 2048))
+    .replace(/^\uFEFF/, '')
+    .trimStart()
+  return /^<!doctype\s+html|^<html[\s>]/i.test(head)
 }
 
 function looksLikeText(bytes: Uint8Array): boolean {

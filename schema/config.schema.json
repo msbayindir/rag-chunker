@@ -300,6 +300,31 @@
       },
       "additionalProperties": false
     },
+    "figures": {
+      "description": "Figure extraction (PDF, images).",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "extract": {
+          "default": true,
+          "description": "Cut the figures of PDF pages and images (embedded pictures; with layout analysis also charts and drawings) out as PNG files under figures/ and reference them from the markdown.",
+          "type": "boolean"
+        },
+        "describe": {
+          "default": false,
+          "description": "Have models.vision describe every extracted figure (two to five sentences stored under the image, for retrieval). One vision request per figure.",
+          "type": "boolean"
+        },
+        "minSize": {
+          "default": 0.015,
+          "description": "Smallest figure kept, as a share of the page area; icons and logos fall below it.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "cache": {
       "description": "On-disk cache.",
       "default": {},

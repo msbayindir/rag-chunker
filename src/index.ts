@@ -34,13 +34,18 @@ export {
   type RagChunkerConfig,
   type ResolvedConfig,
 } from './config/schema.js'
+export { docxToMarkdown } from './documents/docx.js'
+export type { FigureData, FigureFile, FigureLabel } from './documents/figures.js'
+export { htmlToMarkdown } from './documents/html.js'
 export type { DocumentKind } from './documents/input.js'
+export { pptxToMarkdown } from './documents/pptx.js'
 export {
   type TableCell,
   type TableData,
   tableToHtml,
   tableToMarkdown,
 } from './documents/tables.js'
+export { xlsxToMarkdown } from './documents/xlsx.js'
 export { type ErrorCode, isRagChunkerError, RagChunkerError } from './errors.js'
 export {
   type EvalQuestion,

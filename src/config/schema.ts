@@ -202,6 +202,27 @@ const layoutSchema = z.strictObject({
     .describe('Longer page side, in pixels, of the render the model sees.'),
 })
 
+const figuresSchema = z.strictObject({
+  extract: z
+    .boolean()
+    .default(true)
+    .describe(
+      'Cut the figures of PDF pages and images (embedded pictures; with layout analysis also charts and drawings) out as PNG files under figures/ and reference them from the markdown.',
+    ),
+  describe: z
+    .boolean()
+    .default(false)
+    .describe(
+      'Have models.vision describe every extracted figure (two to five sentences stored under the image, for retrieval). One vision request per figure.',
+    ),
+  minSize: z
+    .number()
+    .min(0)
+    .max(1)
+    .default(0.015)
+    .describe('Smallest figure kept, as a share of the page area; icons and logos fall below it.'),
+})
+
 const cacheSchema = z.strictObject({
   enabled: z
     .boolean()
@@ -232,6 +253,7 @@ export const configSchema = z
     context: contextSchema.prefault({}).describe('Contextual retrieval settings.'),
     embedding: embeddingSchema.prefault({}).describe('Embedding settings.'),
     layout: layoutSchema.prefault({}).describe('Local page layout analysis (PDF).'),
+    figures: figuresSchema.prefault({}).describe('Figure extraction (PDF, images).'),
     cache: cacheSchema.prefault({}).describe('On-disk cache.'),
   })
   .superRefine((cfg, ctx) => {

@@ -5,6 +5,7 @@ import { getTokenizer } from '../chunker/tokenizer.js'
 import { DEFAULT_CACHE_DIR, resolveConfig } from '../config/load.js'
 import type { RagChunkerConfig, ResolvedConfig } from '../config/schema.js'
 import { enrichChunks } from '../context/enrich.js'
+import type { FigureFile } from '../documents/figures.js'
 import { type DocumentInput, readDocument } from '../documents/input.js'
 import { locateChunk, type TextSpan } from '../documents/layout.js'
 import { embedTexts } from '../embeddings/embed.js'
@@ -30,6 +31,7 @@ import {
 } from '../structure/heading-fix.js'
 import type { Chunk } from '../types.js'
 import { type ProgressListener, Reporter } from './events.js'
+import { createFigureSink, type FigureCollector, type FigureSinkOptions } from './figures.js'
 
 export interface ProcessOptions {
   /** Label stored as `source` in chunks (defaults to the file name, or "document" for bytes). */
@@ -48,8 +50,10 @@ export interface ProcessResult {
   /** Every block of the document with its page, position and chunks (`document.json`). */
   layout: DocumentLayout
   manifest: Manifest
+  /** Figures cut out of the pages (PNG bytes); `save()` writes them under `figures/`. */
+  figures: FigureFile[]
   warnings: string[]
-  /** Writes chunks.jsonl, document.md, structure.json, document.json and manifest.json to `dir`. */
+  /** Writes chunks.jsonl, document.md, structure.json, document.json, manifest.json and figures/ to `dir`. */
   save(dir: string): Promise<OutputPaths>
 }
 
@@ -278,6 +282,34 @@ export async function runPipeline(
       signal,
     })
   }
+  let figureSink: FigureCollector | undefined
+  let describeModel: string | null = null
+  if (config.figures.extract && (doc.kind === 'pdf' || doc.kind === 'image')) {
+    let describe: FigureSinkOptions['describe']
+    if (config.figures.describe) {
+      if (!config.models.vision) {
+        reporter.warn('ocr', 'figures.describe needs models.vision; figures are saved without descriptions.')
+      } else {
+        const llm = registry.llm(config.models.vision)
+        if ((await llm.capabilities()).vision) {
+          describe = { llm, model: config.models.vision }
+          describeModel = config.models.vision
+        } else {
+          reporter.warn(
+            'ocr',
+            `${config.models.vision} cannot read images; figures are saved without descriptions.`,
+          )
+        }
+      }
+    }
+    figureSink = createFigureSink({
+      cache,
+      documentId: doc.documentId,
+      describe,
+      onWarn: (m) => reporter.warn('ocr', m),
+      signal,
+    })
+  }
   const extract = (e: OcrEngine, p: 'all' | 'scanned') =>
     extractDocument(doc, {
       engine: e,
@@ -288,6 +320,7 @@ export async function runPipeline(
       concurrency: config.ocr.concurrency,
       layout: layoutProvider,
       tables: tableProvider,
+      figures: figureSink ? { save: figureSink.save, minSize: config.figures.minSize } : undefined,
       localOcr,
       registry,
       cache,
@@ -307,6 +340,10 @@ export async function runPipeline(
     extracted = await extract(engine, plan.fallback.pages)
   }
   byStage.ocr = extracted.usage
+  if (figureSink && figureSink.usage.requests > 0) byStage.figures = figureSink.usage
+  const figuresStage: Manifest['stages']['figures'] = figureSink
+    ? { ...figureSink.stats, model: describeModel }
+    : null
   const ocrStage: Manifest['stages']['ocr'] = {
     engine: engineName(engine),
     model: extracted.ocrModel,
@@ -323,7 +360,11 @@ export async function runPipeline(
   }
   reporter.end(
     'ocr',
-    `${extracted.pageCount} page(s), ${extracted.ocrModel}${layoutPlan.engine ? ' + layout' : ''}`,
+    `${extracted.pageCount} page(s), ${extracted.ocrModel}${layoutPlan.engine ? ' + layout' : ''}${
+      figureSink && figureSink.stats.extracted > 0
+        ? `, ${figureSink.stats.extracted} figure(s)${figureSink.stats.described > 0 ? ' described' : ''}`
+        : ''
+    }`,
   )
   if (extracted.pages.every((p) => p.markdown.trim() === '')) {
     reporter.warn('ocr', `No text could be extracted from ${doc.name}.`)
@@ -479,6 +520,7 @@ export async function runPipeline(
     stages: {
       ocr: ocrStage,
       structure: structureStage,
+      figures: figuresStage,
       chunk: { tokenizer: config.chunk.tokenizer, ...chunkStats(chunks), durationMs: chunkMs },
       context: contextStage,
       embedding: embeddingStage,
@@ -493,10 +535,18 @@ export async function runPipeline(
     structure,
     layout,
     manifest,
+    figures: figureSink?.files ?? [],
     warnings: reporter.warnings,
     async save(dir: string) {
       reporter.start('write', dir)
-      const paths = await writeOutputs(dir, { chunks, markdown, structure, layout, manifest })
+      const paths = await writeOutputs(dir, {
+        chunks,
+        markdown,
+        structure,
+        layout,
+        manifest,
+        figures: figureSink?.files,
+      })
       reporter.end('write', dir)
       return paths
     },

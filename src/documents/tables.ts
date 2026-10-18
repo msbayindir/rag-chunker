@@ -44,6 +44,8 @@ export type Segment = Rect
 export interface Rulings {
   h: Segment[]
   v: Segment[]
+  /** Rectangles (page points) where raster images are painted. */
+  images?: Rect[]
 }
 
 /** A piece of text on one baseline; `items` are the glyph runs it was built from. */
@@ -79,6 +81,10 @@ const OP = {
   closeEOFillStroke: 27,
   paintFormXObjectBegin: 74,
   paintFormXObjectEnd: 75,
+  paintImageMaskXObject: 83,
+  paintImageXObject: 85,
+  paintInlineImageXObject: 86,
+  paintImageXObjectRepeat: 88,
   constructPath: 91,
 } as const
 const PATH = { moveTo: 0, lineTo: 1, curveTo: 2, quadraticCurveTo: 3, closePath: 4 } as const
@@ -118,6 +124,17 @@ function apply(m: Matrix, x: number, y: number): [number, number] {
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
 }
 
+/** The unit square under `m`: where an image painted with that matrix lands. */
+function unitSquare(m: Matrix): Rect {
+  const pts = [apply(m, 0, 0), apply(m, 1, 0), apply(m, 0, 1), apply(m, 1, 1)]
+  return {
+    x0: Math.min(...pts.map((p) => p[0])),
+    x1: Math.max(...pts.map((p) => p[0])),
+    y0: Math.min(...pts.map((p) => p[1])),
+    y1: Math.max(...pts.map((p) => p[1])),
+  }
+}
+
 /** Minimum length of a line that counts as a ruling, and the thickness below which a filled rectangle is one. */
 const MIN_RULE = 3
 const MAX_RULE_THICKNESS = 2.5
@@ -128,11 +145,15 @@ interface OperatorList {
   argsArray: unknown[]
 }
 
-/** Horizontal and vertical lines drawn on a page: stroked paths and thin filled rectangles. */
+/**
+ * Horizontal and vertical lines drawn on a page (stroked paths and thin filled rectangles), plus
+ * the rectangles where raster images are painted.
+ */
 export async function extractRulings(page: { getOperatorList(): Promise<OperatorList> }): Promise<Rulings> {
   const ops = await page.getOperatorList()
   const h: Segment[] = []
   const v: Segment[] = []
+  const images: Rect[] = []
   let ctm: Matrix = IDENTITY
   const stack: Matrix[] = []
 
@@ -193,6 +214,21 @@ export async function extractRulings(page: { getOperatorList(): Promise<Operator
       case OP.paintFormXObjectEnd:
         ctm = stack.pop() ?? IDENTITY
         break
+      case OP.paintImageXObject:
+      case OP.paintInlineImageXObject:
+      case OP.paintImageMaskXObject:
+        images.push(unitSquare(ctm))
+        break
+      case OP.paintImageXObjectRepeat: {
+        // [objId, scaleX, scaleY, positions]: the same image at every (x, y), scaled.
+        const [, sx, sy, positions] = args ?? []
+        const pos = Array.from((positions ?? []) as ArrayLike<number>)
+        for (let k = 0; k + 1 < pos.length; k += 2)
+          images.push(
+            unitSquare(compose(ctm, [Number(sx), 0, 0, Number(sy), pos[k] as number, pos[k + 1] as number])),
+          )
+        break
+      }
       case OP.rectangle: {
         if (!args || args.length < 4) break
         const [x, y, w, hh] = args.map(Number) as [number, number, number, number]
@@ -254,7 +290,7 @@ export async function extractRulings(page: { getOperatorList(): Promise<Operator
         break
     }
   }
-  return { h: mergeSegments(h, 'h'), v: mergeSegments(v, 'v') }
+  return { h: mergeSegments(h, 'h'), v: mergeSegments(v, 'v'), images }
 }
 
 /** Joins collinear, overlapping or touching segments. */
@@ -947,7 +983,7 @@ export function tableFromModel(
   const byLine = options.lineRows && lines.length === model.rows
   if (options.lineRows && process.env.RAG_CHUNKER_TABLE_DEBUG)
     console.error(`[table] model lines ${lines.length} rows ${model.rows}`)
-  if (byLine) lines.forEach((line, i) => (line.row = i))
+  if (byLine) for (const [i, line] of lines.entries()) line.row = i
   // Cell boxes drift by a line at row boundaries of text-heavy cells. A line the model starts a
   // row with stays with the row above when it is spaced like that row's paragraph (tighter to the
   // line above than to the one below) and sits in the same column while the next line begins

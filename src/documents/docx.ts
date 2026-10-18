@@ -2,6 +2,7 @@ import mammoth from 'mammoth'
 import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
 import { RagChunkerError } from '../errors.js'
+import { tidyListMarkers } from './html.js'
 
 function createTurndown(): TurndownService {
   const td = new TurndownService({
@@ -51,8 +52,7 @@ export async function docxToMarkdown(bytes: Uint8Array): Promise<{ markdown: str
       cause: err,
     })
   }
-  const markdown = createTurndown()
-    .turndown(normalizeTables(html))
+  const markdown = tidyListMarkers(createTurndown().turndown(normalizeTables(html)))
     .replace(/\n{3,}/g, '\n\n')
     .trim()
   const warnings = messages.filter((m) => m.type === 'error').map((m) => `DOCX: ${m.message}`)

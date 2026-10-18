@@ -9,7 +9,8 @@ A rewrite. v4 is not compatible with v3: the API, CLI flags, output fields and c
 - Multi-provider support with `provider/model` references for every stage: Ollama (local, Gemma 4), Gemini, Anthropic Claude, OpenAI, OpenRouter, Mistral and any OpenAI-compatible server (LM Studio, vLLM, gateways).
 - `--local`: every stage on Ollama, choosing the best installed Gemma 4 for the machine's memory.
 - Tiered OCR: PDF text layer for digital pages (free, no keys), Mistral OCR or any vision model for scanned pages and images; running header/footer and page-number removal.
-- New inputs: DOCX, PPTX (slides, tables, speaker notes), PNG/JPEG/WebP and Markdown.
+- New inputs: DOCX, PPTX (slides, tables, speaker notes), XLSX (one page per sheet, cell blocks as tables with dates, percentages and merged cells resolved), HTML (main content without navigation and chrome), PNG/JPEG/WebP and Markdown.
+- Figures: pictures in PDF pages (and, with layout analysis, charts and drawings) are cut out as `figures/p<page>-<n>.png`, referenced from the markdown in reading order with their caption as alt text, listed in `document.json` as `figure` blocks and shown in the inspector; `figures.describe` / `--describe-figures` adds a vision-model description under each image (cached); `--no-figures` turns extraction off.
 - Contextual retrieval strategies: `full` (whole document, prompt-cached per provider) and `hierarchical` (document + section summaries) for documents larger than the model's context.
 - Provider-agnostic heading repair plus a deterministic numbered-heading pass.
 - Embeddings for Ollama, Gemini, OpenAI-compatible providers, with batching, caching, input-length protection and query/document prompts.

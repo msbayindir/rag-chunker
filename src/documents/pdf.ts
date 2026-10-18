@@ -5,6 +5,15 @@ import type { LayoutLabel, LayoutRegion, PageLayoutProvider } from '../local/lay
 import type { OcrResult, PageOcrProvider } from '../local/ocr.js'
 import type { ModelTable, TableStructureProvider } from '../local/table.js'
 import { importOptional } from '../util/optional.js'
+import {
+  altText,
+  captionFor,
+  type FigureData,
+  type FigureRequest,
+  type FigureSink,
+  figureCandidates,
+  nearbyText,
+} from './figures.js'
 import { type Box, type TextSpan, unionBoxes } from './layout.js'
 import {
   type DetectedTable,
@@ -70,6 +79,8 @@ interface Line {
   items?: RawItem[]
   /** Set on the pseudo-line that stands for a table; `text` is then the markdown table. */
   table?: TableData
+  /** Set on the pseudo-line that stands for a figure; `text` is then the image reference. */
+  figure?: FigureData
   /** Exact area (PDF points) when known, e.g. a table's grid. */
   bbox?: Rect
   /** Never a heading (a table's title row emitted as text, captions, footnotes…). */
@@ -100,6 +111,14 @@ export interface TextLayerOptions {
   }
   /** Table structure model, run on the table regions the layout model reports. */
   tables?: TableStructureProvider
+  /** Saves the figures of each page; without it no figures are reported. */
+  figures?: FigureOptions
+}
+
+export interface FigureOptions {
+  save: FigureSink
+  /** Smallest figure kept, as a share of the page area (default 0.015). */
+  minSize?: number
 }
 
 /** Table regions that no drawn grid explains get their structure from the model. */
@@ -238,7 +257,7 @@ export class PdfDocumentHandle {
         source = 'ocr'
       }
       const regions = options.layout ? await options.layout(this, n) : null
-      const rulings = await extractRulings(page).catch(() => ({ h: [], v: [] }))
+      const rulings = await extractRulings(page).catch((): Rulings => ({ h: [], v: [] }))
       const lines0 = toLines(items, width)
       const models = await modelTablesFor(
         lines0,
@@ -246,9 +265,19 @@ export class PdfDocumentHandle {
         rulings,
         options.tables ? (region) => (options.tables as TableStructureProvider)(this, n, region) : undefined,
       )
+      const figures = options.figures
+        ? await figuresOnPage(
+            lines0,
+            regions,
+            rulings.images ?? [],
+            { width, height },
+            options.figures.minSize,
+            (f) => (options.figures as FigureOptions).save(this, n, f),
+          )
+        : []
       pages.push({
         pageNumber: n,
-        lines: composePage(items, { width, height }, regions, rulings, models),
+        lines: composePage(items, { width, height }, regions, rulings, models, figures),
         width,
         height,
         chars,
@@ -319,13 +348,14 @@ function composePage(
   regions: LayoutRegion[] | null,
   rulings: Rulings,
   models?: ModelTable[],
+  figures: Line[] = [],
 ): Line[] {
   let lines = toLines(items, page.width)
   if (regions) lines = applyLayout(lines, regions)
   const hints = regions?.filter((r) => r.label === 'table').map((r) => r.bbox)
   const { tables, remaining } = detectTables(lines, rulings, { width: page.width, hints, models })
   const tableFlow = tables.flatMap((t) => tableLines(t, regions))
-  const withTables = [...remaining, ...tableFlow].sort((a, b) => b.y - a.y || a.x0 - b.x0)
+  const withTables = [...remaining, ...tableFlow, ...figures].sort((a, b) => b.y - a.y || a.x0 - b.x0)
   return regions ? orderByLayout(withTables) : orderColumns(withTables, page.width)
 }
 
@@ -337,16 +367,26 @@ export async function pageFromItems(
     regions?: LayoutRegion[] | null
     source?: PdfTextPage['source']
     tables?: (region: Rect) => Promise<ModelTable | null>
+    figures?: {
+      save: (figure: FigureRequest) => Promise<FigureData | null>
+      minSize?: number
+    }
   } = {},
 ): Promise<PdfTextPage> {
   const none: Rulings = { h: [], v: [] }
-  const models = await modelTablesFor(
-    toLines(items, page.width),
-    options.regions ?? null,
-    none,
-    options.tables,
-  )
-  const lines = composePage(items, page, options.regions ?? null, none, models)
+  const lines0 = toLines(items, page.width)
+  const models = await modelTablesFor(lines0, options.regions ?? null, none, options.tables)
+  const figures = options.figures
+    ? await figuresOnPage(
+        lines0,
+        options.regions ?? null,
+        [],
+        page,
+        options.figures.minSize,
+        options.figures.save,
+      )
+    : []
+  const lines = composePage(items, page, options.regions ?? null, none, models, figures)
   const prose = [lines.filter((l) => !l.table)]
   const typo = typography(prose)
   typo.levelMap = levelMap(prose, typo)
@@ -883,7 +923,7 @@ function linesToMarkdown(
   page: { width: number; height: number },
 ): { markdown: string; spans: TextSpan[] } {
   const { body, lineGap } = typo
-  const blocks: Array<{ text: string; lines: Line[]; table?: TableData }> = []
+  const blocks: Array<{ text: string; lines: Line[]; table?: TableData; figure?: FigureData }> = []
   const labelOf = (ls: Line[]) => ls.find((l) => l.label)?.label
   let para: string | null = null
   let paraLines: Line[] = []
@@ -908,7 +948,12 @@ function linesToMarkdown(
     if (line.table || line.standalone || line.rotated) {
       flushPara()
       flushHeading()
-      blocks.push({ text: line.text, lines: [line], ...(line.table ? { table: line.table } : {}) })
+      blocks.push({
+        text: line.text,
+        lines: [line],
+        ...(line.table ? { table: line.table } : {}),
+        ...(line.figure ? { figure: line.figure } : {}),
+      })
       prev = line
       continue
     }
@@ -985,6 +1030,7 @@ function linesToMarkdown(
       text: b.text,
       box,
       ...(b.table ? { table: b.table } : {}),
+      ...(b.figure ? { figure: b.figure } : {}),
       ...(label ? { label } : {}),
       ...(confidences.length > 0 ? { confidence: Math.round(Math.min(...confidences) * 1000) / 1000 } : {}),
     })
@@ -1106,6 +1152,58 @@ function orderByLayout(lines: Line[]): Line[] {
     if (oa !== ob) return oa - ob
     return b.y - a.y || a.x0 - b.x0
   })
+}
+
+/**
+ * The figures of a page as pseudo-lines: the image reference (alt text = caption) and, when a
+ * vision model described it, the description as a paragraph right below.
+ */
+async function figuresOnPage(
+  lines: Line[],
+  regions: LayoutRegion[] | null,
+  images: Rect[],
+  page: { width: number; height: number },
+  minSize: number | undefined,
+  save: (figure: FigureRequest) => Promise<FigureData | null>,
+): Promise<Line[]> {
+  const prose = lines.filter((l) => !l.table && !l.rotated)
+  const candidates = figureCandidates({ lines: prose, regions, images, page, minSize: minSize ?? 0.015 })
+  const out: Line[] = []
+  for (const c of candidates) {
+    const caption = captionFor(c.bbox, prose, regions)
+    const nearby = caption ? undefined : nearbyText(c.bbox, prose)
+    const data = await save({
+      bbox: c.bbox,
+      label: c.label,
+      ...(caption ? { caption: caption.text } : {}),
+      ...(nearby ? { nearby } : {}),
+    })
+    if (!data) continue
+    const region =
+      c.order === undefined && regions
+        ? regionAt((c.bbox.x0 + c.bbox.x1) / 2, (c.bbox.y0 + c.bbox.y1) / 2, regions)
+        : null
+    const order = c.order ?? region?.order
+    const base = {
+      size: 6,
+      font: '',
+      fontShare: 1,
+      x0: c.bbox.x0,
+      x1: c.bbox.x1,
+      bbox: c.bbox,
+      label: c.label,
+      standalone: true as const,
+      ...(order !== undefined ? { order } : {}),
+    }
+    out.push({
+      ...base,
+      text: `![${altText(data.caption, c.label)}](${data.file})`,
+      y: c.bbox.y1 - 3,
+      figure: data,
+    })
+    if (data.description) out.push({ ...base, text: data.description, y: c.bbox.y1 - 4, plain: true })
+  }
+  return out
 }
 
 /** The pseudo-lines that stand for a table in the text flow: its title row, if any, then the table. */

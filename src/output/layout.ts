@@ -1,4 +1,5 @@
 import { type Block, parseBlocks } from '../chunker/markdown.js'
+import type { FigureData } from '../documents/figures.js'
 import { type Box, matchSpans, type TextSpan, unionBoxes } from '../documents/layout.js'
 import type { TableData } from '../documents/tables.js'
 import type { ExtractedPage } from '../ocr/extract.js'
@@ -24,6 +25,8 @@ export interface LayoutBlock {
   confidence?: number
   /** Cell structure (with spans) for tables read from a PDF text layer. */
   table?: TableData
+  /** File (relative to the output folder), caption and description of a figure cut out of the page. */
+  figure?: FigureData
   /** For a table that continues one from the previous page: that table's block id. */
   continues?: string
   /** Chunks that contain (part of) this block. */
@@ -79,9 +82,15 @@ export function buildDocumentLayout(input: {
       byNumber.set(b.page, page)
     }
     const spans = spansOf.get(b.page)
-    const matched = spans ? matchSpans(b.text, spans) : []
+    let matched = spans ? matchSpans(b.text, spans) : []
+    // Figures with the same caption share most of their text; the file name tells them apart.
+    if (b.kind === 'figure') {
+      const own = matched.find((s) => s.figure && b.text.includes(`](${s.figure.file})`))
+      if (own) matched = [own]
+    }
     const box = spans ? unionBoxes(matched.map((s) => s.box)) : null
     const table = b.kind === 'table' ? matched.find((s) => s.table)?.table : undefined
+    const figure = b.kind === 'figure' ? matched.find((s) => s.figure)?.figure : undefined
     const label = matched.find((s) => s.label)?.label
     const confidences = matched.map((s) => s.confidence).filter((c): c is number => c !== undefined)
     const chunkIds = chunksOnPage(b.page)
@@ -98,6 +107,7 @@ export function buildDocumentLayout(input: {
       ...(label ? { label } : {}),
       ...(confidences.length > 0 ? { confidence: Math.min(...confidences) } : {}),
       ...(table ? { table } : {}),
+      ...(figure ? { figure } : {}),
       ...(continues ? { continues } : {}),
       chunkIds,
     })

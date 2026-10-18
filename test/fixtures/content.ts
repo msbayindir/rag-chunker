@@ -147,3 +147,45 @@ export const PPTX = {
     ],
   },
 }
+
+export const XLSX = {
+  sheet1: 'Satışlar',
+  title: '2026 Q1 satış özeti',
+  header: ['Ürün', 'Adet', 'Birim Fiyat', 'Tarih', 'Pay', 'Aktif'],
+  sheet2: 'Notlar',
+  notes: ['Birinci not', 'İkinci not'],
+  hidden: 'Gizli',
+}
+
+export const HTML = {
+  title: 'Böbrek Fonksiyonları — Rehber',
+  heading: 'Böbrek Fonksiyonları',
+  paragraph:
+    'Glomerüler filtrasyon hızı (GFR) böbreğin süzme kapasitesini gösterir ve yaşla birlikte azalır.',
+  section: 'Evreler',
+  caption: 'Tablo 1: KBH evreleri',
+  rows: [
+    ['Evre', 'GFR (mL/dk)'],
+    ['1', '≥ 90'],
+    ['2', '60–89'],
+  ],
+  bullets: ['Kreatinin ölçümü', 'Albüminüri testi'],
+  code: 'const gfr = 90',
+  alt: 'GFR yaş grafiği',
+  nav: 'Ana sayfa',
+  hidden: 'Gizli metin',
+  aside: 'Kenar notu',
+  footer: '© 2026 Rehber Sitesi',
+}
+
+export const FIGURES = {
+  title: 'Şekiller ve Grafikler',
+  intro:
+    'Bu bölümde elektrolit dengesini gösteren şemalar ve ölçüm grafikleri yer alır; her şeklin altında veya üstünde bir açıklama bulunur.',
+  caption1: 'Şekil 1: Elektrolit dengesi şeması',
+  caption1b: '(kaynak: klinik rehber, 2026)',
+  after: 'Şemada görüldüğü gibi sodyum ve potasyum hücre zarının iki yanında ters yönde dağılır.',
+  caption2: 'Figure 2. Tiled picture of the same scheme',
+  tiled: 'The picture above is drawn as two horizontal strips that touch each other.',
+  watermark: 'Bu satır arka plandaki filigran görselinin üzerine yazılmış uzun bir metin satırıdır.',
+}

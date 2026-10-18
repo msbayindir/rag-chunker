@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { FigureFile } from '../documents/figures.js'
 import { RagChunkerError } from '../errors.js'
 import type { Chunk } from '../types.js'
 import type { DocumentLayout } from './layout.js'
@@ -7,6 +8,7 @@ import type { Manifest } from './manifest.js'
 import type { DocumentStructure } from './structure.js'
 
 export const OUTPUT_FILES = {
+  figures: 'figures',
   chunks: 'chunks.jsonl',
   markdown: 'document.md',
   structure: 'structure.json',
@@ -16,6 +18,8 @@ export const OUTPUT_FILES = {
 
 export interface OutputPaths {
   dir: string
+  /** Folder with the extracted figures, null when there are none. */
+  figures: string | null
   chunks: string
   markdown: string
   structure: string
@@ -37,11 +41,18 @@ export async function writeOutputs(
     structure: DocumentStructure
     layout: DocumentLayout
     manifest: Manifest
+    figures?: FigureFile[]
   },
 ): Promise<OutputPaths> {
   await mkdir(dir, { recursive: true })
+  const figures = data.figures ?? []
+  if (figures.length > 0) {
+    await mkdir(join(dir, OUTPUT_FILES.figures), { recursive: true })
+    for (const f of figures) await writeFile(join(dir, f.file), f.bytes)
+  }
   const paths: OutputPaths = {
     dir,
+    figures: figures.length > 0 ? join(dir, OUTPUT_FILES.figures) : null,
     chunks: join(dir, OUTPUT_FILES.chunks),
     markdown: join(dir, OUTPUT_FILES.markdown),
     structure: join(dir, OUTPUT_FILES.structure),

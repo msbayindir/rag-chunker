@@ -29,7 +29,7 @@ export interface Chunk {
   pageStart: number
   /** 1-based last page. */
   pageEnd: number
-  /** Which engine produced the text: text-layer, mistral, <provider/model>, markdown, docx, pptx. */
+  /** Which engine produced the text: text-layer, pp-ocr, mistral, <provider/model>, markdown, docx, pptx, xlsx, html. */
   ocrSource: string
   /**
    * Where the chunk's text sits on the page(s), as fractions of the page size with the origin at

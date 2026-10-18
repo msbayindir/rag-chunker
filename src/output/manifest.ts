@@ -40,6 +40,13 @@ export interface Manifest {
       cached: boolean
       durationMs: number
     } | null
+    figures: {
+      extracted: number
+      described: number
+      cached: number
+      /** Vision model that wrote the descriptions, null when figures.describe was off. */
+      model: string | null
+    } | null
     chunk: {
       tokenizer: string
       count: number
