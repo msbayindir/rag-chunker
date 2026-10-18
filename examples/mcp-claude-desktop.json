@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "docs": {
+      "command": "npx",
+      "args": ["-y", "@msbayindir/rag-chunker", "mcp", "/absolute/path/to/out", "--rerank"]
+    }
+  }
+}

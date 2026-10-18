@@ -1,0 +1,72 @@
+name: Document problem
+description: A document comes out wrong — missing text, reading order, tables, headings, figures, OCR, chunking
+labels: [document]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks — reports about real documents are the most useful kind. Please do not attach confidential documents; a single page (screenshot or a one-page PDF) that shows the problem is usually enough.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Input
+      options:
+        - PDF with a text layer
+        - Scanned PDF or image
+        - DOCX
+        - PPTX
+        - XLSX
+        - HTML
+        - Markdown
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: What went wrong
+      multiple: true
+      options:
+        - Text missing or duplicated
+        - Reading order (columns, boxes, captions)
+        - Headings (missing, wrong level, body text as heading)
+        - Tables (not found, wrong rows/columns, merged cells)
+        - Figures (missing, wrong crop, caption)
+        - OCR quality
+        - Chunk boundaries or sizes
+        - Positions / inspector highlights
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or code
+      description: Exactly what you ran, including flags such as `--layout`, `--ocr`, `--local`, and the relevant part of your config.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: quality
+    attributes:
+      label: Quality findings
+      description: The `Quality` lines from `npx @msbayindir/rag-chunker inspect <output-dir>` (or `manifest.json` → `quality`).
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+      description: What the page shows, and what `document.md` / `document.json` contain instead. Paste the relevant snippet.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample page
+      description: Drag a screenshot or a one-page PDF here if the document can be shared (`rag-chunker` can cut one page with `subsetPdf`, or use any PDF tool).
+  - type: input
+    id: version
+    attributes:
+      label: rag-chunker version and platform
+      placeholder: 4.0.0, macOS 15 / Node 22
+    validations:
+      required: true

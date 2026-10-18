@@ -127,6 +127,9 @@ describe('figure candidates', () => {
     const regions = [region('figure_title', { x0: 50, x1: 360, y0: 380, y1: 412 }, 0.9, 5)]
     const titled = captionFor(fig, [line('Any wording works in a title region', 56, 402)], regions)
     expect(titled?.text).toBe('Any wording works in a title region')
+    // Layout regions without a figure_title near the figure: back to the caption-line heuristic.
+    const noTitle = [region('text', { x0: 50, x1: 360, y0: 300, y1: 380 }, 0.9, 6)]
+    expect(captionFor(fig, lines, noTitle)?.text).toBe('Şekil 1: Elektrolit dengesi (kaynak: rehber)')
     expect(altText(titled?.text, 'image')).toBe('Any wording works in a title region')
     expect(altText(undefined, 'chart')).toBe('Chart')
     expect(altText('a [b] c', 'image')).toBe('a b c')

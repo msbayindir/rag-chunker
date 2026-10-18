@@ -248,9 +248,16 @@ Araçlar: `search`, `get_chunk`, `get_page`, `list_documents`.
 
 Node.js 22 veya üzeri. İsteğe bağlı: yerel modeller için [Ollama](https://ollama.com).
 
-## Katkı
+## Örnekler
 
-Issue ve pull request'ler memnuniyetle karşılanır; [CONTRIBUTING.md](CONTRIBUTING.md)'ye göz atın.
+[`examples/`](examples/) klasöründe çalıştırılabilir betikler var: temel kullanım, yerel yerleşim modeli ile şekiller ve betimlemeleri, XLSX/HTML girdileri, reranker ile iki aşamalı arama, iki chunk boyutunu `eval --compare` ile karşılaştırma, tamamen yerel hat, karışık sağlayıcılar, pgvector sorgusu ve Claude Desktop / Claude Code / Cursor için MCP kurulumu.
+
+## Geri bildirim ve katkı
+
+- Yanlış çıkan bir belge (eksik metin, okuma sırası, tablo, başlık, şekil, OCR): `rag-chunker inspect <klasör>` çıktısındaki kalite bulgularıyla bir [belge sorunu](https://github.com/msbayindir/rag-chunker/issues/new/choose) açın — en işe yarayan bildirim türü bu.
+- Soru, fikir ve ne yaptığınız: [Discussions](https://github.com/msbayindir/rag-chunker/discussions).
+- Güvenlik: [SECURITY.md](SECURITY.md) (GitHub üzerinden özel bildirim).
+- Pull request'ler açık — bkz. [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Lisans
 
