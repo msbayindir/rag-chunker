@@ -37,6 +37,10 @@ export function sessionFor(modelPath: string, purpose: string): Promise<ort.Infe
       rt.InferenceSession.create(modelPath, {
         executionProviders: ['cpu'],
         graphOptimizationLevel: 'all',
+        // RAG_CHUNKER_THREADS caps the CPU threads per model (e.g. 2 on a laptop you keep using).
+        ...(Number(process.env.RAG_CHUNKER_THREADS) > 0
+          ? { intraOpNumThreads: Number(process.env.RAG_CHUNKER_THREADS) }
+          : {}),
         // Decoder loops (SLANet) trip shape-inference warnings that are noise for users.
         logSeverityLevel: 3,
       }),

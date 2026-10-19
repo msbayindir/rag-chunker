@@ -37,6 +37,9 @@
     "check": "npm run lint && npm run typecheck && npm test",
     "prepublishOnly": "npm run check && npm run build",
     "bench": "node scripts/bench.mjs",
+    "bench:omnidocbench": "node scripts/bench-omnidocbench.mjs",
+    "bench:financebench": "node scripts/bench-financebench.mjs",
+    "bench:squad-tr": "node scripts/bench-squad-tr.mjs",
     "hf:mirror": "node scripts/hf-mirror.mjs"
   },
   "dependencies": {

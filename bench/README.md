@@ -76,6 +76,21 @@ weighted blend, fewer candidates) did not change that picture. So give it embedd
 can. Second, with 50 synthetic questions per document the standard error of an MRR is about 0.03:
 read differences smaller than that as noise.
 
+## External benchmarks
+
+Three runners measure the pipeline on public, human-labelled sets. None of the data is in the
+repository (research or non-commercial licences); each runner says where to fetch it. Results are
+published separately once reviewed.
+
+| Runner | Set | What it measures |
+| --- | --- | --- |
+| `npm run bench:omnidocbench -- --data <dir> [--language english] [--subset 200] [--save <dir>] [--from <dir>]` | [OmniDocBench](https://github.com/opendatalab/OmniDocBench) v1.5 page images + `OmniDocBench.json` | Layout + local OCR + table model + reading order end to end: our port of the official protocol — reference blocks matched to ours by box overlap, text normalised edit distance with the official normalisation (inline LaTeX rendered as text, then letters/digits only) plus our stricter one, TEDS/TEDS-S for tables, reading-order edit distance. Formulas are not scored. `--save` keeps each page's output so `--from` re-scores without rerunning the models. |
+| `npm run bench:financebench -- --data <dir> [--embedding ollama/embeddinggemma] [--rerank]` | [FinanceBench](https://github.com/patronus-ai/financebench) open split: 150 analyst questions, 84 10-K/10-Q filings with verbatim evidence and page | Retrieval of the evidence chunk after text-layer processing — BM25, vectors, hybrid, reranker — inside the question's own filing and across all filings in one index. |
+| `npm run bench:squad-tr -- --data <dir> [--questions 500] [--embedding ollama/embeddinggemma]` | [SQuAD-TR](https://github.com/boun-tabi/squad-tr) dev: 1,204 Turkish Wikipedia paragraphs, 2,346 answerable questions | Turkish retrieval of the source paragraph (paragraph = chunk) by BM25, vectors, hybrid and the reranker. Exercises the search stack, not the chunker. |
+
+The metrics live in `src/eval/metrics.ts` and are unit-tested, including the LaTeX-to-text
+rendering against `pylatexenc`, which the official OmniDocBench scorer uses.
+
 ## Adding a document
 
 1. Add an entry to `corpus.json` (public URL, sha256, size, language, kind, licence note).

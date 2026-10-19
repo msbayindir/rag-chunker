@@ -72,4 +72,35 @@ describe('OCR word positions', () => {
     ])
     expect(items[1]?.parts).toBeUndefined()
   })
+
+  it('snaps line heights close to the body height so detector noise does not make headings', () => {
+    const line = (y0: number, h: number, text: string) => ({
+      text,
+      x0: 10,
+      y0,
+      x1: 900,
+      y1: y0 + h,
+      confidence: 0.9,
+    })
+    const body = 'a line of ordinary body text, long enough'
+    const result: OcrResult = {
+      width: 1000,
+      height: 1000,
+      lines: [
+        line(0, 50, 'A REAL HEADING'),
+        line(100, 21, body),
+        line(130, 25, body),
+        line(160, 21, body),
+        line(190, 25, body),
+        line(220, 21, body),
+        line(250, 29, body),
+        line(300, 12, 'tiny footnote text that stays small enough'),
+      ],
+    }
+    const sizes = ocrItems(result, { width: 1000, height: 1000 }).map((i) => Number(i.size.toFixed(2)))
+    expect(sizes[0]).toBeCloseTo(50 / 1.05, 2)
+    expect(new Set(sizes.slice(1, 6)).size).toBe(1)
+    expect(sizes[6]).toBeCloseTo(29 / 1.05, 2)
+    expect(sizes[7]).toBeCloseTo(12 / 1.05, 2)
+  })
 })

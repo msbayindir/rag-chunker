@@ -6,7 +6,13 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { parseDetections, selectDetections, toRegions } from '../../src/local/layout.js'
 import { downloadModel, hasModel, MODELS, modelPath, modelsDir } from '../../src/local/models.js'
-import { boxesFromProbabilityMap, ctcDecode, parseDictionary, tableFor } from '../../src/local/ocr.js'
+import {
+  boxesFromProbabilityMap,
+  ctcDecode,
+  ocrDetectorModel,
+  parseDictionary,
+  tableFor,
+} from '../../src/local/ocr.js'
 import { MockServer } from '../helpers/mock-server.js'
 
 describe('layout detections', () => {
@@ -135,5 +141,12 @@ describe('model files', () => {
     expect(modelPath('pp-doclayout-v3', dir)).toBe(join(dir, MODELS['pp-doclayout-v3'].file))
     expect(await hasModel('pp-doclayout-v3', dir)).toBe(false)
     expect(existsSync(modelsDir())).toBeTypeOf('boolean')
+  })
+
+  it('runs the mobile detector unless the server one is asked for', () => {
+    expect(ocrDetectorModel({})).toBe('pp-ocrv5-det')
+    expect(ocrDetectorModel({ RAG_CHUNKER_OCR_DET_MODEL: 'mobile' })).toBe('pp-ocrv5-det')
+    expect(ocrDetectorModel({ RAG_CHUNKER_OCR_DET_MODEL: 'server' })).toBe('pp-ocrv5-det-server')
+    expect(MODELS['pp-ocrv5-det-server'].bytes).toBeGreaterThan(MODELS['pp-ocrv5-det'].bytes)
   })
 })
