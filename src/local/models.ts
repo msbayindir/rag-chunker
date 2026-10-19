@@ -61,6 +61,26 @@ export const MODELS = {
     license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',
     description: 'Character table of the Latin recognition model',
   },
+  'pp-ocrv5-rec-server': {
+    id: 'pp-ocrv5-rec-server',
+    file: 'PP-OCRv5_server_rec_infer.onnx',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/PP-OCRv5_server_rec_infer.onnx',
+    sha256: 'c8cff87fd83a76b97178250653924598593088c6bb71b2d2d942ef13b9a2d2ec',
+    bytes: 84_176_681,
+    license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',
+    description: 'OCR text recognition, server: Chinese, Japanese, English and most Latin accents (no Ğ/İ)',
+  },
+  'pp-ocrv5-dict-server': {
+    id: 'pp-ocrv5-dict-server',
+    file: 'ppocrv5_dict.txt',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/ppocrv5_dict.txt',
+    // PaddleOCR's own ppocr/utils/dict/ppocrv5_dict.txt (18,383 lines; the space class is appended
+    // in code). The copy on the PPU ONNX mirror has an extra empty line and shifts every class.
+    sha256: 'd1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b',
+    bytes: 74_012,
+    license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',
+    description: 'Character table of the server recognition model (18,383 characters)',
+  },
   'slanet-plus': {
     id: 'slanet-plus',
     file: 'SLANet_plus.onnx',

@@ -96,6 +96,12 @@ const ocrSchema = z.strictObject({
     .describe(
       'Text detector of the local OCR. "mobile": PP-OCRv5 mobile (5 MB, fast); "server": PP-OCRv5 server (84 MB, finds more small print and table cells, about 1.8× slower); "auto": follows local.profile.',
     ),
+  script: z
+    .enum(['auto', 'latin', 'cjk'])
+    .default('auto')
+    .describe(
+      'Recogniser of the local OCR. "latin": the Latin-script model (Turkish, English, German, French, …). "cjk": the PP-OCRv5 server model for Chinese, Japanese and English (84 MB, about 10× slower per line, no Ğ/İ). "auto": with local.profile "full", the widest lines of a document\'s first scanned page are read with the CJK model and the document switches to it when they come back as CJK text; otherwise Latin.',
+    ),
   concurrency: z
     .number()
     .int()

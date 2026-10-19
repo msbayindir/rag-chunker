@@ -156,7 +156,8 @@ export default defineConfig({ models: { context: 'gemini/gemini-3.5-flash-lite' 
 | `ocr.engine` | `auto` | `auto` (local PP-OCR when its models are downloaded, else Mistral if `MISTRAL_API_KEY`, else `models.vision`, else text layer), `text-layer`, `pp-ocr`, `mistral`, or a vision `provider/model` |
 | `ocr.pages` | `auto` | PDF pages sent to the engine: `all`, `scanned` (`auto`: all for Mistral, scanned for vision models) |
 | `ocr.detector` | `auto` | Text detector of the local OCR: `mobile` (PP-OCRv5 mobile, 5 MB, fast), `server` (PP-OCRv5 server, 84 MB; more small print and table cells, about 1.8× slower), `auto` (follows `local.profile`) |
-| `local.profile` | `full` | Which local models the `auto` settings pick: `full` (the strongest models, larger downloads; today the server OCR detector), `basic` (the small models; CLI `--profile basic`) |
+| `ocr.script` | `auto` | Recogniser of the local OCR: `latin` (Turkish, English, German, French, …), `cjk` (PP-OCRv5 server model for Chinese, Japanese and English, 84 MB, about 10× slower per line, no Ğ/İ), `auto` (with the `full` profile the widest lines of a document's first scanned page are read with the CJK model and the document switches to it when they come back as CJK text) |
+| `local.profile` | `full` | Which local models the `auto` settings pick: `full` (the strongest models, larger downloads; today the server OCR detector and the CJK recogniser for `ocr.script: auto`), `basic` (the small Latin models; CLI `--profile basic`) |
 | `ocr.removeHeaderFooter` | `true` | Drop running headers, footers and page numbers |
 | `ocr.stripImages` | `true` | Drop image placeholders such as `![img-0.jpeg](img-0.jpeg)` |
 | `ocr.minTextChars` | `40` | Pages with less extractable text count as scanned |

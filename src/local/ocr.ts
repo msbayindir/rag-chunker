@@ -45,6 +45,10 @@ export interface OcrResult {
   lines: OcrLine[]
   width: number
   height: number
+  /** Which recogniser read the page. */
+  script?: OcrScript
+  /** True when the 'auto' probe had enough lines to decide the script. */
+  probed?: boolean
 }
 
 /**
@@ -73,6 +77,22 @@ export type OcrDetector = 'mobile' | 'server'
  * ("full" → server, "basic" → mobile). Returns undefined when the environment override
  * RAG_CHUNKER_OCR_DET_MODEL should decide (benchmarks set it without touching the config).
  */
+/**
+ * Recogniser plan from a configuration: `ocr.script` ('auto' probes, 'latin'/'cjk' force) and
+ * whether the CJK server model is downloaded at all (the "full" profile, or an explicit 'cjk').
+ * RAG_CHUNKER_OCR_SCRIPT overrides the script for benchmarks.
+ */
+export function resolveOcrScript(
+  config: { ocr: { script: 'auto' | OcrScript }; local: { profile: 'full' | 'basic' } },
+  env: Record<string, string | undefined> = process.env,
+): { script: OcrScript | 'auto'; cjk: boolean } {
+  const override = env.RAG_CHUNKER_OCR_SCRIPT
+  const script =
+    override === 'latin' || override === 'cjk' || override === 'auto' ? override : config.ocr.script
+  const cjk = script === 'cjk' || (script === 'auto' && config.local.profile === 'full')
+  return { script: cjk ? script : 'latin', cjk }
+}
+
 export function resolveOcrDetector(
   config: { ocr: { detector: 'auto' | OcrDetector }; local: { profile: 'full' | 'basic' } },
   env: Record<string, string | undefined> = process.env,
@@ -253,10 +273,39 @@ export interface OcrModelPaths {
   det: string
   rec: string
   dictionary: string[]
+  /** The server recogniser (Chinese, Japanese, English) for pages the Latin model cannot read. */
+  cjk?: { rec: string; dictionary: string[] }
 }
 
+/** Which recogniser reads a page: the Latin mobile model or the CJK server model. */
+export type OcrScript = 'latin' | 'cjk'
+
+export interface RecognizeOptions {
+  /**
+   * 'latin' (default) or 'cjk' force a recogniser; 'auto' reads the widest lines with the CJK model
+   * first and switches the page to it when they come back as CJK text. The Latin model's own
+   * confidence cannot tell: it reads Chinese as confident Latin gibberish.
+   */
+  script?: OcrScript | 'auto'
+}
+
+/** Share of CJK characters (Han, kana, Hangul) among the non-space characters of a text. */
+export function cjkShare(text: string): number {
+  const chars = [...text.replace(/\s+/g, '')]
+  if (chars.length === 0) return 0
+  const cjk = chars.filter((c) => /[぀-ヿ㐀-䶿一-鿿가-힯豈-﫿ｦ-ﾟ]/u.test(c)).length
+  return cjk / chars.length
+}
+
+/** How many of the widest lines the 'auto' probe reads with the CJK model. */
+const SCRIPT_PROBE_LINES = 3
+
 /** Recognises the text lines of an image (PNG/JPEG bytes). */
-export async function recognizeImage(image: Uint8Array, models: OcrModelPaths): Promise<OcrResult> {
+export async function recognizeImage(
+  image: Uint8Array,
+  models: OcrModelPaths,
+  options: RecognizeOptions = {},
+): Promise<OcrResult> {
   const canvasMod = await importOptional('@napi-rs/canvas', 'Local OCR', () => import('@napi-rs/canvas'))
   const rt = await import('onnxruntime-node')
   const [det, rec, img] = await Promise.all([
@@ -323,40 +372,65 @@ export async function recognizeImage(image: Uint8Array, models: OcrModelPaths): 
     }
   }
 
-  const lines: OcrLine[] = []
-  for (const b of detected.boxes) {
-    const x0 = Math.max(0, b.x0)
-    const y0 = Math.max(0, b.y0)
-    const x1 = Math.min(img.width, b.x1)
-    const y1 = Math.min(img.height, b.y1)
-    const cw = x1 - x0
-    const ch = y1 - y0
-    if (cw < 2 || ch < 2) continue
-    const rw = Math.min(REC_MAX_WIDTH, Math.max(16, Math.round((cw * REC_HEIGHT) / ch)))
-    const crop = canvasMod.createCanvas(rw, REC_HEIGHT)
-    const cctx = crop.getContext('2d')
-    cctx.drawImage(img, x0, y0, cw, ch, 0, 0, rw, REC_HEIGHT)
-    const cd = cctx.getImageData(0, 0, rw, REC_HEIGHT).data
-    const cplane = rw * REC_HEIGHT
-    const cin = new Float32Array(3 * cplane)
-    for (let i = 0; i < cplane; i++) {
-      cin[i] = (cd[i * 4 + 2] as number) / 127.5 - 1
-      cin[cplane + i] = (cd[i * 4 + 1] as number) / 127.5 - 1
-      cin[2 * cplane + i] = (cd[i * 4] as number) / 127.5 - 1
+  const boxes = detected.boxes
+    .map((b) => ({
+      x0: Math.max(0, b.x0),
+      y0: Math.max(0, b.y0),
+      x1: Math.min(img.width, b.x1),
+      y1: Math.min(img.height, b.y1),
+    }))
+    .filter((b) => b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 2)
+
+  type Recogniser = { session: Awaited<ReturnType<typeof sessionFor>>; dictionary: readonly string[] }
+  const readLines = async (subset: typeof boxes, recogniser: Recogniser): Promise<OcrLine[]> => {
+    const lines: OcrLine[] = []
+    for (const { x0, y0, x1, y1 } of subset) {
+      const cw = x1 - x0
+      const ch = y1 - y0
+      const rw = Math.min(REC_MAX_WIDTH, Math.max(16, Math.round((cw * REC_HEIGHT) / ch)))
+      const crop = canvasMod.createCanvas(rw, REC_HEIGHT)
+      const cctx = crop.getContext('2d')
+      cctx.drawImage(img, x0, y0, cw, ch, 0, 0, rw, REC_HEIGHT)
+      const cd = cctx.getImageData(0, 0, rw, REC_HEIGHT).data
+      const cplane = rw * REC_HEIGHT
+      const cin = new Float32Array(3 * cplane)
+      for (let i = 0; i < cplane; i++) {
+        cin[i] = (cd[i * 4 + 2] as number) / 127.5 - 1
+        cin[cplane + i] = (cd[i * 4 + 1] as number) / 127.5 - 1
+        cin[2 * cplane + i] = (cd[i * 4] as number) / 127.5 - 1
+      }
+      const recOut = await recogniser.session.run({
+        [recogniser.session.inputNames[0] as string]: new rt.Tensor('float32', cin, [1, 3, REC_HEIGHT, rw]),
+      })
+      const logits = recOut[recogniser.session.outputNames[0] as string]
+      if (!logits) continue
+      const [, steps = 0, classes = 0] = logits.dims
+      const table = tableFor(recogniser.dictionary, classes)
+      const { text, confidence, chars } = ctcDecode(logits.data as ArrayLike<number>, steps, classes, table)
+      if (text === '') continue
+      const words = wordsFromChars(chars, steps, { x0, x1 })
+      lines.push({ text, x0, y0, x1, y1, confidence, ...(words.length > 1 ? { words } : {}) })
     }
-    const recOut = await rec.run({
-      [rec.inputNames[0] as string]: new rt.Tensor('float32', cin, [1, 3, REC_HEIGHT, rw]),
-    })
-    const logits = recOut[rec.outputNames[0] as string]
-    if (!logits) continue
-    const [, steps = 0, classes = 0] = logits.dims
-    const table = tableFor(models.dictionary, classes)
-    const { text, confidence, chars } = ctcDecode(logits.data as ArrayLike<number>, steps, classes, table)
-    if (text === '') continue
-    const words = wordsFromChars(chars, steps, { x0, x1 })
-    lines.push({ text, x0, y0, x1, y1, confidence, ...(words.length > 1 ? { words } : {}) })
+    return lines
   }
-  return { lines, width: img.width, height: img.height }
+
+  const latin: Recogniser = { session: rec, dictionary: models.dictionary }
+  const cjk: Recogniser | null = models.cjk
+    ? { session: await sessionFor(models.cjk.rec, 'Local OCR'), dictionary: models.cjk.dictionary }
+    : null
+  let script: OcrScript = options.script === 'cjk' && cjk ? 'cjk' : 'latin'
+  let probed = false
+  if (options.script === 'auto' && cjk && boxes.length > 0) {
+    // The widest lines carry the most characters: read them with the CJK model and switch the
+    // page when at least half of them come back as CJK text.
+    const sample = [...boxes].sort((a, b) => b.x1 - b.x0 - (a.x1 - a.x0)).slice(0, SCRIPT_PROBE_LINES)
+    const probe = await readLines(sample, cjk)
+    const hits = probe.filter((l) => cjkShare(l.text) >= 0.5).length
+    if (hits >= Math.ceil(sample.length / 2)) script = 'cjk'
+    probed = sample.length >= 2
+  }
+  const lines = await readLines(boxes, script === 'cjk' ? (cjk as Recogniser) : latin)
+  return { lines, width: img.width, height: img.height, script, ...(probed ? { probed } : {}) }
 }
 
 /** What the PDF reader calls for a scanned page: text lines in the pixels of the render it is given. */
@@ -367,6 +441,10 @@ export interface OcrProviderOptions {
   render?: number
   /** Text detector: the mobile model or the larger server model (default: see `ocrDetectorModel`). */
   detector?: OcrDetector
+  /** Recogniser choice per page: 'latin' (default), 'cjk', or 'auto' (probe; needs `cjk`). */
+  script?: OcrScript | 'auto'
+  /** Download and hold the CJK server recogniser (84 MB) so 'auto' and 'cjk' can use it. */
+  cjk?: boolean
   cache?: CacheStore
   documentId?: string
   modelsDir?: string
@@ -384,6 +462,9 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
 }> {
   const models = await loadOcrModels(options)
   const render = options.render ?? 2000
+  const scriptMode: OcrScript | 'auto' = models.cjk ? (options.script ?? 'latin') : 'latin'
+  // A document is read in one script: the first page with enough lines decides for the rest.
+  let decided: OcrScript | null = scriptMode === 'auto' ? null : scriptMode
   const page: PageOcrProvider = async (doc, pageNumber) => {
     const key = options.cache?.key(
       'ocr-local',
@@ -391,20 +472,25 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
       OCR_REC_MODEL,
       ocrDetectorModel(options.detector),
       DET_LIMIT,
+      scriptMode,
       options.documentId ?? '',
       pageNumber,
       render,
     )
     if (key && options.cache) {
       const hit = await options.cache.get<OcrResult>('ocr-local', key)
-      if (hit) return hit
+      if (hit) {
+        if (decided === null && hit.probed && hit.script) decided = hit.script
+        return hit
+      }
     }
     const png = await doc.renderPng(pageNumber, render)
-    const result = await recognizeImage(png, models)
+    const result = await recognizeImage(png, models, { script: decided ?? 'auto' })
+    if (decided === null && result.probed && result.script) decided = result.script
     if (key && options.cache) await options.cache.set('ocr-local', key, result)
     return result
   }
-  return { models, page, image: (bytes) => recognizeImage(bytes, models) }
+  return { models, page, image: (bytes) => recognizeImage(bytes, models, { script: scriptMode }) }
 }
 
 /** Paths of the detector, recogniser and its character table, downloading what is missing. */
@@ -416,11 +502,17 @@ export async function loadOcrModels(options: OcrProviderOptions = {}): Promise<O
       signal: options.signal,
       onProgress: (done, total) => options.onModelDownload?.(id, done, total),
     })
-  const [det, rec, dictPath] = await Promise.all([
+  const [det, rec, dictPath, cjkRec, cjkDictPath] = await Promise.all([
     fetchOne(ocrDetectorModel(options.detector)),
     fetchOne(OCR_REC_MODEL),
     fetchOne(OCR_DICT),
+    options.cjk ? fetchOne('pp-ocrv5-rec-server') : Promise.resolve(null),
+    options.cjk ? fetchOne('pp-ocrv5-dict-server') : Promise.resolve(null),
   ])
   const dictionary = parseDictionary(await readFile(dictPath, 'utf8'))
-  return { det, rec, dictionary }
+  const cjk =
+    cjkRec && cjkDictPath
+      ? { rec: cjkRec, dictionary: parseDictionary(await readFile(cjkDictPath, 'utf8')) }
+      : undefined
+  return { det, rec, dictionary, ...(cjk ? { cjk } : {}) }
 }

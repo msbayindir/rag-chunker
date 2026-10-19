@@ -8,10 +8,12 @@ import { parseDetections, selectDetections, toRegions } from '../../src/local/la
 import { downloadModel, hasModel, MODELS, modelPath, modelsDir } from '../../src/local/models.js'
 import {
   boxesFromProbabilityMap,
+  cjkShare,
   ctcDecode,
   ocrDetectorModel,
   parseDictionary,
   resolveOcrDetector,
+  resolveOcrScript,
   tableFor,
 } from '../../src/local/ocr.js'
 import { MockServer } from '../helpers/mock-server.js'
@@ -158,5 +160,24 @@ describe('model files', () => {
     expect(resolveOcrDetector(cfg('auto', 'basic'), {})).toBe('mobile')
     expect(resolveOcrDetector(cfg('mobile', 'full'), {})).toBe('mobile')
     expect(resolveOcrDetector(cfg('auto', 'full'), { RAG_CHUNKER_OCR_DET_MODEL: 'mobile' })).toBeUndefined()
+  })
+
+  it('plans the recogniser from ocr.script and the profile, and spots CJK text', () => {
+    const cfg = (script: 'auto' | 'latin' | 'cjk', profile: 'full' | 'basic') => ({
+      ocr: { script },
+      local: { profile },
+    })
+    expect(resolveOcrScript(cfg('auto', 'full'), {})).toEqual({ script: 'auto', cjk: true })
+    expect(resolveOcrScript(cfg('auto', 'basic'), {})).toEqual({ script: 'latin', cjk: false })
+    expect(resolveOcrScript(cfg('cjk', 'basic'), {})).toEqual({ script: 'cjk', cjk: true })
+    expect(resolveOcrScript(cfg('latin', 'full'), {})).toEqual({ script: 'latin', cjk: false })
+    expect(resolveOcrScript(cfg('auto', 'full'), { RAG_CHUNKER_OCR_SCRIPT: 'latin' })).toEqual({
+      script: 'latin',
+      cjk: false,
+    })
+    expect(cjkShare('中华人民共和国 2024 年')).toBeGreaterThan(0.6)
+    expect(cjkShare('日本語のテキスト')).toBe(1)
+    expect(cjkShare('Türkiye Cumhuriyeti Anayasası')).toBe(0)
+    expect(cjkShare('')).toBe(0)
   })
 })

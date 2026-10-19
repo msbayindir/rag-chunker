@@ -43,7 +43,14 @@ const GROUPS = {
   layout: { title: 'Page layout', ids: ['pp-doclayout-v3'] },
   ocr: {
     title: 'OCR',
-    ids: ['pp-ocrv5-det', 'pp-ocrv5-det-server', 'pp-ocrv5-rec-latin', 'pp-ocrv5-dict-latin'],
+    ids: [
+      'pp-ocrv5-det',
+      'pp-ocrv5-det-server',
+      'pp-ocrv5-rec-latin',
+      'pp-ocrv5-dict-latin',
+      'pp-ocrv5-rec-server',
+      'pp-ocrv5-dict-server',
+    ],
   },
   table: { title: 'Table structure', ids: ['slanet-plus', 'slanet-dict'] },
 }
