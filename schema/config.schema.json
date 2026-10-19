@@ -335,6 +335,17 @@
             "full",
             "basic"
           ]
+        },
+        "device": {
+          "default": "auto",
+          "description": "Where the local models that gain from an accelerator run (the OCR text detector and the CJK recogniser; the others stay on the CPU, where they are faster). \"auto\": CoreML on macOS and CUDA elsewhere when onnxruntime-node offers them, else CPU. A model the accelerator cannot take falls back to the CPU.",
+          "type": "string",
+          "enum": [
+            "auto",
+            "cpu",
+            "coreml",
+            "cuda"
+          ]
         }
       },
       "additionalProperties": false

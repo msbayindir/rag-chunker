@@ -132,6 +132,12 @@ const localSchema = z.strictObject({
     .describe(
       'Which local models the "auto" choices pick. "full": the strongest models (server OCR detector; more to come), larger downloads; "basic": the small models (mobile OCR detector), smallest downloads and fastest.',
     ),
+  device: z
+    .enum(['auto', 'cpu', 'coreml', 'cuda'])
+    .default('auto')
+    .describe(
+      'Where the local models that gain from an accelerator run (the OCR text detector and the CJK recogniser; the others stay on the CPU, where they are faster). "auto": CoreML on macOS and CUDA elsewhere when onnxruntime-node offers them, else CPU. A model the accelerator cannot take falls back to the CPU.',
+    ),
 })
 
 const modelsSchema = z.strictObject({

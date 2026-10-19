@@ -326,7 +326,7 @@ export async function recognizeImage(
   const canvasMod = await importOptional('@napi-rs/canvas', 'Local OCR', () => import('@napi-rs/canvas'))
   const rt = await import('onnxruntime-node')
   const [det, rec, img] = await Promise.all([
-    sessionFor(models.det, 'Local OCR'),
+    sessionFor(models.det, 'Local OCR', { accelerate: true }),
     sessionFor(models.rec, 'Local OCR'),
     canvasMod.loadImage(Buffer.from(image)),
   ])
@@ -433,7 +433,10 @@ export async function recognizeImage(
 
   const latin: Recogniser = { session: rec, dictionary: models.dictionary }
   const cjk: Recogniser | null = models.cjk
-    ? { session: await sessionFor(models.cjk.rec, 'Local OCR'), dictionary: models.cjk.dictionary }
+    ? {
+        session: await sessionFor(models.cjk.rec, 'Local OCR', { accelerate: true }),
+        dictionary: models.cjk.dictionary,
+      }
     : null
   let script: OcrScript = options.script === 'cjk' && cjk ? 'cjk' : 'latin'
   let probed = false
