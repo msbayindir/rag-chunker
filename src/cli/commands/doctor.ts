@@ -20,7 +20,7 @@ import {
   type RerankerId,
 } from '../../local/reranker.js'
 import { deviceFallbacks, resolveDevice } from '../../local/runtime.js'
-import { TABLE_DICT, TABLE_MODEL } from '../../local/table.js'
+import { resolveTablePlan, TABLE_DICT, TABLE_MODEL, tablePlanModels } from '../../local/table.js'
 import { PACKAGE_VERSION } from '../../output/manifest.js'
 import { ollamaListModels } from '../../providers/ollama.js'
 import { ProviderRegistry } from '../../providers/registry.js'
@@ -141,6 +141,23 @@ export async function runChecks(
       : layoutModel
         ? undefined
         : 'Run `rag-chunker process <pdf> --layout` once to download PP-DocLayoutV3 + SLANet_plus (138 MB).',
+  })
+
+  const tablePlan = resolveTablePlan(config, env)
+  const tableIds = tablePlanModels(tablePlan)
+  const tableMissing = (
+    await Promise.all(tableIds.map(async (id) => ((await hasModel(id)) ? null : id)))
+  ).filter((id): id is (typeof tableIds)[number] => id !== null)
+  const tableMb = Math.round(tableMissing.reduce((n, id) => n + MODELS[id].bytes, 0) / 1e6)
+  const tableNames = [...new Set([tablePlan.wired, tablePlan.wireless])].join(' + ')
+  checks.push({
+    status: onnx && tableMissing.length === 0 ? 'ok' : 'info',
+    label: 'Table models',
+    detail: `${tableNames}${tablePlan.classify ? ' with the ruled/borderless classifier' : ''}${tableMissing.length === 0 ? ' downloaded' : `: ${tableMissing.map((id) => MODELS[id].file).join(', ')} not downloaded`}`,
+    hint:
+      tableMissing.length === 0
+        ? undefined
+        : `Downloaded (${tableMb} MB) on the first run with layout analysis${tablePlan.classify ? '; layout.tables "slanet-plus" or --profile basic keeps the 8 MB model' : ''}.`,
   })
 
   const [detMobile, detServer, recReady, dictReady, cjkReady] = await Promise.all(

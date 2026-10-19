@@ -238,6 +238,12 @@ const layoutSchema = z.strictObject({
     .max(2048)
     .default(1024)
     .describe('Longer page side, in pixels, of the render the model sees.'),
+  tables: z
+    .enum(['auto', 'slanet-plus', 'slanext'])
+    .default('auto')
+    .describe(
+      'Table structure model for the table regions layout analysis finds. "slanet-plus": SLANet_plus (8 MB, PP-StructureV2); "slanext": a classifier (7 MB) tells ruled from borderless tables and SLANeXt (PP-StructureV3, 365 MB per model, downloaded on first use) reads ruled ones; "auto": follows local.profile ("full": slanext, "basic": slanet-plus).',
+    ),
 })
 
 const figuresSchema = z.strictObject({

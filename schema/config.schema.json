@@ -318,6 +318,16 @@
           "type": "integer",
           "minimum": 512,
           "maximum": 2048
+        },
+        "tables": {
+          "default": "auto",
+          "description": "Table structure model for the table regions layout analysis finds. \"slanet-plus\": SLANet_plus (8 MB, PP-StructureV2); \"slanext\": a classifier (7 MB) tells ruled from borderless tables and SLANeXt (PP-StructureV3, 365 MB per model, downloaded on first use) reads ruled ones; \"auto\": follows local.profile (\"full\": slanext, \"basic\": slanet-plus).",
+          "type": "string",
+          "enum": [
+            "auto",
+            "slanet-plus",
+            "slanext"
+          ]
         }
       },
       "additionalProperties": false

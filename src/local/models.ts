@@ -155,6 +155,35 @@ export const MODELS = {
     license: 'Apache-2.0 (PaddleOCR PP-StructureV2)',
     description: 'Table structure: rows, columns, merged cells and cell boxes from a table image',
   },
+  'slanext-wired': {
+    id: 'slanext-wired',
+    file: 'SLANeXt_wired.onnx',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/SLANeXt_wired.onnx',
+    // Exported from PaddleX's SLANeXt_wired inference model with paddle2onnx 2.1 (opset 17); the
+    // decoder loop's condition and counter are made scalar so ONNX Runtime accepts the graph.
+    sha256: '465b70b2227de8495ee990939ec21d27024461b7645cd63ba42b995e55becee5',
+    bytes: 365_355_777,
+    license: 'Apache-2.0 (PaddleOCR / PaddleX SLANeXt)',
+    description: 'Table structure for tables with ruled cell borders (SLANeXt, PP-StructureV3)',
+  },
+  'slanext-wireless': {
+    id: 'slanext-wireless',
+    file: 'SLANeXt_wireless.onnx',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/SLANeXt_wireless.onnx',
+    sha256: 'c9381c14b7842d451ad52c249c16ecd63b8a3bc2db43336ff39b33015eb72151',
+    bytes: 365_355_777,
+    license: 'Apache-2.0 (PaddleOCR / PaddleX SLANeXt)',
+    description: 'Table structure for tables without cell borders (SLANeXt, PP-StructureV3)',
+  },
+  'table-cls': {
+    id: 'table-cls',
+    file: 'PP-LCNet_x1_0_table_cls.onnx',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/PP-LCNet_x1_0_table_cls.onnx',
+    sha256: '0aebc6372d6bcaf8c3fedcf43290469275ad0ba63d63134849c726d82f217768',
+    bytes: 6_772_714,
+    license: 'Apache-2.0 (PaddleX PP-LCNet_x1_0_table_cls)',
+    description: 'Table classifier: ruled (wired) or borderless (wireless)',
+  },
   'slanet-dict': {
     id: 'slanet-dict',
     file: 'table_structure_dict_ch.txt',

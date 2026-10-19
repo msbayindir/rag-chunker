@@ -23,7 +23,7 @@ import {
 } from '../local/ocr.js'
 import { configureDevice, hasOnnxRuntime } from '../local/runtime.js'
 import type { TableStructureProvider } from '../local/table.js'
-import { createTableStructureProvider, TABLE_DICT, TABLE_MODEL } from '../local/table.js'
+import { createTableStructureProvider, resolveTablePlan, TABLE_DICT, TABLE_MODEL } from '../local/table.js'
 import { engineLabel, extractDocument, type LocalOcr, type OcrEngine } from '../ocr/extract.js'
 import { buildDocumentLayout, type DocumentLayout } from '../output/layout.js'
 import { chunkStats, type Manifest, PACKAGE_VERSION, sanitizeConfig } from '../output/manifest.js'
@@ -280,6 +280,7 @@ export async function runPipeline(
     doc.kind === 'pdf' || doc.kind === 'image' ? await resolveLayout(config) : { engine: null }
   if (layoutPlan.engine) {
     tableProvider = await createTableStructureProvider({
+      plan: resolveTablePlan(config),
       cache,
       documentId: doc.documentId,
       onModelDownload: (file, done, total) =>

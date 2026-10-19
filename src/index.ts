@@ -92,7 +92,10 @@ export {
   type ModelCell,
   type ModelTable,
   recognizeTableStructure,
+  resolveTablePlan,
+  STRUCTURE_MODELS,
   structureToGrid,
+  type TablePlan,
 } from './local/table.js'
 export { createMcpServer, type McpOptions } from './mcp/server.js'
 export type { DocumentLayout, LayoutBlock, LayoutPage } from './output/layout.js'

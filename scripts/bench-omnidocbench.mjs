@@ -7,11 +7,13 @@
  *
  *   node scripts/bench-omnidocbench.mjs --data <dir> [--subset 200] [--seed 42]
  *        [--language english] [--source book,magazine] [--pages a.png,b.png | --pages-file list.txt]
- *        [--no-layout] [--out results.json]
+ *        [--no-layout] [--cache <dir>] [--out results.json]
  *
  * <dir> holds OmniDocBench.json and images/ from https://huggingface.co/datasets/opendatalab/OmniDocBench
  * (research use only; nothing is redistributed). Needs the package built and the local models
  * downloaded (RAG_CHUNKER_MODELS_DIR). RAG_CHUNKER_THREADS=2 keeps a laptop usable meanwhile.
+ * --cache <dir> keeps OCR, layout and formula results between runs, so comparing two table models
+ * on the same pages only reruns the table stage (results are not cached by default).
  */
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -51,6 +53,7 @@ const out =
 // running the pipeline (scorer changes become free to try).
 const saveDir = flag('--save')
 const fromDir = flag('--from')
+const cacheDir = flag('--cache')
 const { mkdir } = await import('node:fs/promises')
 if (saveDir) await mkdir(saveDir, { recursive: true })
 
@@ -384,7 +387,7 @@ const config = {
   ocr: { engine: 'pp-ocr', removeHeaderFooter: false },
   layout: { engine: layout ? 'pp-doclayout-v3' : 'off' },
   figures: { extract: false },
-  cache: { enabled: false },
+  cache: cacheDir ? { enabled: true, dir: cacheDir } : { enabled: false },
 }
 console.log(
   `OmniDocBench · ${pages.length} page(s) · layout ${layout ? 'on' : 'off'} · rag-chunker ${PACKAGE_VERSION}`,
