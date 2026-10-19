@@ -75,7 +75,7 @@ export const MODELS = {
   'texify2-config': {
     id: 'texify2-config',
     file: 'texify2/config.json',
-    url: 'https://huggingface.co/Xenova/texify2/resolve/main/config.json',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/texify2/config.json',
     sha256: '7133e06cbdbb942886cd5595b860596d08a8dd49c0e91ae7e14283f18fe8b127',
     bytes: 4_877,
     license: 'CC-BY-SA-4.0 (vikp/texify2)',
@@ -84,7 +84,7 @@ export const MODELS = {
   'texify2-generation': {
     id: 'texify2-generation',
     file: 'texify2/generation_config.json',
-    url: 'https://huggingface.co/Xenova/texify2/resolve/main/generation_config.json',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/texify2/generation_config.json',
     sha256: '0fb8980236d664d2851ed5939b435ecc6fe0e32ee08b83e75cb1743db0cfe10e',
     bytes: 191,
     license: 'CC-BY-SA-4.0 (vikp/texify2)',
@@ -93,7 +93,7 @@ export const MODELS = {
   'texify2-preprocessor': {
     id: 'texify2-preprocessor',
     file: 'texify2/preprocessor_config.json',
-    url: 'https://huggingface.co/Xenova/texify2/resolve/main/preprocessor_config.json',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/texify2/preprocessor_config.json',
     sha256: 'b2fc6ff0098ac8e6af6e688bfc28188db883c99a48afa60e8555faeedc0c45e4',
     bytes: 615,
     license: 'CC-BY-SA-4.0 (vikp/texify2)',
@@ -102,7 +102,7 @@ export const MODELS = {
   'texify2-tokenizer': {
     id: 'texify2-tokenizer',
     file: 'texify2/tokenizer.json',
-    url: 'https://huggingface.co/Xenova/texify2/resolve/main/tokenizer.json',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/texify2/tokenizer.json',
     sha256: '02c318d9cfa95bf323371762b8f838a82709530274d36dba6eca880f0add6cc4',
     bytes: 2_140_013,
     license: 'CC-BY-SA-4.0 (vikp/texify2)',
@@ -111,7 +111,7 @@ export const MODELS = {
   'texify2-tokenizer-config': {
     id: 'texify2-tokenizer-config',
     file: 'texify2/tokenizer_config.json',
-    url: 'https://huggingface.co/Xenova/texify2/resolve/main/tokenizer_config.json',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/texify2/tokenizer_config.json',
     sha256: 'fd4d94f8b9dbb7deeb3a3ef084ca0e16c43d45774a180730b7e9cfd6359a074b',
     bytes: 4_491,
     license: 'CC-BY-SA-4.0 (vikp/texify2)',
@@ -120,7 +120,7 @@ export const MODELS = {
   'texify2-encoder': {
     id: 'texify2-encoder',
     file: 'texify2/onnx/encoder_model_quantized.onnx',
-    url: 'https://huggingface.co/Xenova/texify2/resolve/main/onnx/encoder_model_quantized.onnx',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/texify2/onnx/encoder_model_quantized.onnx',
     sha256: '6ef545e9b9c451951077ee8f54282fcc77156380df7c3ce5c14852102c921397',
     bytes: 79_294_828,
     license: 'CC-BY-SA-4.0 (vikp/texify2)',
@@ -129,7 +129,7 @@ export const MODELS = {
   'texify2-decoder': {
     id: 'texify2-decoder',
     file: 'texify2/onnx/decoder_model_merged_quantized.onnx',
-    url: 'https://huggingface.co/Xenova/texify2/resolve/main/onnx/decoder_model_merged_quantized.onnx',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/texify2/onnx/decoder_model_merged_quantized.onnx',
     sha256: 'c9d9f2b65d8c0ea9ff1b3c3ba54a98c1d93f91c690ac10877a395bb7a8cd407a',
     bytes: 239_901_134,
     license: 'CC-BY-SA-4.0 (vikp/texify2)',
