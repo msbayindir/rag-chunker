@@ -7,8 +7,8 @@
  * across all filings in one index — for BM25, vectors, hybrid and the reranker.
  *
  * usage: node scripts/bench-financebench.mjs --data <dir> [--only 3M_2018_10K,...] [--limit N]
- *        [--embedding ollama/embeddinggemma] [--rerank [id]] [--layout|--no-layout]
- *        [--save <dir>] [--from <dir>] [--out file.json]
+ *        [--embedding ollama/embeddinggemma] [--rerank [id]] [--first-stage bm25|vector|hybrid]
+ *        [--candidates 30] [--layout|--no-layout] [--save <dir>] [--from <dir>] [--out file.json]
  *
  * <dir> holds data/financebench_open_source.jsonl and pdfs/<doc_name>.pdf, fetched from
  * https://github.com/patronus-ai/financebench (CC BY-NC 4.0; not redistributed with this package).
@@ -36,6 +36,9 @@ const limit = typeof flag('--limit') === 'string' ? Number(flag('--limit')) : 0
 const embeddingModel = typeof flag('--embedding') === 'string' ? flag('--embedding') : undefined
 const rerankFlag = flag('--rerank')
 const layout = args.includes('--layout')
+// Reranker first stage and candidate count (defaults: hybrid when embeddings exist, else BM25; 30).
+const firstStageFlag = typeof flag('--first-stage') === 'string' ? flag('--first-stage') : null
+const candidatesFlag = typeof flag('--candidates') === 'string' ? Number(flag('--candidates')) : null
 const saveDir = typeof flag('--save') === 'string' ? flag('--save') : null
 const fromDir = typeof flag('--from') === 'string' ? flag('--from') : null
 const out =
@@ -166,8 +169,8 @@ async function rankOf(index, q, mode, queryVector) {
       ? await rerank(index, q.question, {
           reranker,
           topK: 10,
-          candidates: config.rerank.candidates,
-          firstStage: vectorModes ? 'hybrid' : 'bm25',
+          candidates: candidatesFlag ?? config.rerank.candidates,
+          firstStage: firstStageFlag ?? (vectorModes ? 'hybrid' : 'bm25'),
           queryVector,
         })
       : search(index, q.question, { topK: 10, mode, queryVector })
@@ -246,7 +249,8 @@ const summary = {
     layout,
     embedding: embeddingModel ?? null,
     rerank: rerankPlan.id ?? null,
-    candidates: config.rerank.candidates,
+    firstStage: firstStageFlag ?? (vectorModes ? 'hybrid' : 'bm25'),
+    candidates: candidatesFlag ?? config.rerank.candidates,
   },
   corpus: {
     filings: filings.length,
