@@ -18,7 +18,7 @@ export function mcpCommand(): Command {
     .option('--no-vectors', 'keyword search only')
     .option(
       '--rerank [model]',
-      'reorder the top candidates with a reranker: local (downloads 120 MB once) or cohere/… / jina/…',
+      'reorder the top candidates with a reranker: the local model of local.profile (downloaded once) or cohere/… / jina/…',
     )
     .option('--no-rerank', 'no reranking even when the model is downloaded')
     .option('-c, --config <file>', 'config file')

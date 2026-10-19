@@ -77,7 +77,9 @@ export { createOcrProvider, type OcrLine, type OcrResult, recognizeImage } from 
 export {
   createReranker,
   DEFAULT_RERANKER,
+  defaultReranker,
   hasReranker,
+  PROFILE_RERANKERS,
   RERANKERS,
   type RerankerId,
   type RerankPlan,
