@@ -27,26 +27,85 @@ export async function hasOnnxRuntime(): Promise<boolean> {
   }
 }
 
+/** Where accelerated models run: Apple's CoreML, NVIDIA CUDA, or the CPU. */
+export type Device = 'cpu' | 'coreml' | 'cuda'
+export type DeviceChoice = Device | 'auto'
+
+let configured: DeviceChoice = 'auto'
+let resolved: Device | null = null
+const fallbacks = new Set<string>()
+
+/**
+ * Sets the device accelerated models use (from `local.device`); sessions created afterwards
+ * follow it. 'auto' picks CoreML on macOS and CUDA elsewhere when onnxruntime-node offers them.
+ */
+export function configureDevice(device: DeviceChoice): void {
+  if (device !== configured) {
+    configured = device
+    resolved = null
+  }
+}
+
+/** The device 'auto' resolved to (after the runtime loaded), or the configured one. */
+export async function resolveDevice(): Promise<Device> {
+  if (configured !== 'auto') return configured
+  if (resolved) return resolved
+  const rt = await loadOnnxRuntime()
+  const offered = new Set((rt.listSupportedBackends?.() ?? []).map((b) => b.name))
+  resolved =
+    process.platform === 'darwin' && offered.has('coreml') ? 'coreml' : offered.has('cuda') ? 'cuda' : 'cpu'
+  return resolved
+}
+
+/** Model files whose accelerated session failed and now run on the CPU (shown by `doctor`). */
+export function deviceFallbacks(): string[] {
+  return [...fallbacks]
+}
+
 const sessions = new Map<string, Promise<ort.InferenceSession>>()
 
-/** One session per model file; creation is deduplicated across concurrent callers. */
-export function sessionFor(modelPath: string, purpose: string): Promise<ort.InferenceSession> {
-  let s = sessions.get(modelPath)
+export interface SessionOptions {
+  /**
+   * Run on the configured device instead of the CPU. Only models that gain from it ask: the text
+   * detector and the CJK recogniser run about 4× and 2.5× faster on CoreML, while the layout
+   * model, the table model, the Latin recogniser and the int8 rerankers are slower there.
+   */
+  accelerate?: boolean
+}
+
+/** One session per model file (and device); creation is deduplicated across concurrent callers. */
+export async function sessionFor(
+  modelPath: string,
+  purpose: string,
+  options: SessionOptions = {},
+): Promise<ort.InferenceSession> {
+  const device = options.accelerate ? await resolveDevice() : 'cpu'
+  const key = `${device}:${modelPath}`
+  let s = sessions.get(key)
   if (!s) {
-    s = loadOnnxRuntime(purpose).then((rt) =>
-      rt.InferenceSession.create(modelPath, {
-        executionProviders: ['cpu'],
-        graphOptimizationLevel: 'all',
-        // RAG_CHUNKER_THREADS caps the CPU threads per model (e.g. 2 on a laptop you keep using).
-        ...(Number(process.env.RAG_CHUNKER_THREADS) > 0
-          ? { intraOpNumThreads: Number(process.env.RAG_CHUNKER_THREADS) }
-          : {}),
-        // Decoder loops (SLANet) trip shape-inference warnings that are noise for users.
-        logSeverityLevel: 3,
-      }),
-    )
-    s.catch(() => sessions.delete(modelPath))
-    sessions.set(modelPath, s)
+    s = loadOnnxRuntime(purpose).then(async (rt) => {
+      const create = (providers: string[]) =>
+        rt.InferenceSession.create(modelPath, {
+          executionProviders: providers,
+          graphOptimizationLevel: 'all',
+          // RAG_CHUNKER_THREADS caps the CPU threads per model (e.g. 2 on a laptop you keep using).
+          ...(Number(process.env.RAG_CHUNKER_THREADS) > 0
+            ? { intraOpNumThreads: Number(process.env.RAG_CHUNKER_THREADS) }
+            : {}),
+          // Decoder loops (SLANet) trip shape-inference warnings that are noise for users.
+          logSeverityLevel: 3,
+        })
+      if (device === 'cpu') return create(['cpu'])
+      try {
+        return await create([device, 'cpu'])
+      } catch {
+        // The accelerator is offered but cannot take this model here: the CPU always can.
+        fallbacks.add(modelPath)
+        return create(['cpu'])
+      }
+    })
+    s.catch(() => sessions.delete(key))
+    sessions.set(key, s)
   }
   return s
 }

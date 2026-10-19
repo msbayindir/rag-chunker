@@ -12,6 +12,7 @@ import { LAYOUT_MODEL } from '../../local/layout.js'
 import { hasModel, MODELS, modelsDir } from '../../local/models.js'
 import { OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../../local/ocr.js'
 import { hasReranker, RERANKER_IDS, type RerankerId } from '../../local/reranker.js'
+import { deviceFallbacks, resolveDevice } from '../../local/runtime.js'
 import { TABLE_DICT, TABLE_MODEL } from '../../local/table.js'
 import { PACKAGE_VERSION } from '../../output/manifest.js'
 import { ollamaListModels } from '../../providers/ollama.js'
@@ -88,6 +89,19 @@ export async function runChecks(
   })
 
   const onnx = await canImport(() => import('onnxruntime-node'))
+  if (onnx) {
+    const device = await resolveDevice().catch(() => 'cpu' as const)
+    const fell = deviceFallbacks()
+    checks.push({
+      status: 'info',
+      label: 'Accelerator',
+      detail:
+        device === 'cpu'
+          ? 'CPU (no CoreML/CUDA offered by onnxruntime-node here)'
+          : `${device} for the OCR detector and the CJK recogniser, CPU for the rest${fell.length ? ` (fell back to CPU for ${fell.length} model file(s))` : ''}`,
+      hint: device === 'cpu' ? undefined : 'Set local.device: "cpu" to turn it off.',
+    })
+  }
   const layoutModel = (
     await Promise.all([LAYOUT_MODEL, TABLE_MODEL, TABLE_DICT].map((id) => hasModel(id)))
   ).every(Boolean)

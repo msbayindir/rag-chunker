@@ -17,6 +17,7 @@ import {
   resolveOcrScript,
   tableFor,
 } from '../../src/local/ocr.js'
+import { configureDevice, deviceFallbacks, resolveDevice } from '../../src/local/runtime.js'
 import { MockServer } from '../helpers/mock-server.js'
 
 describe('layout detections', () => {
@@ -210,5 +211,15 @@ describe('model files', () => {
       ]),
     ).toBe(false)
     expect(probeSaysCjk(['12 月'])).toBe(false)
+  })
+
+  it('resolves the device from the configuration', async () => {
+    configureDevice('cpu')
+    expect(await resolveDevice()).toBe('cpu')
+    configureDevice('coreml')
+    expect(await resolveDevice()).toBe('coreml')
+    configureDevice('auto')
+    expect(['cpu', 'coreml', 'cuda']).toContain(await resolveDevice())
+    expect(deviceFallbacks()).toEqual([])
   })
 })
