@@ -53,6 +53,18 @@ const GROUPS = {
     ],
   },
   table: { title: 'Table structure', ids: ['slanet-plus', 'slanet-dict'] },
+  formula: {
+    title: 'Formula recognition',
+    ids: [
+      'texify2-config',
+      'texify2-generation',
+      'texify2-preprocessor',
+      'texify2-tokenizer',
+      'texify2-tokenizer-config',
+      'texify2-encoder',
+      'texify2-decoder',
+    ],
+  },
 }
 const only = flag('--only')?.split(',') ?? Object.keys(GROUPS)
 const specs = only.flatMap((g) => (GROUPS[g]?.ids ?? []).map((id) => MODELS[id])).filter(Boolean)

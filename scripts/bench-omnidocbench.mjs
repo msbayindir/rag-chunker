@@ -87,6 +87,7 @@ let pages = annotations.map((p) => {
       box: polyToBox(b.poly, w, h),
       text: typeof b.text === 'string' ? M.cellText(b.text) : '',
       raw: typeof b.text === 'string' ? b.text : '',
+      latex: typeof b.latex === 'string' ? b.latex : '',
       html: typeof b.html === 'string' ? b.html : '',
     }))
   const refText = blocks.map((b) => b.text).join('')
@@ -149,8 +150,14 @@ const strict = (s) => M.normalizeText(s)
 
 function scorePage(gt, result) {
   const layoutPage = result.layout.pages[0]
+  // Display formulas we recognised ($$…$$ blocks) are scored against the reference formulas
+  // below and kept out of the text comparison, as the official protocol does.
+  const isFormulaBlock = (b) => /^\s*\$\$[\s\S]*\$\$\s*$/.test(b.text ?? '')
+  const formulaPreds = (layoutPage?.blocks ?? [])
+    .filter((b) => b.box && isFormulaBlock(b))
+    .map((b) => ({ box: b.box, latex: b.text.trim().replace(/^\$\$/, '').replace(/\$\$$/, '').trim() }))
   const preds = (layoutPage?.blocks ?? [])
-    .filter((b) => b.box && b.kind !== 'figure')
+    .filter((b) => b.box && b.kind !== 'figure' && !isFormulaBlock(b))
     // Stray OCR boxes: a few characters spanning a large part of the page (tables are exempt — their
     // markdown has no plain text by construction).
     .filter(
@@ -319,6 +326,25 @@ function scorePage(gt, result) {
     })
     .filter(Boolean)
 
+  // Formulas: reference display formulas ↔ our $$ blocks by overlap; the LaTeX compared as text
+  // (commands rendered, letters and digits only — our measure, not the official CDM).
+  const gtFormulas = gt.blocks.filter((b) => b.category === 'equation_isolated' && b.latex.trim() !== '')
+  const formulas = gtFormulas.map((g) => {
+    let top = null
+    let topIou = 0.3
+    for (const p of formulaPreds) {
+      const v = Math.max(M.iou(g.box, p.box), M.coverage(p.box, g.box) >= 0.6 ? 0.31 : 0)
+      if (v > topIou) {
+        top = p
+        topIou = v
+      }
+    }
+    const ref = M.officialNormalize(M.latexToText(g.latex.replace(/^\$+|\$+$/g, '')))
+    const pred = top ? M.officialNormalize(M.latexToText(top.latex)) : ''
+    const ed = ref.length || pred.length ? M.levenshtein(ref, pred) / Math.max(ref.length, pred.length) : 0
+    return { matched: !!top, ed }
+  })
+
   // Reading order: the reference ranks of matched blocks, in the order we emitted them.
   const sequence = []
   const emitted = new Set()
@@ -337,6 +363,7 @@ function scorePage(gt, result) {
     textErrors: { ...breakdown, denom },
     strictErrors,
     tables,
+    formulas,
     orderED,
     gtBlocks: gtText.length + gtTables.length,
     predBlocks: preds.length,
@@ -382,6 +409,7 @@ for (const [i, gt] of pages.entries()) {
       textED: 1,
       textEDStrict: 1,
       tables: [],
+      formulas: [],
       orderED: 1,
       gtBlocks: 0,
       predBlocks: 0,
@@ -412,6 +440,7 @@ for (const [i, gt] of pages.entries()) {
 const mean = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null)
 const summarize = (rs) => {
   const tables = rs.flatMap((r) => r.tables)
+  const formulas = rs.flatMap((r) => r.formulas ?? [])
   const textED = mean(rs.map((r) => r.textED))
   const tedsMean = mean(tables.map((t) => t.teds))
   return {
@@ -419,6 +448,9 @@ const summarize = (rs) => {
     textED,
     textScore: textED === null ? null : (1 - textED) * 100,
     textEDStrict: mean(rs.map((r) => r.textEDStrict ?? r.textED)),
+    formulas: formulas.length,
+    formulasMatched: formulas.filter((f) => f.matched).length,
+    formulaED: mean(formulas.map((f) => f.ed)),
     tables: tables.length,
     tablesMatched: tables.filter((t) => t.matched).length,
     teds: tedsMean === null ? null : tedsMean * 100,
@@ -460,11 +492,11 @@ await writeFile(out, `${JSON.stringify(summary, null, 2)}\n`)
 
 const fmt = (v, d = 1) => (v === null || v === undefined ? '–' : v.toFixed(d))
 const row = (name, s) =>
-  `| ${name} | ${s.pages} | ${fmt(s.textScore)} | ${fmt(s.textED, 3)} | ${fmt(s.textEDStrict, 3)} | ${s.tablesMatched}/${s.tables} | ${fmt(s.teds)} | ${fmt(s.tedsS)} | ${fmt(s.orderED, 3)} | ${fmt(s.msPerPage / 1000)} s |`
+  `| ${name} | ${s.pages} | ${fmt(s.textScore)} | ${fmt(s.textED, 3)} | ${fmt(s.textEDStrict, 3)} | ${s.tablesMatched}/${s.tables} | ${fmt(s.teds)} | ${fmt(s.tedsS)} | ${s.formulas ? `${s.formulasMatched}/${s.formulas}` : '–'} | ${fmt(s.formulaED, 3)} | ${fmt(s.orderED, 3)} | ${fmt(s.msPerPage / 1000)} s |`
 console.log(
-  '\n| Set | Pages | Text score ↑ | Text ED ↓ | Text ED strict ↓ | Tables found | TEDS ↑ | TEDS-S ↑ | Order ED ↓ | Time |',
+  '\n| Set | Pages | Text score ↑ | Text ED ↓ | Text ED strict ↓ | Tables found | TEDS ↑ | TEDS-S ↑ | Formulas found | Formula ED ↓ | Order ED ↓ | Time |',
 )
-console.log('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
+console.log('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
 console.log(row('all', summary.overall))
 for (const [k, s] of Object.entries(summary.byLanguage)) console.log(row(`lang: ${k}`, s))
 for (const [k, s] of Object.entries(summary.byScript)) console.log(row(`script: ${k}`, s))

@@ -8,6 +8,7 @@ import { recommendedGemma } from '../../config/presets.js'
 import { BUILTIN_PROVIDERS, resolveProvider } from '../../config/providers.js'
 import type { ResolvedConfig } from '../../config/schema.js'
 import { errorMessage, RagChunkerError } from '../../errors.js'
+import { FORMULA_MODELS } from '../../local/formula.js'
 import { LAYOUT_MODEL } from '../../local/layout.js'
 import { hasModel, MODELS, modelsDir } from '../../local/models.js'
 import { OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../../local/ocr.js'
@@ -102,6 +103,22 @@ export async function runChecks(
       hint: device === 'cpu' ? undefined : 'Set local.device: "cpu" to turn it off.',
     })
   }
+  const formulaFiles = (await Promise.all(FORMULA_MODELS.map((id) => hasModel(id)))).every(Boolean)
+  const transformers = await canImport(() => import('@huggingface/transformers'))
+  checks.push({
+    status: transformers && formulaFiles ? 'ok' : 'info',
+    label: 'Formula model',
+    detail: !transformers
+      ? '@huggingface/transformers not installed'
+      : formulaFiles
+        ? `texify2 (8-bit) in ${modelsDir(env)}`
+        : 'package ready, model not downloaded',
+    hint: !transformers
+      ? 'Reading display formulas as LaTeX needs it: npm install @huggingface/transformers (320 MB model on first use)'
+      : formulaFiles
+        ? undefined
+        : 'Downloaded (320 MB) on the first run with layout analysis under the "full" profile; --no-formulas skips it.',
+  })
   const layoutModel = (
     await Promise.all([LAYOUT_MODEL, TABLE_MODEL, TABLE_DICT].map((id) => hasModel(id)))
   ).every(Boolean)

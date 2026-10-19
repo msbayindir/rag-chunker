@@ -4,7 +4,14 @@ import type { FigureSink } from '../documents/figures.js'
 import { htmlToMarkdown } from '../documents/html.js'
 import type { DocumentInput } from '../documents/input.js'
 import type { TextSpan } from '../documents/layout.js'
-import { ocrItems, PdfDocumentHandle, pageFromItems, planPageBatches, subsetPdf } from '../documents/pdf.js'
+import {
+  type FormulaProvider,
+  ocrItems,
+  PdfDocumentHandle,
+  pageFromItems,
+  planPageBatches,
+  subsetPdf,
+} from '../documents/pdf.js'
 import { pptxToMarkdown } from '../documents/pptx.js'
 import type { Rect } from '../documents/tables.js'
 import { xlsxToMarkdown } from '../documents/xlsx.js'
@@ -55,6 +62,8 @@ export interface ExtractOptions {
   tables?: TableStructureProvider
   /** Saves the figures of PDF pages and images; without it none are extracted. */
   figures?: { save: FigureSink; minSize?: number }
+  /** Reads display formulas in layout regions as LaTeX; without it they stay OCR text. */
+  formulas?: FormulaProvider
   registry: ProviderRegistry
   cache: CacheStore
   reporter: Reporter
@@ -217,10 +226,12 @@ async function ocrImage(
     const regions = opts.layout ? await opts.layout(asPage, 1) : null
     const tables = opts.tables
     const figures = opts.figures
+    const formulas = opts.formulas
     const page = await pageFromItems(ocrItems(result, size), size, {
       regions,
       ...(tables ? { tables: (region: Rect) => tables(asPage, 1, region) } : {}),
       ...(figures ? { figures: { save: (f) => figures.save(asPage, 1, f), minSize: figures.minSize } } : {}),
+      ...(formulas ? { formulas: (region: Rect) => formulas(asPage, 1, region) } : {}),
     })
     stats.ocrPages++
     await opts.cache.set('ocr', key, page.markdown)
@@ -280,6 +291,7 @@ async function extractPdf(
       layout: opts.layout,
       tables: opts.tables,
       figures: opts.figures,
+      formulas: opts.formulas,
       ...(local
         ? {
             ocr: {
