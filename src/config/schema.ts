@@ -82,13 +82,19 @@ const ocrSchema = z.strictObject({
     )
     .default('auto')
     .describe(
-      '"auto" (local PP-OCR when its models are downloaded, else Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), "text-layer", "pp-ocr" (local PP-OCRv5 on onnxruntime-node; downloads 13 MB once), "mistral", or a vision model such as "ollama/gemma4:e4b-it-qat".',
+      '"auto" (local PP-OCR when its models are downloaded, else Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), "text-layer", "pp-ocr" (local PP-OCRv5 on onnxruntime-node; downloads 13–97 MB once, see local.profile), "mistral", or a vision model such as "ollama/gemma4:e4b-it-qat".',
     ),
   pages: z
     .enum(['auto', 'all', 'scanned'])
     .default('auto')
     .describe(
       'PDF pages sent to the OCR engine. "auto": all pages for Mistral, scanned pages for local and vision models.',
+    ),
+  detector: z
+    .enum(['auto', 'mobile', 'server'])
+    .default('auto')
+    .describe(
+      'Text detector of the local OCR. "mobile": PP-OCRv5 mobile (5 MB, fast); "server": PP-OCRv5 server (84 MB, finds more small print and table cells, about 1.8× slower); "auto": follows local.profile.',
     ),
   concurrency: z
     .number()
@@ -111,6 +117,15 @@ const ocrSchema = z.strictObject({
     .min(0)
     .default(40)
     .describe('A PDF page with fewer extractable characters is treated as scanned.'),
+})
+
+const localSchema = z.strictObject({
+  profile: z
+    .enum(['full', 'basic'])
+    .default('full')
+    .describe(
+      'Which local models the "auto" choices pick. "full": the strongest models (server OCR detector; more to come), larger downloads; "basic": the small models (mobile OCR detector), smallest downloads and fastest.',
+    ),
 })
 
 const modelsSchema = z.strictObject({
@@ -285,6 +300,7 @@ export const configSchema = z
     context: contextSchema.prefault({}).describe('Contextual retrieval settings.'),
     embedding: embeddingSchema.prefault({}).describe('Embedding settings.'),
     layout: layoutSchema.prefault({}).describe('Local page layout analysis (PDF).'),
+    local: localSchema.prefault({}).describe('Which local models to use when a setting says "auto".'),
     figures: figuresSchema.prefault({}).describe('Figure extraction (PDF, images).'),
     rerank: rerankSchema.prefault({}).describe('Reranking of search results (eval, mcp).'),
     cache: cacheSchema.prefault({}).describe('On-disk cache.'),

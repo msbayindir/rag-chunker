@@ -19,7 +19,7 @@ npx @msbayindir/rag-chunker process kitap.pdf --local    # her şey Ollama'da, h
 
 - **Dokümana saygılı chunk'lar.** Deterministik, AST tabanlı chunker başlıkları içerikleriyle birlikte tutar, mecbur kalmadıkça cümle ortasından bölmez, büyük tabloları *başlık satırını tekrarlayarak* satır satır böler, kod bloklarının çitlerini korur ve hiçbir kelimeyi kaybetmez (property testleriyle doğrulanır).
 - **Doğru kaynak gösterimi.** Her chunk'ta `pageStart`/`pageEnd`, başlık yolu (`sectionPath`) ve çakışmayan, kalıcı bir `chunkId` bulunur.
-- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar OCR'a gider: yerel PP-OCRv5 modelleri (13 MB, anahtarsız, Türkçe dahil Latin alfabeleri), Mistral OCR ya da bir vision modeli (Gemma 4, Gemini, Claude, GPT…). Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir.
+- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar OCR'a gider: yerel PP-OCRv5 modelleri (profile göre 13–97 MB, anahtarsız, Türkçe dahil Latin alfabeleri), Mistral OCR ya da bir vision modeli (Gemma 4, Gemini, Claude, GPT…). Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir.
 - **Contextual retrieval** ([Anthropic'in yöntemi](https://www.anthropic.com/news/contextual-retrieval)): her chunk'a, dokümandaki yerini anlatan 1–2 cümlelik bir özet eklenir. Modele sığmayan büyük dokümanlarda doküman ve bölüm özetleri kullanılır, böylece küçük yerel modellerle de çalışır.
 - **Başlık onarımı.** OCR sayfaları tek tek okuduğu için başlık seviyelerini karıştırır; bir LLM adımı ve deterministik bir numaralandırma adımı bunu düzeltir.
 - **Her aşamada her sağlayıcı.** Her yerde `sağlayıcı/model`: `ollama/gemma4:e4b-it-qat`, `gemini/gemini-3.5-flash-lite`, `anthropic/claude-haiku-5-5`, `openrouter/…` ya da kendi OpenAI-uyumlu sunucunuz. Her sağlayıcı için yerleşik prompt cache desteği.
@@ -148,6 +148,8 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 | Seçenek | Varsayılan | Anlamı |
 |---|---|---|
 | `ocr.engine` | `auto` | `auto` (modelleri indirilmişse yerel PP-OCR, yoksa `MISTRAL_API_KEY` varsa Mistral, yoksa `models.vision`, yoksa metin katmanı), `text-layer`, `pp-ocr`, `mistral` ya da vision `sağlayıcı/model` |
+| `ocr.detector` | `auto` | Yerel OCR'ın metin dedektörü: `mobile` (PP-OCRv5 mobil, 5 MB, hızlı), `server` (PP-OCRv5 server, 84 MB; küçük punto ve tablo hücrelerinde daha iyi, yaklaşık 1,8 kat yavaş), `auto` (`local.profile`'ı izler) |
+| `local.profile` | `full` | `auto` ayarlarının hangi yerel modelleri seçeceği: `full` (en güçlü modeller, daha büyük indirme; bugün server OCR dedektörü), `basic` (küçük modeller; CLI `--profile basic`) |
 | `models.*` | — | Aşama başına model; boş bırakılan aşama atlanır |
 | `chunk.maxTokens` | `512` | Chunk başına kesin üst sınır (o200k token) |
 | `chunk.minTokens` | `64` | Daha küçük chunk'lar aynı bölümdeki komşusuyla birleşir |

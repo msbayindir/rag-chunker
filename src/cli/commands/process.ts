@@ -39,6 +39,7 @@ export interface ProcessFlags {
   overlap?: number
   cache?: boolean
   layout?: boolean
+  profile?: 'full' | 'basic'
   figures?: boolean
   describeFigures?: boolean
   dryRun?: boolean
@@ -66,6 +67,7 @@ export function flagsToConfig(flags: ProcessFlags): RagChunkerConfig {
   if (flags.cache === false) cfg.cache = { enabled: false }
   if (flags.layout === true) cfg.layout = { engine: 'pp-doclayout-v3' }
   if (flags.layout === false) cfg.layout = { engine: 'off' }
+  if (flags.profile) cfg.local = { profile: flags.profile }
   if (flags.figures === false) cfg.figures = { extract: false }
   if (flags.describeFigures) cfg.figures = { ...cfg.figures, describe: true }
   return cfg
@@ -272,6 +274,12 @@ export function processCommand(): Command {
     .option('--overlap <n>', 'tokens of previous-chunk overlap (default 0)', int('overlap'))
     .option('--layout', 'analyse page layout with the local PP-DocLayoutV3 model (downloads 130 MB once)')
     .option('--no-layout', 'position heuristics only, no layout model')
+    .addOption(
+      new Option(
+        '--profile <profile>',
+        'local models: "full" (strongest, larger downloads) or "basic" (small, fast)',
+      ).choices(['full', 'basic']),
+    )
     .option('--no-figures', 'do not cut figures out of PDF pages')
     .option('--describe-figures', 'describe every figure with the vision model (needs --vision or --local)')
     .option('--no-cache', 'do not read or write the cache')

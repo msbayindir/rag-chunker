@@ -66,9 +66,33 @@ const DET_MIN_LINE =
     : 12
 const DET_MAX_LIMIT = 3200
 
-/** Which detector to run: the 5 MB mobile model by default, RAG_CHUNKER_OCR_DET_MODEL=server for the 88 MB one. */
-export function ocrDetectorModel(env: Record<string, string | undefined> = process.env): ModelId {
-  return env.RAG_CHUNKER_OCR_DET_MODEL === 'server' ? 'pp-ocrv5-det-server' : OCR_DET_MODEL
+export type OcrDetector = 'mobile' | 'server'
+
+/**
+ * The detector a configuration asks for: an explicit `ocr.detector`, else the profile's choice
+ * ("full" → server, "basic" → mobile). Returns undefined when the environment override
+ * RAG_CHUNKER_OCR_DET_MODEL should decide (benchmarks set it without touching the config).
+ */
+export function resolveOcrDetector(
+  config: { ocr: { detector: 'auto' | OcrDetector }; local: { profile: 'full' | 'basic' } },
+  env: Record<string, string | undefined> = process.env,
+): OcrDetector | undefined {
+  if (config.ocr.detector !== 'auto') return config.ocr.detector
+  if (env.RAG_CHUNKER_OCR_DET_MODEL) return undefined
+  return config.local.profile === 'basic' ? 'mobile' : 'server'
+}
+
+/**
+ * Which detector to run. An explicit choice wins; otherwise RAG_CHUNKER_OCR_DET_MODEL=server picks
+ * the 84 MB server model (larger backbone: more table cells and small print, about 1.8× slower)
+ * and anything else the 5 MB mobile model.
+ */
+export function ocrDetectorModel(
+  choice?: OcrDetector,
+  env: Record<string, string | undefined> = process.env,
+): ModelId {
+  const detector = choice ?? (env.RAG_CHUNKER_OCR_DET_MODEL === 'server' ? 'server' : 'mobile')
+  return detector === 'server' ? 'pp-ocrv5-det-server' : OCR_DET_MODEL
 }
 const DET_MEAN = [0.485, 0.456, 0.406]
 const DET_STD = [0.229, 0.224, 0.225]
@@ -341,6 +365,8 @@ export type PageOcrProvider = (doc: PageLike, pageNumber: number) => Promise<Ocr
 export interface OcrProviderOptions {
   /** Longer page side in pixels rendered for OCR (default 2000). */
   render?: number
+  /** Text detector: the mobile model or the larger server model (default: see `ocrDetectorModel`). */
+  detector?: OcrDetector
   cache?: CacheStore
   documentId?: string
   modelsDir?: string
@@ -350,7 +376,7 @@ export interface OcrProviderOptions {
 
 const OCR_CACHE_VERSION = 1
 
-/** Downloads the OCR models on first use (13 MB) and returns a per-page recogniser with caching. */
+/** Downloads the OCR models on first use (13–97 MB, see local.profile) and returns a per-page recogniser with caching. */
 export async function createOcrProvider(options: OcrProviderOptions = {}): Promise<{
   models: OcrModelPaths
   page: PageOcrProvider
@@ -363,7 +389,7 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
       'ocr-local',
       OCR_CACHE_VERSION,
       OCR_REC_MODEL,
-      ocrDetectorModel(),
+      ocrDetectorModel(options.detector),
       DET_LIMIT,
       options.documentId ?? '',
       pageNumber,
@@ -391,7 +417,7 @@ export async function loadOcrModels(options: OcrProviderOptions = {}): Promise<O
       onProgress: (done, total) => options.onModelDownload?.(id, done, total),
     })
   const [det, rec, dictPath] = await Promise.all([
-    fetchOne(ocrDetectorModel()),
+    fetchOne(ocrDetectorModel(options.detector)),
     fetchOne(OCR_REC_MODEL),
     fetchOne(OCR_DICT),
   ])

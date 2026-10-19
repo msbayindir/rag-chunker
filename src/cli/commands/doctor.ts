@@ -106,21 +106,26 @@ export async function runChecks(
         : 'Run `rag-chunker process <pdf> --layout` once to download PP-DocLayoutV3 + SLANet_plus (138 MB).',
   })
 
-  const ocrFiles = await Promise.all([OCR_DET_MODEL, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)))
-  const ocrReady = ocrFiles.every(Boolean)
+  const [detMobile, detServer, recReady, dictReady] = await Promise.all(
+    [OCR_DET_MODEL, 'pp-ocrv5-det-server' as const, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)),
+  )
+  const ocrReady = (detMobile || detServer) && recReady && dictReady
+  const detectors = [detMobile && 'mobile', detServer && 'server'].filter(Boolean).join(' + ')
   checks.push({
     status: onnx && ocrReady ? 'ok' : 'info',
     label: 'Local OCR',
     detail: !onnx
       ? 'onnxruntime-node not installed'
       : ocrReady
-        ? `PP-OCRv5 (Latin) in ${modelsDir(env)}`
+        ? `PP-OCRv5 (Latin recogniser, ${detectors} detector) in ${modelsDir(env)}`
         : 'onnxruntime-node ready, models not downloaded',
     hint: !onnx
       ? 'Scanned pages without keys need it: npm install onnxruntime-node'
-      : ocrReady
-        ? undefined
-        : 'Run `rag-chunker process <pdf> --ocr pp-ocr` once to download PP-OCRv5 (13 MB); "auto" then uses it.',
+      : !ocrReady
+        ? 'Run `rag-chunker process <pdf> --ocr pp-ocr` once to download PP-OCRv5 (97 MB with the server detector, 13 MB with --profile basic); "auto" then uses it.'
+        : detServer
+          ? undefined
+          : 'The default "full" profile downloads the server detector (84 MB) on first use; `--profile basic` keeps the mobile one.',
   })
 
   const rerankers = (
