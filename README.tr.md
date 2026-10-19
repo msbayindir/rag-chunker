@@ -149,7 +149,8 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 |---|---|---|
 | `ocr.engine` | `auto` | `auto` (modelleri indirilmişse yerel PP-OCR, yoksa `MISTRAL_API_KEY` varsa Mistral, yoksa `models.vision`, yoksa metin katmanı), `text-layer`, `pp-ocr`, `mistral` ya da vision `sağlayıcı/model` |
 | `ocr.detector` | `auto` | Yerel OCR'ın metin dedektörü: `mobile` (PP-OCRv5 mobil, 5 MB, hızlı), `server` (PP-OCRv5 server, 84 MB; küçük punto ve tablo hücrelerinde daha iyi, yaklaşık 1,8 kat yavaş), `auto` (`local.profile`'ı izler) |
-| `local.profile` | `full` | `auto` ayarlarının hangi yerel modelleri seçeceği: `full` (en güçlü modeller, daha büyük indirme; bugün server OCR dedektörü), `basic` (küçük modeller; CLI `--profile basic`) |
+| `ocr.script` | `auto` | Yerel OCR'ın tanıyıcısı: `latin` (Türkçe, İngilizce, Almanca, Fransızca…), `cjk` (Çince, Japonca ve İngilizce için PP-OCRv5 server modeli, 84 MB, satır başına ~10 kat yavaş, Ğ/İ yok), `auto` (`full` profilde belgenin ilk taranmış sayfasının en geniş satırları CJK modeliyle okunur, CJK çıkarsa belge o modele geçer) |
+| `local.profile` | `full` | `auto` ayarlarının hangi yerel modelleri seçeceği: `full` (en güçlü modeller, daha büyük indirme; bugün server OCR dedektörü ve `ocr.script: auto` için CJK tanıyıcı), `basic` (küçük Latin modeller; CLI `--profile basic`) |
 | `models.*` | — | Aşama başına model; boş bırakılan aşama atlanır |
 | `chunk.maxTokens` | `512` | Chunk başına kesin üst sınır (o200k token) |
 | `chunk.minTokens` | `64` | Daha küçük chunk'lar aynı bölümdeki komşusuyla birleşir |

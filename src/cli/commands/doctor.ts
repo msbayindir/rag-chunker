@@ -106,26 +106,33 @@ export async function runChecks(
         : 'Run `rag-chunker process <pdf> --layout` once to download PP-DocLayoutV3 + SLANet_plus (138 MB).',
   })
 
-  const [detMobile, detServer, recReady, dictReady] = await Promise.all(
-    [OCR_DET_MODEL, 'pp-ocrv5-det-server' as const, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)),
+  const [detMobile, detServer, recReady, dictReady, cjkReady] = await Promise.all(
+    [
+      OCR_DET_MODEL,
+      'pp-ocrv5-det-server' as const,
+      OCR_REC_MODEL,
+      OCR_DICT,
+      'pp-ocrv5-rec-server' as const,
+    ].map((id) => hasModel(id)),
   )
   const ocrReady = (detMobile || detServer) && recReady && dictReady
   const detectors = [detMobile && 'mobile', detServer && 'server'].filter(Boolean).join(' + ')
+  const recognisers = cjkReady ? 'Latin + CJK recognisers' : 'Latin recogniser'
   checks.push({
     status: onnx && ocrReady ? 'ok' : 'info',
     label: 'Local OCR',
     detail: !onnx
       ? 'onnxruntime-node not installed'
       : ocrReady
-        ? `PP-OCRv5 (Latin recogniser, ${detectors} detector) in ${modelsDir(env)}`
+        ? `PP-OCRv5 (${recognisers}, ${detectors} detector) in ${modelsDir(env)}`
         : 'onnxruntime-node ready, models not downloaded',
     hint: !onnx
       ? 'Scanned pages without keys need it: npm install onnxruntime-node'
       : !ocrReady
-        ? 'Run `rag-chunker process <pdf> --ocr pp-ocr` once to download PP-OCRv5 (97 MB with the server detector, 13 MB with --profile basic); "auto" then uses it.'
-        : detServer
+        ? 'Run `rag-chunker process <pdf> --ocr pp-ocr` once to download PP-OCRv5 (181 MB with the full profile, 13 MB with --profile basic); "auto" then uses it.'
+        : detServer && cjkReady
           ? undefined
-          : 'The default "full" profile downloads the server detector (84 MB) on first use; `--profile basic` keeps the mobile one.',
+          : 'The default "full" profile downloads the server detector (84 MB) and the CJK recogniser (84 MB) on first use; `--profile basic` keeps the small Latin models.',
   })
 
   const rerankers = (

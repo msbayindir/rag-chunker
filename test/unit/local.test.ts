@@ -8,10 +8,13 @@ import { parseDetections, selectDetections, toRegions } from '../../src/local/la
 import { downloadModel, hasModel, MODELS, modelPath, modelsDir } from '../../src/local/models.js'
 import {
   boxesFromProbabilityMap,
+  cjkShare,
   ctcDecode,
   ocrDetectorModel,
   parseDictionary,
+  probeSaysCjk,
   resolveOcrDetector,
+  resolveOcrScript,
   tableFor,
 } from '../../src/local/ocr.js'
 import { MockServer } from '../helpers/mock-server.js'
@@ -158,5 +161,54 @@ describe('model files', () => {
     expect(resolveOcrDetector(cfg('auto', 'basic'), {})).toBe('mobile')
     expect(resolveOcrDetector(cfg('mobile', 'full'), {})).toBe('mobile')
     expect(resolveOcrDetector(cfg('auto', 'full'), { RAG_CHUNKER_OCR_DET_MODEL: 'mobile' })).toBeUndefined()
+  })
+
+  it('plans the recogniser from ocr.script and the profile, and spots CJK text', () => {
+    const cfg = (script: 'auto' | 'latin' | 'cjk', profile: 'full' | 'basic') => ({
+      ocr: { script },
+      local: { profile },
+    })
+    expect(resolveOcrScript(cfg('auto', 'full'), {})).toEqual({ script: 'auto', cjk: true })
+    expect(resolveOcrScript(cfg('auto', 'basic'), {})).toEqual({ script: 'latin', cjk: false })
+    expect(resolveOcrScript(cfg('cjk', 'basic'), {})).toEqual({ script: 'cjk', cjk: true })
+    expect(resolveOcrScript(cfg('latin', 'full'), {})).toEqual({ script: 'latin', cjk: false })
+    expect(resolveOcrScript(cfg('auto', 'full'), { RAG_CHUNKER_OCR_SCRIPT: 'latin' })).toEqual({
+      script: 'latin',
+      cjk: false,
+    })
+    expect(cjkShare('中华人民共和国 2024 年')).toBeGreaterThan(0.6)
+    expect(cjkShare('日本語のテキスト')).toBe(1)
+    expect(cjkShare('Türkiye Cumhuriyeti Anayasası')).toBe(0)
+    expect(cjkShare('')).toBe(0)
+    // Probe lines from Chinese pages the per-line majority rule missed: exam formulas, tables,
+    // a journal header; and Latin pages read by the CJK model.
+    expect(
+      probeSaysCjk([
+        '(2) 设过椭圆C的右焦点F且斜率为$√2$的直线1和椭圆交于A，B两点',
+        '19.(本小题12分）如图1，四边形ABCD为形，四边形ADEF和BCE2F2都是菱形AB=，',
+        'BC=2，∠DE，F=∠CE2F₂=60°，分别沿AD，BC将四边形ADEF和BCE2F₂折起',
+      ]),
+    ).toBe(true)
+    expect(
+      probeSaysCjk([
+        '(C)1994-2023ChinaAcademicJournalElectronicPublishi',
+        '1=30岁及以下；2=31~40岁；3=41~50岁;4=51~60岁；5=60',
+        '1=政府或事业单位人员;2=医生、教师、科技人员；3=学生;4=企',
+      ]),
+    ).toBe(true)
+    expect(
+      probeSaysCjk([
+        'Min-Te Sun (Peter) Sun',
+        '- An associate professor of Computer Science &',
+        'Information Engineering, National Central University',
+      ]),
+    ).toBe(false)
+    expect(
+      probeSaysCjk([
+        'Türkiye Cumhuriyeti Anayasası, Madde 1',
+        'Devletin şekli: Türkiye Devleti bir Cumhuriyettir.',
+      ]),
+    ).toBe(false)
+    expect(probeSaysCjk(['12 月'])).toBe(false)
   })
 })

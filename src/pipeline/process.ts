@@ -18,6 +18,7 @@ import {
   OCR_REC_MODEL,
   ocrDetectorModel,
   resolveOcrDetector,
+  resolveOcrScript,
 } from '../local/ocr.js'
 import { hasOnnxRuntime } from '../local/runtime.js'
 import type { TableStructureProvider } from '../local/table.js'
@@ -253,6 +254,7 @@ export async function runPipeline(
       localOcr = await createOcrProvider({
         cache,
         detector: resolveOcrDetector(config),
+        ...resolveOcrScript(config),
         documentId: doc.documentId,
         onModelDownload: (file, done, total) =>
           reporter.progress('ocr', mb(done), mb(total), `downloading ${file} (MB)`),
