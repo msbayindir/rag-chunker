@@ -32,8 +32,10 @@ describe('formula recognition', () => {
       { label: 'display_formula', score: 0.3, bbox: { x0: 100, y0: 300, x1: 400, y1: 340 }, order: 5 },
       { label: 'text', score: 0.95, bbox: { x0: 100, y0: 600, x1: 400, y1: 700 }, order: 2 },
     ]
+    const page = { width: 600, height: 800 }
+    const line = (y: number) => ({ text: 'x', y, x0: 120, x1: 380, size: 10, font: '', fontShare: 1 })
     const asked: string[] = []
-    const result = await formulasOnPage(regions, async (r) => {
+    const result = await formulasOnPage(regions, page, [line(520), line(620)], async (r) => {
       asked.push(`${r.x0},${r.y0}`)
       return 'a^2 + b^2 = c^2'
     })
@@ -41,10 +43,24 @@ describe('formula recognition', () => {
     expect(result?.lines.map((l) => [l.text, l.formula, l.order, l.standalone, l.plain])).toEqual([
       ['$$a^2 + b^2 = c^2$$', 'a^2 + b^2 = c^2', 3, true, true],
     ])
-    const line = (y: number) => ({ text: 'x', y, x0: 120, x1: 380, size: 10, font: '', fontShare: 1 })
     expect(result?.inside(line(520))).toBe(true)
     expect(result?.inside(line(620))).toBe(false)
-    expect(await formulasOnPage(regions, async () => null)).toBeUndefined()
-    expect(await formulasOnPage(null, async () => 'x')).toBeUndefined()
+    expect(await formulasOnPage(regions, page, [], async () => null)).toBeUndefined()
+    expect(await formulasOnPage(null, page, [], async () => 'x')).toBeUndefined()
+  })
+
+  it('leaves alone formula regions that would swallow a block of text', async () => {
+    const page = { width: 600, height: 800 }
+    const line = (y: number) => ({ text: 'x', y, x0: 120, x1: 380, size: 10, font: '', fontShare: 1 })
+    const huge: LayoutRegion[] = [
+      { label: 'display_formula', score: 0.9, bbox: { x0: 50, y0: 100, x1: 550, y1: 700 }, order: 1 },
+    ]
+    expect(await formulasOnPage(huge, page, [line(300)], async () => 'x = 1')).toBeUndefined()
+    const crowded: LayoutRegion[] = [
+      { label: 'display_formula', score: 0.9, bbox: { x0: 100, y0: 400, x1: 400, y1: 560 }, order: 1 },
+    ]
+    const nine = Array.from({ length: 9 }, (_, i) => line(410 + i * 16))
+    expect(await formulasOnPage(crowded, page, nine, async () => 'x = 1')).toBeUndefined()
+    expect((await formulasOnPage(crowded, page, nine.slice(0, 4), async () => 'x = 1'))?.lines.length).toBe(1)
   })
 })

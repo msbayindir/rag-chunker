@@ -311,7 +311,9 @@ export class PdfDocumentHandle {
           )
         : []
       const formulas = options.formulas
-        ? await formulasOnPage(regions, (r) => (options.formulas as FormulaProvider)(this, n, r))
+        ? await formulasOnPage(regions, { width, height }, lines0, (r) =>
+            (options.formulas as FormulaProvider)(this, n, r),
+          )
         : undefined
       pages.push({
         pageNumber: n,
@@ -416,10 +418,26 @@ function composePage(
  */
 export async function formulasOnPage(
   regions: LayoutRegion[] | null,
+  page: { width: number; height: number },
+  textLines: readonly Line[],
   recognise: (region: Rect) => Promise<string | null>,
 ): Promise<PageFormulas | undefined> {
   if (!regions) return undefined
-  const targets = regions.filter((r) => r.label === 'display_formula' && r.score >= CONFIDENT)
+  const centreInside = (l: Line, b: Rect) => {
+    const cx = (l.x0 + l.x1) / 2
+    const cy = l.y + l.size * 0.35
+    return cx >= b.x0 && cx <= b.x1 && cy >= b.y0 && cy <= b.y1
+  }
+  // A display formula is a strip of the page, not a quarter of it: the layout model sometimes
+  // draws one box around a whole block of exercises. Such a region would delete every line of
+  // text inside it, so regions that cover a large area or many text lines are left alone.
+  const pageArea = page.width * page.height
+  const targets = regions.filter((r) => {
+    if (r.label !== 'display_formula' || r.score < CONFIDENT) return false
+    const area = (r.bbox.x1 - r.bbox.x0) * (r.bbox.y1 - r.bbox.y0)
+    if (area > pageArea * FORMULA_MAX_AREA) return false
+    return textLines.filter((l) => !l.table && centreInside(l, r.bbox)).length <= FORMULA_MAX_LINES
+  })
   if (targets.length === 0) return undefined
   const lines: Line[] = []
   const boxes: Rect[] = []
@@ -449,13 +467,14 @@ export async function formulasOnPage(
     })
   }
   if (lines.length === 0) return undefined
-  const inside = (l: Line) => {
-    const cx = (l.x0 + l.x1) / 2
-    const cy = l.y + l.size * 0.35
-    return boxes.some((b) => cx >= b.x0 && cx <= b.x1 && cy >= b.y0 && cy <= b.y1)
-  }
+  const inside = (l: Line) => boxes.some((b) => centreInside(l, b))
   return { lines, inside }
 }
+
+/** Largest share of the page a display-formula region may cover before it is ignored. */
+const FORMULA_MAX_AREA = 0.15
+/** Most text lines a display-formula region may hold (tall aligned systems) before it is ignored. */
+const FORMULA_MAX_LINES = 8
 
 /** A page built from text items alone (OCR of an image): same headings, lists and tables as a PDF page. */
 export async function pageFromItems(
@@ -486,7 +505,7 @@ export async function pageFromItems(
       )
     : []
   const formulas = options.formulas
-    ? await formulasOnPage(options.regions ?? null, options.formulas)
+    ? await formulasOnPage(options.regions ?? null, page, lines0, options.formulas)
     : undefined
   const lines = composePage(items, page, options.regions ?? null, none, models, figures, formulas)
   const prose = [lines.filter((l) => !l.table)]
