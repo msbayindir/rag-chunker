@@ -513,7 +513,30 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
     if (key && options.cache) await options.cache.set('ocr-local', key, result)
     return result
   }
-  return { models, page, image: (bytes) => recognizeImage(bytes, models, { script: scriptMode }) }
+  // A standalone image is one page: its lines are cached like a PDF page's (the page itself is
+  // composed again on every run, so layout and table settings take effect).
+  const image = async (bytes: Uint8Array): Promise<OcrResult> => {
+    const key = options.documentId
+      ? options.cache?.key(
+          'ocr-local',
+          OCR_CACHE_VERSION,
+          OCR_REC_MODEL,
+          ocrDetectorModel(options.detector),
+          DET_LIMIT,
+          scriptMode,
+          options.documentId,
+          'image',
+        )
+      : undefined
+    if (key && options.cache) {
+      const hit = await options.cache.get<OcrResult>('ocr-local', key)
+      if (hit) return hit
+    }
+    const result = await recognizeImage(bytes, models, { script: scriptMode })
+    if (key && options.cache) await options.cache.set('ocr-local', key, result)
+    return result
+  }
+  return { models, page, image }
 }
 
 /** Paths of the detector, recogniser and its character table, downloading what is missing. */
