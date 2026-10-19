@@ -149,17 +149,31 @@ async function modelTablesFor(
   return out
 }
 
+/**
+ * Detected line heights are quantised to the detector's input resolution (a page shrunk to 960 px
+ * puts body text at 10–15 detector pixels, so two lines of the same paragraph differ by 10–20 %).
+ * Heights this close to the page's body height are taken as body height, or the heading rules
+ * (1.18 × body) fire on ordinary lines and shred paragraphs. Real headings are larger than this.
+ */
+const OCR_BODY_BAND = { low: 0.8, high: 1.28 }
+
 /** OCR lines (image pixels, origin top-left) as text items in PDF points. */
 export function ocrItems(result: OcrResult, page: { width: number; height: number }): TextItem[] {
   const sx = page.width / result.width
   const sy = page.height / result.height
+  const long = result.lines
+    .filter((l) => l.text.length >= 20)
+    .map((l) => (l.y1 - l.y0) * sy)
+    .sort((a, b) => a - b)
+  const body = long.length >= 5 ? (long[long.length >> 1] as number) : 0
   return result.lines.map((l) => {
     const h = (l.y1 - l.y0) * sy
-    const size = h / 1.05
+    const snapped = body > 0 && h >= body * OCR_BODY_BAND.low && h < body * OCR_BODY_BAND.high ? body : h
+    const size = snapped / 1.05
     return {
       str: l.text,
       x: l.x0 * sx,
-      y: page.height - l.y1 * sy + size * 0.25,
+      y: page.height - l.y1 * sy + (h / 1.05) * 0.25,
       width: (l.x1 - l.x0) * sx,
       size,
       font: 'ocr',
@@ -272,7 +286,7 @@ export class PdfDocumentHandle {
       }
       const regions = options.layout ? await options.layout(this, n) : null
       const rulings = await extractRulings(page).catch((): Rulings => ({ h: [], v: [] }))
-      const lines0 = toLines(items, width)
+      const lines0 = toLines(items, width, regions)
       const models = await modelTablesFor(
         lines0,
         regions,
@@ -364,7 +378,7 @@ function composePage(
   models?: ModelTable[],
   figures: Line[] = [],
 ): Line[] {
-  let lines = toLines(items, page.width)
+  let lines = toLines(items, page.width, regions)
   if (regions) lines = applyLayout(lines, regions)
   const hints = regions?.filter((r) => r.label === 'table').map((r) => r.bbox)
   const { tables, remaining } = detectTables(lines, rulings, { width: page.width, hints, models })
@@ -388,7 +402,7 @@ export async function pageFromItems(
   } = {},
 ): Promise<PdfTextPage> {
   const none: Rulings = { h: [], v: [] }
-  const lines0 = toLines(items, page.width)
+  const lines0 = toLines(items, page.width, options.regions ?? null)
   const models = await modelTablesFor(lines0, options.regions ?? null, none, options.tables)
   const figures = options.figures
     ? await figuresOnPage(
@@ -496,7 +510,7 @@ function blockGutter(lines: Array<{ items: RawItem[] }>, width: number): number 
   return best >= 3 ? (from + to) / 2 : null
 }
 
-function toLines(all: RawItem[], pageWidth: number): Line[] {
+function toLines(all: RawItem[], pageWidth: number, regions: LayoutRegion[] | null = null): Line[] {
   const rotated: Line[] = all
     .filter((it) => it.rotated && it.str.trim() !== '')
     .map((it) => ({
@@ -525,10 +539,15 @@ function toLines(all: RawItem[], pageWidth: number): Line[] {
   const pageGutter = columnGutter(sorted, pageWidth)
   const gutter = pageGutter ?? blockGutter(lines, pageWidth)
   const segments: RawItem[][] = []
+  // With layout regions, runs that fall into different regions never share a line: the columns
+  // of a scanned page are kept apart even when their text sits on one baseline.
+  const regionOf = (it: RawItem) =>
+    regions && regions.length > 0 ? regionAt(it.x + it.width / 2, it.y + it.size * 0.35, regions) : null
   for (const l of lines) {
     const its = l.items.sort((a, b) => a.x - b.x)
     let current: RawItem[] = []
     let lastEnd = Number.NEGATIVE_INFINITY
+    let lastRegion: LayoutRegion | null = null
     for (const it of its) {
       const gap = it.x - lastEnd
       const acrossGutter =
@@ -536,12 +555,16 @@ function toLines(all: RawItem[], pageWidth: number): Line[] {
         lastEnd <= gutter + 1 &&
         it.x >= gutter - 1 &&
         gap > (pageGutter !== null ? 2 : Math.max(it.size * 0.9, 8))
-      if (current.length > 0 && (gap > Math.max(it.size * 1.8, 12) || acrossGutter)) {
+      const region = regionOf(it)
+      const otherRegion =
+        current.length > 0 && region !== null && lastRegion !== null && region !== lastRegion && gap > 1
+      if (current.length > 0 && (gap > Math.max(it.size * 1.8, 12) || acrossGutter || otherRegion)) {
         segments.push(current)
         current = []
       }
       current.push(it)
       lastEnd = it.x + it.width
+      lastRegion = region
     }
     if (current.length > 0) segments.push(current)
   }

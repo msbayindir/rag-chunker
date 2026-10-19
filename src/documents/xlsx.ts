@@ -164,7 +164,7 @@ function parseSheet(xml: string, shared: string[], styles: Styles, date1904: boo
   for (const m of mergeCells ? childrenOf(mergeCells) : []) {
     const ref = attrsOf(m)['@ref']
     const parts = ref?.split(':')
-    if (!parts || parts.length !== 2) continue
+    if (parts?.length !== 2) continue
     const [from, to] = parts as [string, string]
     const rowOf = (s: string) => Number(s.replace(/^[A-Z]+/, '')) - 1
     merges.push({ r0: rowOf(from), c0: columnIndex(from), r1: rowOf(to), c1: columnIndex(to) })

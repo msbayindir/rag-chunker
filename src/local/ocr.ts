@@ -47,8 +47,29 @@ export interface OcrResult {
   height: number
 }
 
-/** Detector input: longest side at most this many pixels, both sides multiples of 32. */
-const DET_LIMIT = 960
+/**
+ * Longest side the detector sees (PaddleOCR's default 960), both sides multiples of 32. Dense pages with
+ * small print (newspapers, high-resolution scans) need more; RAG_CHUNKER_OCR_DET_LIMIT overrides it
+ * until it is a config option.
+ */
+const DET_LIMIT =
+  Number(process.env.RAG_CHUNKER_OCR_DET_LIMIT) > 0 ? Number(process.env.RAG_CHUNKER_OCR_DET_LIMIT) : 960
+
+/**
+ * Second detection pass for dense pages: triggered when the median detected line is shorter than
+ * this many pixels in the detector's input (0 disables; RAG_CHUNKER_OCR_DET_MIN_LINE overrides),
+ * never beyond DET_MAX_LIMIT px on the longest side.
+ */
+const DET_MIN_LINE =
+  process.env.RAG_CHUNKER_OCR_DET_MIN_LINE !== undefined
+    ? Number(process.env.RAG_CHUNKER_OCR_DET_MIN_LINE) || 0
+    : 12
+const DET_MAX_LIMIT = 3200
+
+/** Which detector to run: the 5 MB mobile model by default, RAG_CHUNKER_OCR_DET_MODEL=server for the 88 MB one. */
+export function ocrDetectorModel(env: Record<string, string | undefined> = process.env): ModelId {
+  return env.RAG_CHUNKER_OCR_DET_MODEL === 'server' ? 'pp-ocrv5-det-server' : OCR_DET_MODEL
+}
 const DET_MEAN = [0.485, 0.456, 0.406]
 const DET_STD = [0.229, 0.224, 0.225]
 /** DBNet thresholds: pixel probability, box score, expansion of the shrunk text region. */
@@ -221,39 +242,69 @@ export async function recognizeImage(image: Uint8Array, models: OcrModelPaths): 
   ])
 
   // Detection on a bounded, 32-aligned resize of the page; channels in BGR order as PaddleOCR expects.
-  const scale = Math.min(1, DET_LIMIT / Math.max(img.width, img.height))
-  const dw = Math.max(32, Math.round((img.width * scale) / 32) * 32)
-  const dh = Math.max(32, Math.round((img.height * scale) / 32) * 32)
-  const canvas = canvasMod.createCanvas(dw, dh)
-  const ctx = canvas.getContext('2d')
-  ctx.drawImage(img, 0, 0, dw, dh)
-  const { data } = ctx.getImageData(0, 0, dw, dh)
-  const plane = dw * dh
-  const input = new Float32Array(3 * plane)
-  for (let i = 0; i < plane; i++) {
-    const r = (data[i * 4] as number) / 255
-    const g = (data[i * 4 + 1] as number) / 255
-    const b = (data[i * 4 + 2] as number) / 255
-    input[i] = (b - (DET_MEAN[0] as number)) / (DET_STD[0] as number)
-    input[plane + i] = (g - (DET_MEAN[1] as number)) / (DET_STD[1] as number)
-    input[2 * plane + i] = (r - (DET_MEAN[2] as number)) / (DET_STD[2] as number)
+  const detect = async (limit: number) => {
+    const scale = Math.min(1, limit / Math.max(img.width, img.height))
+    const dw = Math.max(32, Math.round((img.width * scale) / 32) * 32)
+    const dh = Math.max(32, Math.round((img.height * scale) / 32) * 32)
+    const canvas = canvasMod.createCanvas(dw, dh)
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(img, 0, 0, dw, dh)
+    const { data } = ctx.getImageData(0, 0, dw, dh)
+    const plane = dw * dh
+    const input = new Float32Array(3 * plane)
+    for (let i = 0; i < plane; i++) {
+      const r = (data[i * 4] as number) / 255
+      const g = (data[i * 4 + 1] as number) / 255
+      const b = (data[i * 4 + 2] as number) / 255
+      input[i] = (b - (DET_MEAN[0] as number)) / (DET_STD[0] as number)
+      input[plane + i] = (g - (DET_MEAN[1] as number)) / (DET_STD[1] as number)
+      input[2 * plane + i] = (r - (DET_MEAN[2] as number)) / (DET_STD[2] as number)
+    }
+    const detOut = await det.run({
+      [det.inputNames[0] as string]: new rt.Tensor('float32', input, [1, 3, dh, dw]),
+    })
+    const prob = detOut[det.outputNames[0] as string]
+    if (!prob) return null
+    const [, , ph = dh, pw = dw] = prob.dims
+    const boxes = boxesFromProbabilityMap(prob.data as ArrayLike<number>, pw, ph)
+    // Boxes in image pixels, plus the median line height as the detector saw it.
+    const heights = boxes.map((b) => b.y1 - b.y0).sort((a, b) => a - b)
+    const median = heights.length ? (heights[heights.length >> 1] as number) : 0
+    const sx = img.width / pw
+    const sy = img.height / ph
+    return {
+      boxes: boxes.map((b) => ({ x0: b.x0 * sx, y0: b.y0 * sy, x1: b.x1 * sx, y1: b.y1 * sy })),
+      median,
+      scale,
+    }
   }
-  const detOut = await det.run({
-    [det.inputNames[0] as string]: new rt.Tensor('float32', input, [1, 3, dh, dw]),
-  })
-  const prob = detOut[det.outputNames[0] as string]
-  if (!prob) return { lines: [], width: img.width, height: img.height }
-  const [, , ph = dh, pw = dw] = prob.dims
-  const boxes = boxesFromProbabilityMap(prob.data as ArrayLike<number>, pw, ph)
-  const sx = img.width / pw
-  const sy = img.height / ph
+  let detected = await detect(DET_LIMIT)
+  if (!detected) return { lines: [], width: img.width, height: img.height }
+  // Dense small print (newspapers, high-resolution scans): when the page had to be shrunk and the
+  // typical line came out only a few pixels tall, the detector merges and loses lines. A second
+  // pass at the resolution that makes a line about DET_MIN_LINE px tall finds them; pages whose
+  // text is already large never pay for it.
+  if (
+    DET_MIN_LINE > 0 &&
+    detected.scale < 1 &&
+    detected.boxes.length >= 20 &&
+    detected.median > 0 &&
+    detected.median < DET_MIN_LINE
+  ) {
+    const wanted = Math.ceil((DET_LIMIT * ((DET_MIN_LINE + 2) / detected.median)) / 32) * 32
+    const limit = Math.min(Math.max(img.width, img.height), DET_MAX_LIMIT, wanted)
+    if (limit > DET_LIMIT) {
+      const again = await detect(limit)
+      if (again && again.boxes.length >= detected.boxes.length) detected = again
+    }
+  }
 
   const lines: OcrLine[] = []
-  for (const b of boxes) {
-    const x0 = Math.max(0, b.x0 * sx)
-    const y0 = Math.max(0, b.y0 * sy)
-    const x1 = Math.min(img.width, b.x1 * sx)
-    const y1 = Math.min(img.height, b.y1 * sy)
+  for (const b of detected.boxes) {
+    const x0 = Math.max(0, b.x0)
+    const y0 = Math.max(0, b.y0)
+    const x1 = Math.min(img.width, b.x1)
+    const y1 = Math.min(img.height, b.y1)
     const cw = x1 - x0
     const ch = y1 - y0
     if (cw < 2 || ch < 2) continue
@@ -312,6 +363,8 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
       'ocr-local',
       OCR_CACHE_VERSION,
       OCR_REC_MODEL,
+      ocrDetectorModel(),
+      DET_LIMIT,
       options.documentId ?? '',
       pageNumber,
       render,
@@ -338,7 +391,7 @@ export async function loadOcrModels(options: OcrProviderOptions = {}): Promise<O
       onProgress: (done, total) => options.onModelDownload?.(id, done, total),
     })
   const [det, rec, dictPath] = await Promise.all([
-    fetchOne(OCR_DET_MODEL),
+    fetchOne(ocrDetectorModel()),
     fetchOne(OCR_REC_MODEL),
     fetchOne(OCR_DICT),
   ])

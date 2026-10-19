@@ -5,6 +5,10 @@
 - Examples for the local layout model with figures and descriptions, XLSX/HTML inputs, two-stage search with the reranker, `eval --compare` for two chunk sizes, and the MCP setup for Claude Desktop, Claude Code and Cursor; README links them.
 - Feedback channels: a "document problem" issue template, Discussions, `SECURITY.md` with private vulnerability reporting; `doctor` and error messages that look like bugs link to the issue tracker.
 - Figure captions fall back to the caption-line heuristic when layout analysis finds no caption region next to a figure.
+- Scanned multi-column pages: words that sit on one baseline but in different layout regions no longer merge into one line, so columns stay apart (OmniDocBench English subset: text edit distance 0.256 → 0.161 with the same models).
+- Local OCR: a second detection pass at higher resolution when the first one finds only tiny lines (dense newspaper scans; `RAG_CHUNKER_OCR_DET_MIN_LINE`, default 12 px, 0 disables), and OCR line heights within 0.8–1.28× of the page's body height count as body height, so the detector's quantised heights no longer turn paragraph lines into headings.
+- `RAG_CHUNKER_THREADS` (ONNX threads), `RAG_CHUNKER_OCR_DET_LIMIT` (detector input size, default 960) and `RAG_CHUNKER_OCR_DET_MODEL=server` (the 88 MB PP-OCRv5 server detector, now in the model catalogue) as environment knobs until they become config options.
+- External benchmark runners under `scripts/`: OmniDocBench (`bench-omnidocbench.mjs`, our port of the end-to-end protocol with the official text normalisation), FinanceBench (`bench-financebench.mjs`) and SQuAD-TR (`bench-squad-tr.mjs`); `src/eval/metrics.ts` holds the shared metrics (edit distances, LaTeX-to-text, HTML tables to TEDS input).
 
 ## 4.0.0
 
