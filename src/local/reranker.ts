@@ -35,8 +35,26 @@ export const RERANKERS = {
 } as const
 
 export type RerankerId = keyof typeof RERANKERS
+/** The `basic` profile's reranker, and what "auto" meant before profiles existed. */
 export const DEFAULT_RERANKER: RerankerId = 'mmarco-minilm'
 export const RERANKER_IDS = Object.keys(RERANKERS) as RerankerId[]
+
+/**
+ * The local reranker `rerank.engine: "auto"` stands for under each `local.profile`. Measured on the
+ * saved FinanceBench chunks (150 questions over 83 filings, 30 hybrid candidates): bge-reranker-v2-m3
+ * MRR 0.329 within the filing / 0.288 across all filings, bge-reranker-base 0.265 / 0.195,
+ * mmarco-minilm 0.216 / 0.169; on 100 Turkish SQuAD-TR questions 0.938 against 0.876 for MiniLM.
+ * The m3 model costs many times MiniLM per pair, hence the choice per profile.
+ */
+export const PROFILE_RERANKERS = {
+  full: 'bge-reranker-v2-m3',
+  basic: 'mmarco-minilm',
+} as const satisfies Record<ResolvedConfig['local']['profile'], RerankerId>
+
+/** The local reranker "auto" picks for a configuration's profile. */
+export function defaultReranker(config: { local: { profile: keyof typeof PROFILE_RERANKERS } }): RerankerId {
+  return PROFILE_RERANKERS[config.local.profile]
+}
 
 export function isRerankerId(value: string): value is RerankerId {
   return value in RERANKERS
@@ -254,7 +272,10 @@ export function rerankerName(plan: RerankPlan): string | null {
 
 /**
  * Which reranker a command uses: a flag wins (`--rerank [model]`, `--no-rerank`), then
- * `rerank.engine`; "auto" means the default model when it is already downloaded.
+ * `rerank.engine`. "auto" means the profile's model (see PROFILE_RERANKERS): with the `--rerank`
+ * flag it is downloaded when missing; without the flag it is used when already downloaded, and an
+ * installation that only holds another local model (MiniLM fetched before profiles existed) keeps
+ * reranking with that one.
  */
 export async function resolveReranker(
   config: ResolvedConfig,
@@ -263,6 +284,7 @@ export async function resolveReranker(
 ): Promise<RerankPlan> {
   if (override === false) return { id: null, download: false, reason: 'disabled by flag' }
   const engine = config.rerank.engine
+  const preferred = defaultReranker(config)
   let id: RerankerId | null = null
   const hosted = (value: string) => value.includes('/')
   if (typeof override === 'string') {
@@ -275,7 +297,7 @@ export async function resolveReranker(
     id = override
   } else if (override === true) {
     if (hosted(engine)) return { id: null, ref: engine, download: false }
-    id = engine === 'auto' || engine === 'off' || !isRerankerId(engine) ? DEFAULT_RERANKER : engine
+    id = engine === 'auto' || engine === 'off' || !isRerankerId(engine) ? preferred : engine
   } else if (engine === 'off') return { id: null, download: false, reason: 'rerank.engine is off' }
   else if (hosted(engine)) return { id: null, ref: engine, download: false }
   else if (engine !== 'auto' && isRerankerId(engine)) id = engine
@@ -288,6 +310,12 @@ export async function resolveReranker(
     return { id: null, download: false, reason: 'onnxruntime-node not installed' }
   }
   if (id) return { id, download: !(await hasReranker(id, dir)) }
-  if (await hasReranker(DEFAULT_RERANKER, dir)) return { id: DEFAULT_RERANKER, download: false }
-  return { id: null, download: false, reason: 'model not downloaded (use --rerank once)' }
+  for (const candidate of [preferred, ...RERANKER_IDS.filter((r) => r !== preferred)]) {
+    if (await hasReranker(candidate, dir)) return { id: candidate, download: false }
+  }
+  return {
+    id: null,
+    download: false,
+    reason: `model not downloaded (use --rerank once to fetch ${preferred})`,
+  }
 }

@@ -117,7 +117,7 @@ export function evalCommand(): Command {
     )
     .option(
       '--rerank [model]',
-      'add a "rerank" mode: a reranker reorders the top candidates (default: local mmarco-minilm, downloads 120 MB once; or cohere/rerank-v3.5, jina/…)',
+      'add a "rerank" mode: a reranker reorders the top candidates (default: the local model of local.profile, bge-reranker-v2-m3 (570 MB) with full or mmarco-minilm (120 MB) with basic, downloaded once; or cohere/rerank-v3.5, jina/…)',
     )
     .option('--no-rerank', 'no reranking even when the model is downloaded')
     .option(

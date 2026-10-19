@@ -139,7 +139,7 @@ const localSchema = z.strictObject({
     .enum(['full', 'basic'])
     .default('full')
     .describe(
-      'Which local models the "auto" choices pick. "full": the strongest models (server OCR detector; more to come), larger downloads; "basic": the small models (mobile OCR detector), smallest downloads and fastest.',
+      'Which local models the "auto" choices pick. "full": the strongest models (server OCR detector, CJK recogniser, formula model, bge-reranker-v2-m3 reranker), larger downloads; "basic": the small models (mobile OCR detector, Latin recogniser, mmarco-minilm reranker), smallest downloads and fastest.',
     ),
   device: z
     .enum(['auto', 'cpu', 'coreml', 'cuda'])
@@ -280,7 +280,7 @@ const rerankSchema = z.strictObject({
     )
     .default('auto')
     .describe(
-      'Reranker that reorders the top search candidates (eval, mcp). "auto": the local mmarco-minilm when onnxruntime-node and the model are present; a local model id, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, slow on CPU); a hosted one as "provider/model" (cohere/rerank-v3.5 with COHERE_API_KEY, jina/jina-reranker-v2-base-multilingual with JINA_API_KEY); "off".',
+      'Reranker that reorders the top search candidates (eval, mcp). "auto": the model of local.profile once it is downloaded with --rerank (bge-reranker-v2-m3 with "full", mmarco-minilm with "basic"; an installation that only holds another local model keeps using it); a local model id, downloaded on first use (mmarco-minilm 120 MB, 14 languages + transfer, about 20 ms per pair; bge-reranker-base 280 MB; bge-reranker-v2-m3 570 MB, 100+ languages, the most accurate and the slowest: seconds per query on a laptop CPU); a hosted one as "provider/model" (cohere/rerank-v3.5 with COHERE_API_KEY, jina/jina-reranker-v2-base-multilingual with JINA_API_KEY); "off".',
     ),
   candidates: z
     .number()

@@ -12,7 +12,13 @@ import { FORMULA_MODELS } from '../../local/formula.js'
 import { LAYOUT_MODEL } from '../../local/layout.js'
 import { hasModel, MODELS, modelsDir } from '../../local/models.js'
 import { OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../../local/ocr.js'
-import { hasReranker, RERANKER_IDS, type RerankerId } from '../../local/reranker.js'
+import {
+  defaultReranker,
+  hasReranker,
+  RERANKER_IDS,
+  RERANKERS,
+  type RerankerId,
+} from '../../local/reranker.js'
 import { deviceFallbacks, resolveDevice } from '../../local/runtime.js'
 import { TABLE_DICT, TABLE_MODEL } from '../../local/table.js'
 import { PACKAGE_VERSION } from '../../output/manifest.js'
@@ -169,6 +175,8 @@ export async function runChecks(
   const rerankers = (
     await Promise.all(RERANKER_IDS.map(async (id) => ((await hasReranker(id)) ? id : null)))
   ).filter((id): id is RerankerId => id !== null)
+  const wantedReranker = defaultReranker(config)
+  const wantedSize = `${Math.round(MODELS[RERANKERS[wantedReranker].model].bytes / 1e6)} MB`
   checks.push({
     status: onnx && rerankers.length > 0 ? 'ok' : 'info',
     label: 'Reranker',
@@ -179,9 +187,9 @@ export async function runChecks(
         : 'onnxruntime-node ready, model not downloaded',
     hint: !onnx
       ? 'Reranking search results needs it: npm install onnxruntime-node'
-      : rerankers.length > 0
+      : rerankers.includes(wantedReranker)
         ? undefined
-        : 'Run `rag-chunker eval <dir> --rerank` or `rag-chunker mcp <dir> --rerank` once to download mmarco-minilm (120 MB).',
+        : `The "${config.local.profile}" profile reranks with ${wantedReranker} (${wantedSize}): \`rag-chunker eval <dir> --rerank\` or \`rag-chunker mcp <dir> --rerank\` downloads it once${rerankers.length > 0 ? `; until then "auto" uses ${rerankers[0]}` : ''}.`,
   })
 
   for (const [name, def] of Object.entries(BUILTIN_PROVIDERS)) {

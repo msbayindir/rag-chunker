@@ -2,7 +2,8 @@
 //
 // Two-stage search over an output folder written by `rag-chunker process`: keyword (or hybrid,
 // when the chunks carry embeddings and the same model is available) search picks 30 candidates,
-// a local cross-encoder reorders them. The reranker (120 MB) is downloaded on first use.
+// a local cross-encoder reorders them. The profile's reranker (570 MB with the default `full` profile,
+// 120 MB with `basic`) is downloaded on first use.
 import {
   buildSearchIndex,
   createReranker,
