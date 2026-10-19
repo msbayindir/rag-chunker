@@ -10,6 +10,7 @@ import { type DocumentInput, readDocument } from '../documents/input.js'
 import { locateChunk, type TextSpan } from '../documents/layout.js'
 import { embedTexts } from '../embeddings/embed.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
+import { createFormulaRecogniser } from '../local/formula.js'
 import { createLayoutProvider, LAYOUT_MODEL, type PageLayoutProvider } from '../local/layout.js'
 import { hasModel } from '../local/models.js'
 import {
@@ -40,6 +41,7 @@ import {
 import type { Chunk } from '../types.js'
 import { type ProgressListener, Reporter } from './events.js'
 import { createFigureSink, type FigureCollector, type FigureSinkOptions } from './figures.js'
+import { createFormulaProvider, type FormulaCollector } from './formulas.js'
 
 export interface ProcessOptions {
   /** Label stored as `source` in chunks (defaults to the file name, or "document" for bytes). */
@@ -323,6 +325,32 @@ export async function runPipeline(
       signal,
     })
   }
+  // Formula recognition needs the layout model's formula regions; "auto" is on with the full
+  // profile and steps aside (with a warning) when the optional package or the model is missing.
+  let formulaCollector: FormulaCollector | undefined
+  const wantFormulas =
+    config.formulas.recognize === 'on' ||
+    (config.formulas.recognize === 'auto' && config.local.profile === 'full')
+  if (wantFormulas && layoutProvider && (doc.kind === 'pdf' || doc.kind === 'image')) {
+    try {
+      const toMb = (n: number) => Math.round(n / 1024 / 1024)
+      const recogniser = await createFormulaRecogniser({
+        onModelDownload: (file, done, total) =>
+          reporter.progress('ocr', toMb(done), toMb(total), `downloading ${file} (MB)`),
+        signal,
+      })
+      formulaCollector = createFormulaProvider({
+        recogniser,
+        cache,
+        documentId: doc.documentId,
+        onWarn: (m) => reporter.warn('ocr', m),
+        signal,
+      })
+    } catch (err) {
+      if (config.formulas.recognize === 'on' || signal?.aborted) throw err
+      reporter.warn('ocr', `Formulas stay as text: ${(err as Error).message}`)
+    }
+  }
   const extract = (e: OcrEngine, p: 'all' | 'scanned') =>
     extractDocument(doc, {
       engine: e,
@@ -334,6 +362,7 @@ export async function runPipeline(
       layout: layoutProvider,
       tables: tableProvider,
       figures: figureSink ? { save: figureSink.save, minSize: config.figures.minSize } : undefined,
+      formulas: formulaCollector?.provider,
       localOcr,
       registry,
       cache,

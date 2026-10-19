@@ -375,6 +375,24 @@
       },
       "additionalProperties": false
     },
+    "formulas": {
+      "description": "Formula recognition (PDF, images; needs layout analysis).",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "recognize": {
+          "default": "auto",
+          "description": "Read display formulas in the layout model's formula regions as LaTeX with a local model (texify2, 320 MB, needs the optional @huggingface/transformers package) and write them as $$…$$ blocks. \"auto\": on with local.profile \"full\" when layout analysis runs and the package is installed; \"on\": required; \"off\": formulas stay OCR text.",
+          "type": "string",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "rerank": {
       "description": "Reranking of search results (eval, mcp).",
       "default": {},

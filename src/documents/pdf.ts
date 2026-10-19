@@ -1,7 +1,7 @@
 import { PDFDocument } from 'pdf-lib'
 import { getDocumentProxy, renderPageAsImage } from 'unpdf'
 import { RagChunkerError } from '../errors.js'
-import type { LayoutLabel, LayoutRegion, PageLayoutProvider } from '../local/layout.js'
+import type { LayoutLabel, LayoutRegion, PageLayoutProvider, PageLike } from '../local/layout.js'
 import type { OcrResult, PageOcrProvider } from '../local/ocr.js'
 import type { ModelTable, TableStructureProvider } from '../local/table.js'
 import { importOptional } from '../util/optional.js'
@@ -83,6 +83,8 @@ interface Line {
   table?: TableData
   /** Set on the pseudo-line that stands for a figure; `text` is then the image reference. */
   figure?: FigureData
+  /** Set on the pseudo-line that stands for a display formula; `text` is then `$$…$$`. */
+  formula?: string
   /** Exact area (PDF points) when known, e.g. a table's grid. */
   bbox?: Rect
   /** Never a heading (a table's title row emitted as text, captions, footnotes…). */
@@ -115,7 +117,12 @@ export interface TextLayerOptions {
   tables?: TableStructureProvider
   /** Saves the figures of each page; without it no figures are reported. */
   figures?: FigureOptions
+  /** Reads the display-formula regions the layout model reports as LaTeX; without it they stay text. */
+  formulas?: FormulaProvider
 }
+
+/** Reads the formula in a layout region of a page as LaTeX (null when nothing usable came out). */
+export type FormulaProvider = (doc: PageLike, pageNumber: number, region: Rect) => Promise<string | null>
 
 export interface FigureOptions {
   save: FigureSink
@@ -303,9 +310,12 @@ export class PdfDocumentHandle {
             (f) => (options.figures as FigureOptions).save(this, n, f),
           )
         : []
+      const formulas = options.formulas
+        ? await formulasOnPage(regions, (r) => (options.formulas as FormulaProvider)(this, n, r))
+        : undefined
       pages.push({
         pageNumber: n,
-        lines: composePage(items, { width, height }, regions, rulings, models, figures),
+        lines: composePage(items, { width, height }, regions, rulings, models, figures, formulas),
         width,
         height,
         chars,
@@ -370,6 +380,13 @@ export class PdfDocumentHandle {
  * Lines of one page in reading order: text runs grouped into lines, layout regions applied,
  * tables lifted out of the flow and put back as pseudo-lines, columns ordered.
  */
+/** Display formulas read from the page image: their lines replace whatever text fell inside the region. */
+export interface PageFormulas {
+  lines: Line[]
+  /** True for a text line that lies inside a recognised formula region. */
+  inside: (line: Line) => boolean
+}
+
 function composePage(
   items: RawItem[],
   page: { width: number; height: number },
@@ -377,14 +394,67 @@ function composePage(
   rulings: Rulings,
   models?: ModelTable[],
   figures: Line[] = [],
+  formulas?: PageFormulas,
 ): Line[] {
   let lines = toLines(items, page.width, regions)
   if (regions) lines = applyLayout(lines, regions)
+  if (formulas && formulas.lines.length > 0) lines = lines.filter((l) => !formulas.inside(l))
   const hints = regions?.filter((r) => r.label === 'table').map((r) => r.bbox)
   const { tables, remaining } = detectTables(lines, rulings, { width: page.width, hints, models })
   const tableFlow = tables.flatMap((t) => tableLines(t, regions))
-  const withTables = [...remaining, ...tableFlow, ...figures].sort((a, b) => b.y - a.y || a.x0 - b.x0)
+  const withTables = [...remaining, ...tableFlow, ...figures, ...(formulas?.lines ?? [])].sort(
+    (a, b) => b.y - a.y || a.x0 - b.x0,
+  )
   return regions ? orderByLayout(withTables) : orderColumns(withTables, page.width)
+}
+
+/**
+ * Runs the formula recogniser on every confident display-formula region of the page and turns
+ * each result into a standalone `$$…$$` line that takes the region's place in the reading order.
+ * Lines of OCR or text-layer glyphs inside those regions are dropped by `composePage`: they were
+ * never text, and the recognised LaTeX replaces them.
+ */
+export async function formulasOnPage(
+  regions: LayoutRegion[] | null,
+  recognise: (region: Rect) => Promise<string | null>,
+): Promise<PageFormulas | undefined> {
+  if (!regions) return undefined
+  const targets = regions.filter((r) => r.label === 'display_formula' && r.score >= CONFIDENT)
+  if (targets.length === 0) return undefined
+  const lines: Line[] = []
+  const boxes: Rect[] = []
+  for (const r of targets) {
+    let latex: string | null = null
+    try {
+      latex = await recognise(r.bbox)
+    } catch {
+      latex = null
+    }
+    if (!latex) continue
+    boxes.push(r.bbox)
+    lines.push({
+      text: `$$${latex}$$`,
+      y: r.bbox.y1 - 3,
+      x0: r.bbox.x0,
+      x1: r.bbox.x1,
+      size: 10,
+      font: '',
+      fontShare: 1,
+      bbox: r.bbox,
+      label: 'display_formula',
+      standalone: true,
+      plain: true,
+      formula: latex,
+      ...(r.order !== undefined ? { order: r.order } : {}),
+    })
+  }
+  if (lines.length === 0) return undefined
+  const inside = (l: Line) => {
+    const cx = (l.x0 + l.x1) / 2
+    const cy = l.y + l.size * 0.35
+    return boxes.some((b) => cx >= b.x0 && cx <= b.x1 && cy >= b.y0 && cy <= b.y1)
+  }
+  return { lines, inside }
 }
 
 /** A page built from text items alone (OCR of an image): same headings, lists and tables as a PDF page. */
@@ -399,6 +469,7 @@ export async function pageFromItems(
       save: (figure: FigureRequest) => Promise<FigureData | null>
       minSize?: number
     }
+    formulas?: (region: Rect) => Promise<string | null>
   } = {},
 ): Promise<PdfTextPage> {
   const none: Rulings = { h: [], v: [] }
@@ -414,7 +485,10 @@ export async function pageFromItems(
         options.figures.save,
       )
     : []
-  const lines = composePage(items, page, options.regions ?? null, none, models, figures)
+  const formulas = options.formulas
+    ? await formulasOnPage(options.regions ?? null, options.formulas)
+    : undefined
+  const lines = composePage(items, page, options.regions ?? null, none, models, figures, formulas)
   const prose = [lines.filter((l) => !l.table)]
   const typo = typography(prose)
   typo.levelMap = levelMap(prose, typo)

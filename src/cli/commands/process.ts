@@ -41,6 +41,7 @@ export interface ProcessFlags {
   layout?: boolean
   profile?: 'full' | 'basic'
   figures?: boolean
+  formulas?: boolean
   describeFigures?: boolean
   dryRun?: boolean
   json?: boolean
@@ -69,6 +70,7 @@ export function flagsToConfig(flags: ProcessFlags): RagChunkerConfig {
   if (flags.layout === false) cfg.layout = { engine: 'off' }
   if (flags.profile) cfg.local = { profile: flags.profile }
   if (flags.figures === false) cfg.figures = { extract: false }
+  if (flags.formulas === false) cfg.formulas = { recognize: 'off' }
   if (flags.describeFigures) cfg.figures = { ...cfg.figures, describe: true }
   return cfg
 }
@@ -281,6 +283,7 @@ export function processCommand(): Command {
       ).choices(['full', 'basic']),
     )
     .option('--no-figures', 'do not cut figures out of PDF pages')
+    .option('--no-formulas', 'do not read display formulas as LaTeX (keep them as OCR text)')
     .option('--describe-figures', 'describe every figure with the vision model (needs --vision or --local)')
     .option('--no-cache', 'do not read or write the cache')
     .option('--dry-run', 'show what would happen without calling any model')

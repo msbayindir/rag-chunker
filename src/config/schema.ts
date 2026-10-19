@@ -125,6 +125,15 @@ const ocrSchema = z.strictObject({
     .describe('A PDF page with fewer extractable characters is treated as scanned.'),
 })
 
+const formulasSchema = z.strictObject({
+  recognize: z
+    .enum(['auto', 'on', 'off'])
+    .default('auto')
+    .describe(
+      'Read display formulas in the layout model\'s formula regions as LaTeX with a local model (texify2, 320 MB, needs the optional @huggingface/transformers package) and write them as $$…$$ blocks. "auto": on with local.profile "full" when layout analysis runs and the package is installed; "on": required; "off": formulas stay OCR text.',
+    ),
+})
+
 const localSchema = z.strictObject({
   profile: z
     .enum(['full', 'basic'])
@@ -314,6 +323,9 @@ export const configSchema = z
     layout: layoutSchema.prefault({}).describe('Local page layout analysis (PDF).'),
     local: localSchema.prefault({}).describe('Which local models to use when a setting says "auto".'),
     figures: figuresSchema.prefault({}).describe('Figure extraction (PDF, images).'),
+    formulas: formulasSchema
+      .prefault({})
+      .describe('Formula recognition (PDF, images; needs layout analysis).'),
     rerank: rerankSchema.prefault({}).describe('Reranking of search results (eval, mcp).'),
     cache: cacheSchema.prefault({}).describe('On-disk cache.'),
   })
