@@ -108,6 +108,56 @@ describe('extractDocument', () => {
     expect(server.requests.filter((r) => r.path === '/api/chat').length).toBe(chats)
   })
 
+  it('composes an image read by the local OCR again on a rerun, keeping its size and positions', async () => {
+    const doc = await readDocument(fixture('scan.png'))
+    const cache = await tmpCache()
+    let reads = 0
+    let tableCalls = 0
+    const line = (text: string, y0: number) => ({ text, x0: 40, y0, x1: 400, y1: y0 + 24, confidence: 0.98 })
+    const opts = {
+      engine: { type: 'local' as const },
+      pages: 'scanned' as const,
+      minTextChars: 40,
+      stripImages: true,
+      removeHeaderFooter: false,
+      registry: registry(),
+      cache,
+      reporter: new Reporter(),
+      localOcr: {
+        page: async () => {
+          throw new Error('no PDF pages in this test')
+        },
+        image: async () => {
+          reads++
+          return {
+            width: 800,
+            height: 600,
+            lines: [
+              line('Hiponatremi tedavisinde ilk adım', 60),
+              line('serum sodyumunun ölçülmesidir.', 100),
+            ],
+          }
+        },
+      },
+      layout: async () => [
+        { label: 'table' as const, score: 0.9, bbox: { x0: 30, y0: 300, x1: 420, y1: 590 }, order: 1 },
+      ],
+      tables: async () => {
+        tableCalls++
+        return null
+      },
+    }
+    const first = await extractDocument(doc, opts)
+    const again = await extractDocument(doc, opts)
+    expect(first.pages[0]).toMatchObject({ width: 800, height: 600 })
+    expect(again.pages[0]).toMatchObject({ width: 800, height: 600, markdown: first.pages[0]?.markdown })
+    expect(again.pages[0]?.spans?.length).toBe(first.pages[0]?.spans?.length)
+    expect(first.pages[0]?.spans?.length).toBeGreaterThan(0)
+    // The table model (with its own cache) is asked again rather than served from a page-level copy.
+    expect(reads).toBe(2)
+    expect(tableCalls).toBe(2)
+  })
+
   it('refuses a vision engine that cannot see images', async () => {
     server.on('POST', '/api/show', (_r, res) =>
       json(res, 200, { model_info: {}, capabilities: ['completion'] }),

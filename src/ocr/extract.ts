@@ -212,14 +212,12 @@ async function ocrImage(
     })
   }
   const label = engineLabel(engine)
-  const key = opts.cache.key('ocr', OCR_CACHE_VERSION, doc.documentId, 1, label, VISION_PROMPT_VERSION)
-  const cached = await opts.cache.get<string>('ocr', key)
-  if (cached !== undefined) {
-    stats.cachedPages++
-    return { pageNumber: 1, markdown: cached, source: label }
-  }
-  opts.reporter.progress('ocr', 0, 1, label)
   if (engine.type === 'local') {
+    // The page is composed again on every run, as for scanned PDF pages: the recogniser caches its
+    // lines and the layout, table and formula models cache their own results. Caching the composed
+    // markdown here lost the page size and spans on a rerun and kept tables from an earlier table
+    // model or layout setting.
+    opts.reporter.progress('ocr', 0, 1, label)
     const result = await localOcrOf(opts).image(doc.bytes)
     const size = { width: result.width, height: result.height }
     const asPage: PageLike = { pageCount: 1, renderPng: async () => doc.bytes, pageSize: async () => size }
@@ -234,7 +232,6 @@ async function ocrImage(
       ...(formulas ? { formulas: (region: Rect) => formulas(asPage, 1, region) } : {}),
     })
     stats.ocrPages++
-    await opts.cache.set('ocr', key, page.markdown)
     opts.reporter.progress('ocr', 1, 1, label)
     return {
       pageNumber: 1,
@@ -245,6 +242,13 @@ async function ocrImage(
       spans: page.spans,
     }
   }
+  const key = opts.cache.key('ocr', OCR_CACHE_VERSION, doc.documentId, 1, label, VISION_PROMPT_VERSION)
+  const cached = await opts.cache.get<string>('ocr', key)
+  if (cached !== undefined) {
+    stats.cachedPages++
+    return { pageNumber: 1, markdown: cached, source: label }
+  }
+  opts.reporter.progress('ocr', 0, 1, label)
   let markdown: string
   if (engine.type === 'mistral') {
     const res = await mistralOcr({
