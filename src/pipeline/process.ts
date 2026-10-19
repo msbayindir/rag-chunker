@@ -12,7 +12,13 @@ import { embedTexts } from '../embeddings/embed.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
 import { createLayoutProvider, LAYOUT_MODEL, type PageLayoutProvider } from '../local/layout.js'
 import { hasModel } from '../local/models.js'
-import { createOcrProvider, OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../local/ocr.js'
+import {
+  createOcrProvider,
+  OCR_DICT,
+  OCR_REC_MODEL,
+  ocrDetectorModel,
+  resolveOcrDetector,
+} from '../local/ocr.js'
 import { hasOnnxRuntime } from '../local/runtime.js'
 import type { TableStructureProvider } from '../local/table.js'
 import { createTableStructureProvider, TABLE_DICT, TABLE_MODEL } from '../local/table.js'
@@ -88,14 +94,16 @@ export interface OcrPlan {
 }
 
 /** True when onnxruntime-node and the three PP-OCR files are on this machine. */
-export async function hasLocalOcr(): Promise<boolean> {
+/** True when onnxruntime-node and the OCR models (with the given detector) are present. */
+export async function hasLocalOcr(detector = ocrDetectorModel()): Promise<boolean> {
   if (!(await hasOnnxRuntime())) return false
-  const present = await Promise.all([OCR_DET_MODEL, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)))
+  const present = await Promise.all([detector, OCR_REC_MODEL, OCR_DICT].map((id) => hasModel(id)))
   return present.every(Boolean)
 }
 
 export async function resolveOcrEngine(ctx: PipelineContext): Promise<OcrPlan> {
   const { engine, pages } = ctx.config.ocr
+  const detector = ocrDetectorModel(resolveOcrDetector(ctx.config))
   let resolved: OcrEngine
   if (engine === 'text-layer') resolved = { type: 'text-layer' }
   else if (engine === 'pp-ocr') {
@@ -119,7 +127,7 @@ export async function resolveOcrEngine(ctx: PipelineContext): Promise<OcrPlan> {
     resolved = { type: 'mistral' }
   } else if (engine === 'auto') {
     const vision = ctx.config.models.vision
-    if (await hasLocalOcr()) resolved = { type: 'local' }
+    if (await hasLocalOcr(detector)) resolved = { type: 'local' }
     else if (ctx.registry.provider('mistral').apiKey) resolved = { type: 'mistral' }
     else if (vision) resolved = { type: 'vision', ref: vision }
     else resolved = { type: 'text-layer' }
@@ -244,6 +252,7 @@ export async function runPipeline(
     try {
       localOcr = await createOcrProvider({
         cache,
+        detector: resolveOcrDetector(config),
         documentId: doc.documentId,
         onModelDownload: (file, done, total) =>
           reporter.progress('ocr', mb(done), mb(total), `downloading ${file} (MB)`),

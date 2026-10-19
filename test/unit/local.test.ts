@@ -11,6 +11,7 @@ import {
   ctcDecode,
   ocrDetectorModel,
   parseDictionary,
+  resolveOcrDetector,
   tableFor,
 } from '../../src/local/ocr.js'
 import { MockServer } from '../helpers/mock-server.js'
@@ -143,10 +144,19 @@ describe('model files', () => {
     expect(existsSync(modelsDir())).toBeTypeOf('boolean')
   })
 
-  it('runs the mobile detector unless the server one is asked for', () => {
-    expect(ocrDetectorModel({})).toBe('pp-ocrv5-det')
-    expect(ocrDetectorModel({ RAG_CHUNKER_OCR_DET_MODEL: 'mobile' })).toBe('pp-ocrv5-det')
-    expect(ocrDetectorModel({ RAG_CHUNKER_OCR_DET_MODEL: 'server' })).toBe('pp-ocrv5-det-server')
+  it('picks the detector from the explicit choice, the environment or the profile', () => {
+    expect(ocrDetectorModel(undefined, {})).toBe('pp-ocrv5-det')
+    expect(ocrDetectorModel(undefined, { RAG_CHUNKER_OCR_DET_MODEL: 'server' })).toBe('pp-ocrv5-det-server')
+    expect(ocrDetectorModel('mobile', { RAG_CHUNKER_OCR_DET_MODEL: 'server' })).toBe('pp-ocrv5-det')
+    expect(ocrDetectorModel('server', {})).toBe('pp-ocrv5-det-server')
     expect(MODELS['pp-ocrv5-det-server'].bytes).toBeGreaterThan(MODELS['pp-ocrv5-det'].bytes)
+    const cfg = (detector: 'auto' | 'mobile' | 'server', profile: 'full' | 'basic') => ({
+      ocr: { detector },
+      local: { profile },
+    })
+    expect(resolveOcrDetector(cfg('auto', 'full'), {})).toBe('server')
+    expect(resolveOcrDetector(cfg('auto', 'basic'), {})).toBe('mobile')
+    expect(resolveOcrDetector(cfg('mobile', 'full'), {})).toBe('mobile')
+    expect(resolveOcrDetector(cfg('auto', 'full'), { RAG_CHUNKER_OCR_DET_MODEL: 'mobile' })).toBeUndefined()
   })
 })

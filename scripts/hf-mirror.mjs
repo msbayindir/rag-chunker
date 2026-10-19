@@ -41,7 +41,7 @@ const dir = flag('--models') ?? modelsDir(env)
 /** Which catalogue entries go to the mirror, grouped the way the card presents them. */
 const GROUPS = {
   layout: { title: 'Page layout', ids: ['pp-doclayout-v3'] },
-  ocr: { title: 'OCR', ids: ['pp-ocrv5-det', 'pp-ocrv5-rec-latin', 'pp-ocrv5-dict-latin'] },
+  ocr: { title: 'OCR', ids: ['pp-ocrv5-det', 'pp-ocrv5-det-server', 'pp-ocrv5-rec-latin', 'pp-ocrv5-dict-latin'] },
   table: { title: 'Table structure', ids: ['slanet-plus', 'slanet-dict'] },
 }
 const only = flag('--only')?.split(',') ?? Object.keys(GROUPS)

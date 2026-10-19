@@ -37,7 +37,7 @@ export const MODELS = {
   'pp-ocrv5-det-server': {
     id: 'pp-ocrv5-det-server',
     file: 'PP-OCRv5_server_det_infer.onnx',
-    url: 'https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/detection/PP-OCRv5_server_det_infer.onnx',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/PP-OCRv5_server_det_infer.onnx',
     sha256: '7c1a843c497972b9b470748e91a6d83c0f79c4b5b6459508ac533a88f418f33b',
     bytes: 87_764_533,
     license: 'Apache-2.0 (PaddleOCR PP-OCRv5)',

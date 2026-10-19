@@ -12,7 +12,7 @@
       "properties": {
         "engine": {
           "default": "auto",
-          "description": "\"auto\" (local PP-OCR when its models are downloaded, else Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), \"text-layer\", \"pp-ocr\" (local PP-OCRv5 on onnxruntime-node; downloads 13 MB once), \"mistral\", or a vision model such as \"ollama/gemma4:e4b-it-qat\".",
+          "description": "\"auto\" (local PP-OCR when its models are downloaded, else Mistral if MISTRAL_API_KEY is set, else models.vision, else text layer), \"text-layer\", \"pp-ocr\" (local PP-OCRv5 on onnxruntime-node; downloads 13–97 MB once, see local.profile), \"mistral\", or a vision model such as \"ollama/gemma4:e4b-it-qat\".",
           "type": "string"
         },
         "pages": {
@@ -23,6 +23,16 @@
             "auto",
             "all",
             "scanned"
+          ]
+        },
+        "detector": {
+          "default": "auto",
+          "description": "Text detector of the local OCR. \"mobile\": PP-OCRv5 mobile (5 MB, fast); \"server\": PP-OCRv5 server (84 MB, finds more small print and table cells, about 1.8× slower); \"auto\": follows local.profile.",
+          "type": "string",
+          "enum": [
+            "auto",
+            "mobile",
+            "server"
           ]
         },
         "concurrency": {
@@ -298,6 +308,23 @@
           "type": "integer",
           "minimum": 512,
           "maximum": 2048
+        }
+      },
+      "additionalProperties": false
+    },
+    "local": {
+      "description": "Which local models to use when a setting says \"auto\".",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "profile": {
+          "default": "full",
+          "description": "Which local models the \"auto\" choices pick. \"full\": the strongest models (server OCR detector; more to come), larger downloads; \"basic\": the small models (mobile OCR detector), smallest downloads and fastest.",
+          "type": "string",
+          "enum": [
+            "full",
+            "basic"
+          ]
         }
       },
       "additionalProperties": false
