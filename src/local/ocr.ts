@@ -298,7 +298,24 @@ export function cjkShare(text: string): number {
 }
 
 /** How many of the widest lines the 'auto' probe reads with the CJK model. */
-const SCRIPT_PROBE_LINES = 3
+const SCRIPT_PROBE_LINES = 5
+
+/**
+ * The probe's verdict from what the CJK model read in the widest lines: a page is CJK when at
+ * least a fifth of the probe's characters (and at least four) are CJK. Lines on Chinese exam
+ * papers, tables and journals are often mostly digits and formulas, so a per-line majority rule
+ * misses them; Latin lines read by the CJK model contain no CJK characters at all.
+ */
+export function probeSaysCjk(texts: readonly string[]): boolean {
+  let total = 0
+  let cjk = 0
+  for (const t of texts) {
+    const chars = t.replace(/\s+/g, '').length
+    total += chars
+    cjk += Math.round(cjkShare(t) * chars)
+  }
+  return cjk >= 4 && cjk >= total * 0.2
+}
 
 /** Recognises the text lines of an image (PNG/JPEG bytes). */
 export async function recognizeImage(
@@ -421,12 +438,15 @@ export async function recognizeImage(
   let script: OcrScript = options.script === 'cjk' && cjk ? 'cjk' : 'latin'
   let probed = false
   if (options.script === 'auto' && cjk && boxes.length > 0) {
-    // The widest lines carry the most characters: read them with the CJK model and switch the
-    // page when at least half of them come back as CJK text.
-    const sample = [...boxes].sort((a, b) => b.x1 - b.x0 - (a.x1 - a.x0)).slice(0, SCRIPT_PROBE_LINES)
+    // The widest lines carry the most characters: read their first ten line-heights (eight or
+    // more characters, enough to tell the script, a third of the cost of a full line) with the
+    // CJK model and switch the page when enough of what comes back is CJK text.
+    const sample = [...boxes]
+      .sort((a, b) => b.x1 - b.x0 - (a.x1 - a.x0))
+      .slice(0, SCRIPT_PROBE_LINES)
+      .map((b) => ({ ...b, x1: Math.min(b.x1, b.x0 + 10 * (b.y1 - b.y0)) }))
     const probe = await readLines(sample, cjk)
-    const hits = probe.filter((l) => cjkShare(l.text) >= 0.5).length
-    if (hits >= Math.ceil(sample.length / 2)) script = 'cjk'
+    if (probeSaysCjk(probe.map((l) => l.text))) script = 'cjk'
     probed = sample.length >= 2
   }
   const lines = await readLines(boxes, script === 'cjk' ? (cjk as Recogniser) : latin)
