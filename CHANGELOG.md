@@ -1,7 +1,16 @@
 # Changelog
 
-## Unreleased
+## 4.1.0 — 2026-10-20
 
+Stronger local models behind a `local.profile` switch (`full` by default, `basic` for the small
+ones): the PP-OCRv5 server text detector, automatic Chinese/Japanese recognition, display formulas as
+LaTeX (texify2), and bge-reranker-v2-m3 for search; CoreML/CUDA for the models that gain from it. On
+the same 200 English OmniDocBench pages the text edit distance drops from 0.256 to 0.134; on the full
+1,651-page set the official scorer gives text 0.165, table TEDS 54.8, reading order 0.218. Search MRR
+on FinanceBench rises from 0.216 to 0.329. Numbers and how they were measured: README "Benchmarks"
+and bench/README.md.
+
+- Benchmarks: results for OmniDocBench (official scorer, full set), FinanceBench, SQuAD-TR and scanned Turkish documents in the README and `bench/README.md`, per-page scores in `bench/results/external/`; `bench-omnidocbench --pages-file` for page names that contain commas.
 - Images read by the local OCR are composed again on every run: the cache used to keep the finished page text of an image, so a rerun lost the page size and block positions and kept tables from an earlier table-model or layout setting. The recogniser's lines are now cached instead, as for scanned PDF pages.
 - Reranker per profile: `rerank.engine: auto` now stands for `bge-reranker-v2-m3` under the `full` profile and `mmarco-minilm` under `basic`. On the saved FinanceBench chunks (150 questions over 83 filings, 30 hybrid candidates) the m3 model lifts the evidence-chunk MRR from 0.216 to 0.329 within a filing and from 0.169 to 0.288 across all filings; on 100 Turkish SQuAD-TR questions from 0.876 to 0.938 (first hit 81 % → 91 %). It costs seconds per query on a CPU, so `--profile basic` or `rerank.candidates: 15` keep search quick; an installation that only has MiniLM downloaded keeps using it until `--rerank` fetches the profile's model. `doctor` names the profile's reranker.
 - Examples for the local layout model with figures and descriptions, XLSX/HTML inputs, two-stage search with the reranker, `eval --compare` for two chunk sizes, and the MCP setup for Claude Desktop, Claude Code and Cursor; README links them.

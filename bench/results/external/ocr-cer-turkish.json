@@ -1,0 +1,18 @@
+{
+  "benchmark": "Character error rate of local OCR on rendered pages of born-digital documents, against their text layer",
+  "documents": {
+    "hipertansiyon-2022 (Turkish guideline, 10 pages)": {
+      "4.0.0": 13.21,
+      "4.1.0": 10.07
+    },
+    "anayasa (Turkish constitution, 5 pages)": {
+      "4.0.0": 2.48,
+      "4.1.0": 1.48
+    },
+    "bert (English paper, 4 pages)": {
+      "4.0.0": 2.26,
+      "4.1.0": 2.07
+    }
+  },
+  "unit": "percent"
+}

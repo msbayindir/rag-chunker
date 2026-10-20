@@ -19,7 +19,8 @@ npx @msbayindir/rag-chunker process book.pdf --local    # everything on Ollama, 
 
 - **Chunks that respect the document.** A deterministic, AST-based chunker keeps headings with their content, never splits mid-sentence unless it must, splits big tables by rows *with the header repeated*, keeps code fences intact and never drops a word (property-tested).
 - **Accurate citations.** Every chunk has `pageStart`/`pageEnd`, a heading breadcrumb (`sectionPath`) and a stable, collision-free `chunkId`.
-- **Tiered OCR.** Digital pages are read from the PDF text layer for free; only scanned pages go to OCR: the local PP-OCRv5 models (13–97 MB depending on the profile, no keys, Latin scripts incl. Turkish), Mistral OCR, or a vision model (Gemma 4, Gemini, Claude, GPT…). Running headers, footers and page numbers are removed.
+- **Tiered OCR.** Digital pages are read from the PDF text layer for free; only scanned pages go to OCR: the local PP-OCRv5 models (no keys; Latin scripts incl. Turkish, and Chinese/Japanese detected per document with the default profile), Mistral OCR, or a vision model (Gemma 4, Gemini, Claude, GPT…). Running headers, footers and page numbers are removed.
+- **Local document models, measured.** Page layout with reading order, table structure, display formulas as LaTeX and a cross-encoder reranker all run on `onnxruntime-node` on your machine. `local.profile` picks the strongest models (`full`, the default) or the small, fast ones (`basic`); see [Benchmarks](#benchmarks) for what they score on public sets.
 - **Contextual retrieval** ([Anthropic's method](https://www.anthropic.com/news/contextual-retrieval)): each chunk gets a 1–2 sentence summary that situates it in the document. Large documents that do not fit a model use document + section summaries instead, so it works with small local models too.
 - **Heading repair.** OCR reads pages one by one and gets heading levels wrong; an LLM pass plus a deterministic numbering pass fixes them.
 - **Any provider, per stage.** `provider/model` everywhere: `ollama/gemma4:e4b-it-qat`, `gemini/gemini-3.5-flash-lite`, `anthropic/claude-haiku-5-5`, `openrouter/…`, or your own OpenAI-compatible server. Native prompt caching for each provider.
@@ -308,6 +309,45 @@ npx @msbayindir/rag-chunker eval runs/512 runs/256 --model ollama/gemma4:e4b-it-
 ```
 
 Questions come with a verbatim evidence quote, so they are valid for any chunking of the same document. The table shows hit@1/5/10 and MRR for BM25, vector and hybrid search; the question set is saved and can be reused with `--questions-file`.
+
+## Benchmarks
+
+Measured on rag-chunker 4.1.0 with the default `full` profile (local layout, OCR, table and formula
+models; no API keys), page images only, on an Apple M1. Per-page results and the commands to
+reproduce them are in [`bench/`](bench/README.md#external-benchmarks).
+
+**Document parsing — [OmniDocBench](https://github.com/opendatalab/OmniDocBench), all 1,651 pages
+of the v1.6 set, scored with the official evaluation script** (page-averaged, as in its end-to-end
+table):
+
+| | Text edit distance ↓ | Table TEDS ↑ | Table TEDS-S ↑ | Reading-order edit ↓ |
+| --- | ---: | ---: | ---: | ---: |
+| **rag-chunker 4.1.0** | **0.165** | **54.8** | **68.5** | **0.218** |
+| Marker (official table) | 0.157 | 65.8 | 73.2 | 0.243 |
+| MinerU pipeline (official table) | 0.055 | 81.9 | 88.7 | 0.153 |
+
+By language: English 0.151 (755 pages), Simplified Chinese 0.157 (765 pages), mixed English–Chinese
+0.290 (116 pages). Text is close to Marker and well behind MinerU, reading order is ahead of Marker,
+and tables are the weakest part. There is no formula (CDM) score, which needs a LaTeX toolchain, so
+the official "Overall" is not reported. The competitor rows are copied from the official table, not
+re-run by us; we ran the official script from its main branch (2026-10-19) with its default
+matching settings.
+
+**Scanned Turkish documents** (character error rate against the born-digital original): hypertension
+guideline 10.1 % (4.0.0: 13.2 %), Turkish constitution 1.5 % (2.5 %).
+
+**Retrieval** (MRR of the passage that holds the answer; hybrid search, top 30 reranked):
+
+| Set | Hybrid | + mmarco-MiniLM (`basic`) | + bge-reranker-v2-m3 (`full`) |
+| --- | ---: | ---: | ---: |
+| [FinanceBench](https://github.com/patronus-ai/financebench), 150 analyst questions, within the filing | 0.268 | 0.216 | **0.329** |
+| FinanceBench, all 83 filings in one index | 0.169 | 0.169 | **0.288** |
+| [SQuAD-TR](https://github.com/boun-tabi/squad-tr), 100 Turkish questions | 0.805 | 0.876 | **0.938** |
+
+**Where it stands.** If table extraction is the heart of your work (financial statements) or you
+run a Python stack with a GPU, MinerU parses better. rag-chunker's place is the whole way from a
+document to cited, searchable chunks in Node.js, locally and without Python, with numbers you can
+check — and `rag-chunker eval` to measure it on your own documents.
 
 ## MCP server for agents
 

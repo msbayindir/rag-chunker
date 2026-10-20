@@ -1,0 +1,45 @@
+{
+  "benchmark": "SQuAD-TR dev (boun-tabi; CC BY-NC-ND 4.0, not redistributed): Turkish question → source paragraph, 1,204 paragraphs",
+  "embedding": "ollama/embeddinggemma",
+  "sameHundredQuestions": {
+    "seed": 42,
+    "bm25": {
+      "mrr": 0.78,
+      "hitAt1": 0.71
+    },
+    "vector": {
+      "mrr": 0.82,
+      "hitAt1": 0.73
+    },
+    "hybrid": {
+      "mrr": 0.805,
+      "hitAt1": 0.7
+    },
+    "rerank mmarco-minilm": {
+      "mrr": 0.876,
+      "hitAt1": 0.81
+    },
+    "rerank bge-reranker-v2-m3": {
+      "mrr": 0.938,
+      "hitAt1": 0.91
+    }
+  },
+  "fiveHundredQuestionsMiniLM": {
+    "bm25": {
+      "mrr": 0.792,
+      "hitAt1": 0.724
+    },
+    "vector": {
+      "mrr": 0.773,
+      "hitAt1": 0.676
+    },
+    "hybrid": {
+      "mrr": 0.824,
+      "hitAt1": 0.738
+    },
+    "rerank": {
+      "mrr": 0.891,
+      "hitAt1": 0.842
+    }
+  }
+}

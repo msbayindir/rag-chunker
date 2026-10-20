@@ -6,7 +6,7 @@
  * TEDS / TEDS-S and reading order — with our own matching (blocks paired by box overlap).
  *
  *   node scripts/bench-omnidocbench.mjs --data <dir> [--subset 200] [--seed 42]
- *        [--language english] [--source book,magazine] [--pages a.png,b.png]
+ *        [--language english] [--source book,magazine] [--pages a.png,b.png | --pages-file list.txt]
  *        [--no-layout] [--out results.json]
  *
  * <dir> holds OmniDocBench.json and images/ from https://huggingface.co/datasets/opendatalab/OmniDocBench
@@ -35,7 +35,14 @@ const subset = Number(flag('--subset') ?? 0) || 0
 const seed = Number(flag('--seed') ?? 42)
 const languages = flag('--language')?.split(',')
 const sources = flag('--source')?.split(',')
-const only = flag('--pages')?.split(',')
+// --pages a.png,b.png, or --pages-file list.txt (one name per line) for names that contain commas.
+const pagesFile = flag('--pages-file')
+const only = pagesFile
+  ? (await readFile(pagesFile, 'utf8'))
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+  : flag('--pages')?.split(',')
 const layout = !args.includes('--no-layout')
 const out =
   flag('--out') ??
