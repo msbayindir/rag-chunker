@@ -19,7 +19,8 @@ npx @msbayindir/rag-chunker process kitap.pdf --local    # her şey Ollama'da, h
 
 - **Dokümana saygılı chunk'lar.** Deterministik, AST tabanlı chunker başlıkları içerikleriyle birlikte tutar, mecbur kalmadıkça cümle ortasından bölmez, büyük tabloları *başlık satırını tekrarlayarak* satır satır böler, kod bloklarının çitlerini korur ve hiçbir kelimeyi kaybetmez (property testleriyle doğrulanır).
 - **Doğru kaynak gösterimi.** Her chunk'ta `pageStart`/`pageEnd`, başlık yolu (`sectionPath`) ve çakışmayan, kalıcı bir `chunkId` bulunur.
-- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar OCR'a gider: yerel PP-OCRv5 modelleri (profile göre 13–97 MB, anahtarsız, Türkçe dahil Latin alfabeleri), Mistral OCR ya da bir vision modeli (Gemma 4, Gemini, Claude, GPT…). Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir.
+- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar OCR'a gider: yerel PP-OCRv5 modelleri (anahtarsız; Türkçe dahil Latin alfabeleri, varsayılan profilde belge başına tespit edilen Çince/Japonca), Mistral OCR ya da bir vision modeli (Gemma 4, Gemini, Claude, GPT…). Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir.
+- **Ölçülmüş yerel belge modelleri.** Okuma sırasıyla sayfa yerleşimi, tablo yapısı, LaTeX olarak blok formüller ve cross-encoder reranker, hepsi makinenizde `onnxruntime-node` üzerinde çalışır. `local.profile` en güçlü modelleri (`full`, varsayılan) ya da küçük ve hızlı olanları (`basic`) seçer; açık veri setlerindeki sonuçlar için bkz. [Ölçümler](#ölçümler).
 - **Contextual retrieval** ([Anthropic'in yöntemi](https://www.anthropic.com/news/contextual-retrieval)): her chunk'a, dokümandaki yerini anlatan 1–2 cümlelik bir özet eklenir. Modele sığmayan büyük dokümanlarda doküman ve bölüm özetleri kullanılır, böylece küçük yerel modellerle de çalışır.
 - **Başlık onarımı.** OCR sayfaları tek tek okuduğu için başlık seviyelerini karıştırır; bir LLM adımı ve deterministik bir numaralandırma adımı bunu düzeltir.
 - **Her aşamada her sağlayıcı.** Her yerde `sağlayıcı/model`: `ollama/gemma4:e4b-it-qat`, `gemini/gemini-3.5-flash-lite`, `anthropic/claude-haiku-5-5`, `openrouter/…` ya da kendi OpenAI-uyumlu sunucunuz. Her sağlayıcı için yerleşik prompt cache desteği.
@@ -222,6 +223,45 @@ npx @msbayindir/rag-chunker eval denemeler/512 denemeler/256 --model ollama/gemm
 ```
 
 Sorular birebir alıntılanmış bir kanıt cümlesiyle üretildiği için aynı dokümanın her chunk'lama biçiminde geçerlidir. Tablo BM25, vektör ve hibrit arama için hit@1/5/10 ve MRR gösterir.
+
+## Ölçümler
+
+rag-chunker 4.1.0, varsayılan `full` profille (yerel layout, OCR, tablo ve formül modelleri; API
+anahtarı yok), yalnız sayfa görselleriyle, Apple M1'de ölçüldü. Sayfa sayfa sonuçlar ve yeniden
+üretme komutları [`bench/`](bench/README.md#external-benchmarks) klasöründe.
+
+**Belge okuma — [OmniDocBench](https://github.com/opendatalab/OmniDocBench) v1.6 setinin 1.651
+sayfasının tamamı, resmi değerlendirme betiğiyle** (resmi uçtan uca tablodaki gibi sayfa
+ortalaması):
+
+| | Metin düzenleme mesafesi ↓ | Tablo TEDS ↑ | Tablo TEDS-S ↑ | Okuma sırası ↓ |
+| --- | ---: | ---: | ---: | ---: |
+| **rag-chunker 4.1.0** | **0.165** | **54.8** | **68.5** | **0.218** |
+| Marker (resmi tablo) | 0.157 | 65.8 | 73.2 | 0.243 |
+| MinerU pipeline (resmi tablo) | 0.055 | 81.9 | 88.7 | 0.153 |
+
+Dile göre: İngilizce 0.151 (755 sayfa), Basitleştirilmiş Çince 0.157 (765 sayfa), İngilizce-Çince
+karışık 0.290 (116 sayfa). Metinde Marker'a yakın ve MinerU'nun epey gerisinde, okuma sırasında
+Marker'ın önünde; en zayıf yanımız tablolar. Formül (CDM) skoru LaTeX araç zinciri istediği için
+yok, bu yüzden resmi "Overall" verilmiyor. Rakip satırları resmi tablodan alındı, biz koşturmadık;
+resmi betiği ana dalının 2026-10-19 haliyle ve varsayılan eşleştirme ayarlarıyla çalıştırdık.
+
+**Taranmış Türkçe belgeler** (metin katmanlı orijinale göre karakter hata oranı): hipertansiyon
+kılavuzu %10,1 (4.0.0: %13,2), Anayasa %1,5 (%2,5).
+
+**Arama** (cevabı içeren parçanın MRR'ı; hibrit arama, ilk 30 aday yeniden sıralanır):
+
+| Set | Hibrit | + mmarco-MiniLM (`basic`) | + bge-reranker-v2-m3 (`full`) |
+| --- | ---: | ---: | ---: |
+| [FinanceBench](https://github.com/patronus-ai/financebench), 150 analist sorusu, raporun içinde | 0.268 | 0.216 | **0.329** |
+| FinanceBench, 83 raporun tek indeksi | 0.169 | 0.169 | **0.288** |
+| [SQuAD-TR](https://github.com/boun-tabi/squad-tr), 100 Türkçe soru | 0.805 | 0.876 | **0.938** |
+
+**Nerede duruyor.** İşinizin merkezinde tablo çıkarımı varsa (finansal tablolar) ya da GPU'lu bir
+Python altyapısı kullanıyorsanız MinerU belgeleri daha iyi ayrıştırır. rag-chunker'ın yeri,
+belgeden kaynak gösteren ve aranabilen chunk'lara kadar bütün yolu Node.js'te, yerel olarak ve
+Python'suz yürütmek; sayıları doğrulanabilir, `rag-chunker eval` ile kendi belgelerinizde de
+ölçebilirsiniz.
 
 ## Ajanlar için MCP sunucusu
 

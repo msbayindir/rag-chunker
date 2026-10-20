@@ -1,0 +1,293 @@
+{
+  "benchmark": "FinanceBench open split (PatronusAI; CC BY-NC 4.0, not redistributed): retrieval of the evidence chunk",
+  "relevance": "chunk on the evidence page (±1) holding ≥ 50 % of the evidence words, or made of ≥ 70 % evidence words",
+  "runs": {
+    "mmarco-minilm": {
+      "settings": {
+        "layout": false,
+        "embedding": "ollama/embeddinggemma",
+        "rerank": "mmarco-minilm",
+        "candidates": 30
+      },
+      "corpus": {
+        "filings": 83,
+        "pages": 11843,
+        "chunks": 29672
+      },
+      "questions": {
+        "total": 150,
+        "reachable": 144
+      },
+      "results": {
+        "own filing": {
+          "bm25": {
+            "hitAt1": 0.153,
+            "hitAt5": 0.293,
+            "hitAt10": 0.387,
+            "mrr": 0.221
+          },
+          "vector": {
+            "hitAt1": 0.173,
+            "hitAt5": 0.413,
+            "hitAt10": 0.52,
+            "mrr": 0.278
+          },
+          "hybrid": {
+            "hitAt1": 0.173,
+            "hitAt5": 0.407,
+            "hitAt10": 0.487,
+            "mrr": 0.268
+          },
+          "rerank": {
+            "hitAt1": 0.14,
+            "hitAt5": 0.333,
+            "hitAt10": 0.427,
+            "mrr": 0.216
+          }
+        },
+        "all filings": {
+          "bm25": {
+            "hitAt1": 0.08,
+            "hitAt5": 0.147,
+            "hitAt10": 0.18,
+            "mrr": 0.11
+          },
+          "vector": {
+            "hitAt1": 0.133,
+            "hitAt5": 0.34,
+            "hitAt10": 0.413,
+            "mrr": 0.222
+          },
+          "hybrid": {
+            "hitAt1": 0.107,
+            "hitAt5": 0.247,
+            "hitAt10": 0.36,
+            "mrr": 0.169
+          },
+          "rerank": {
+            "hitAt1": 0.1,
+            "hitAt5": 0.28,
+            "hitAt10": 0.38,
+            "mrr": 0.169
+          }
+        }
+      }
+    },
+    "bge-reranker-base": {
+      "settings": {
+        "layout": false,
+        "embedding": "ollama/embeddinggemma",
+        "rerank": "bge-reranker-base",
+        "firstStage": "hybrid",
+        "candidates": 30
+      },
+      "corpus": {
+        "filings": 83,
+        "pages": 11843,
+        "chunks": 29672
+      },
+      "questions": {
+        "total": 150,
+        "reachable": 144
+      },
+      "results": {
+        "own filing": {
+          "bm25": {
+            "hitAt1": 0.153,
+            "hitAt5": 0.293,
+            "hitAt10": 0.387,
+            "mrr": 0.221
+          },
+          "vector": {
+            "hitAt1": 0.173,
+            "hitAt5": 0.413,
+            "hitAt10": 0.52,
+            "mrr": 0.278
+          },
+          "hybrid": {
+            "hitAt1": 0.173,
+            "hitAt5": 0.407,
+            "hitAt10": 0.487,
+            "mrr": 0.268
+          },
+          "rerank": {
+            "hitAt1": 0.187,
+            "hitAt5": 0.373,
+            "hitAt10": 0.493,
+            "mrr": 0.265
+          }
+        },
+        "all filings": {
+          "bm25": {
+            "hitAt1": 0.08,
+            "hitAt5": 0.147,
+            "hitAt10": 0.18,
+            "mrr": 0.11
+          },
+          "vector": {
+            "hitAt1": 0.133,
+            "hitAt5": 0.34,
+            "hitAt10": 0.413,
+            "mrr": 0.222
+          },
+          "hybrid": {
+            "hitAt1": 0.107,
+            "hitAt5": 0.247,
+            "hitAt10": 0.36,
+            "mrr": 0.169
+          },
+          "rerank": {
+            "hitAt1": 0.113,
+            "hitAt5": 0.307,
+            "hitAt10": 0.427,
+            "mrr": 0.195
+          }
+        }
+      }
+    },
+    "bge-reranker-v2-m3": {
+      "settings": {
+        "layout": false,
+        "embedding": "ollama/embeddinggemma",
+        "rerank": "bge-reranker-v2-m3",
+        "firstStage": "hybrid",
+        "candidates": 30
+      },
+      "corpus": {
+        "filings": 83,
+        "pages": 11843,
+        "chunks": 29672
+      },
+      "questions": {
+        "total": 150,
+        "reachable": 144
+      },
+      "results": {
+        "own filing": {
+          "bm25": {
+            "hitAt1": 0.153,
+            "hitAt5": 0.293,
+            "hitAt10": 0.387,
+            "mrr": 0.221
+          },
+          "vector": {
+            "hitAt1": 0.173,
+            "hitAt5": 0.413,
+            "hitAt10": 0.52,
+            "mrr": 0.278
+          },
+          "hybrid": {
+            "hitAt1": 0.173,
+            "hitAt5": 0.407,
+            "hitAt10": 0.487,
+            "mrr": 0.268
+          },
+          "rerank": {
+            "hitAt1": 0.24,
+            "hitAt5": 0.447,
+            "hitAt10": 0.54,
+            "mrr": 0.329
+          }
+        },
+        "all filings": {
+          "bm25": {
+            "hitAt1": 0.08,
+            "hitAt5": 0.147,
+            "hitAt10": 0.18,
+            "mrr": 0.11
+          },
+          "vector": {
+            "hitAt1": 0.133,
+            "hitAt5": 0.34,
+            "hitAt10": 0.413,
+            "mrr": 0.222
+          },
+          "hybrid": {
+            "hitAt1": 0.107,
+            "hitAt5": 0.247,
+            "hitAt10": 0.36,
+            "mrr": 0.169
+          },
+          "rerank": {
+            "hitAt1": 0.207,
+            "hitAt5": 0.42,
+            "hitAt10": 0.493,
+            "mrr": 0.288
+          }
+        }
+      }
+    },
+    "bge-reranker-v2-m3, 15 candidates": {
+      "settings": {
+        "layout": false,
+        "embedding": "ollama/embeddinggemma",
+        "rerank": "bge-reranker-v2-m3",
+        "firstStage": "hybrid",
+        "candidates": 15
+      },
+      "corpus": {
+        "filings": 83,
+        "pages": 11843,
+        "chunks": 29672
+      },
+      "questions": {
+        "total": 150,
+        "reachable": 144
+      },
+      "results": {
+        "own filing": {
+          "bm25": {
+            "hitAt1": 0.153,
+            "hitAt5": 0.293,
+            "hitAt10": 0.387,
+            "mrr": 0.221
+          },
+          "vector": {
+            "hitAt1": 0.173,
+            "hitAt5": 0.413,
+            "hitAt10": 0.52,
+            "mrr": 0.278
+          },
+          "hybrid": {
+            "hitAt1": 0.173,
+            "hitAt5": 0.407,
+            "hitAt10": 0.487,
+            "mrr": 0.268
+          },
+          "rerank": {
+            "hitAt1": 0.227,
+            "hitAt5": 0.427,
+            "hitAt10": 0.527,
+            "mrr": 0.315
+          }
+        },
+        "all filings": {
+          "bm25": {
+            "hitAt1": 0.08,
+            "hitAt5": 0.147,
+            "hitAt10": 0.18,
+            "mrr": 0.11
+          },
+          "vector": {
+            "hitAt1": 0.133,
+            "hitAt5": 0.34,
+            "hitAt10": 0.413,
+            "mrr": 0.222
+          },
+          "hybrid": {
+            "hitAt1": 0.107,
+            "hitAt5": 0.247,
+            "hitAt10": 0.36,
+            "mrr": 0.169
+          },
+          "rerank": {
+            "hitAt1": 0.187,
+            "hitAt5": 0.367,
+            "hitAt10": 0.407,
+            "mrr": 0.257
+          }
+        }
+      }
+    }
+  }
+}
