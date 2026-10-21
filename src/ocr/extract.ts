@@ -111,7 +111,7 @@ export function engineLabel(engine: OcrEngine): string {
 }
 
 function needsOcrHint(): string {
-  return 'Run with --ocr pp-ocr (local OCR, downloads 13 MB once) or --local, set MISTRAL_API_KEY, or pass --ocr <provider/model>.'
+  return 'Run with --ocr pp-ocr (local OCR; downloads the models once: 181 MB with the default full profile, 13 MB with --profile basic) or --local, set MISTRAL_API_KEY, or pass --ocr <provider/model>.'
 }
 
 function localOcrOf(opts: ExtractOptions): LocalOcr {
@@ -231,7 +231,8 @@ async function ocrImage(
       ...(figures ? { figures: { save: (f) => figures.save(asPage, 1, f), minSize: figures.minSize } } : {}),
       ...(formulas ? { formulas: (region: Rect) => formulas(asPage, 1, region) } : {}),
     })
-    stats.ocrPages++
+    if (result.cached) stats.cachedPages++
+    else stats.ocrPages++
     opts.reporter.progress('ocr', 1, 1, label)
     return {
       pageNumber: 1,

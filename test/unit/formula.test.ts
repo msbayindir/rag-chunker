@@ -1,8 +1,15 @@
+import { mkdtemp, readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { CacheStore } from '../../src/cache/store.js'
 import { formulasOnPage } from '../../src/documents/pdf.js'
-import { cleanLatex, FORMULA_MODELS } from '../../src/local/formula.js'
+import { RagChunkerError } from '../../src/errors.js'
+import { cleanLatex, FORMULA_MODELS, type FormulaRecogniser } from '../../src/local/formula.js'
 import type { LayoutRegion } from '../../src/local/layout.js'
 import { MODELS } from '../../src/local/models.js'
+import { createFormulaProvider } from '../../src/pipeline/formulas.js'
+import { fixture } from '../fixtures/generate.js'
 
 describe('formula recognition', () => {
   it('cleans the model output into a LaTeX body and rejects prose', () => {
@@ -62,5 +69,83 @@ describe('formula recognition', () => {
     const nine = Array.from({ length: 9 }, (_, i) => line(410 + i * 16))
     expect(await formulasOnPage(crowded, page, nine, async () => 'x = 1')).toBeUndefined()
     expect((await formulasOnPage(crowded, page, nine.slice(0, 4), async () => 'x = 1'))?.lines.length).toBe(1)
+  })
+
+  it('creates the recogniser on the first region only, once, and caches results per region', async () => {
+    const png = await readFile(fixture('scan.png'))
+    const doc = {
+      pageCount: 1,
+      renderPng: async () => png,
+      pageSize: async () => ({ width: 400, height: 300 }),
+    }
+    const cache = new CacheStore(await mkdtemp(join(tmpdir(), 'rc-formula-')))
+    let created = 0
+    let recognised = 0
+    const factory = async (): Promise<FormulaRecogniser> => {
+      created++
+      return {
+        recognise: async () => {
+          recognised++
+          return `x_{${recognised}}`
+        },
+      }
+    }
+    const { provider, stats } = createFormulaProvider({ recogniser: factory, cache, documentId: 'd' })
+    expect(created).toBe(0)
+    const a = { x0: 20, y0: 200, x1: 200, y1: 240 }
+    const b = { x0: 20, y0: 100, x1: 200, y1: 140 }
+    expect(await provider(doc, 1, a)).toBe('x_{1}')
+    expect(await provider(doc, 1, b)).toBe('x_{2}')
+    expect(await provider(doc, 1, a)).toBe('x_{1}')
+    expect(created).toBe(1)
+    expect(stats).toEqual({ recognised: 2, empty: 0, cached: 1, failed: 0 })
+  })
+
+  it('gives up quietly when the recogniser cannot be created, or fails the document when required', async () => {
+    const png = await readFile(fixture('scan.png'))
+    const doc = {
+      pageCount: 1,
+      renderPng: async () => png,
+      pageSize: async () => ({ width: 400, height: 300 }),
+    }
+    const region = { x0: 20, y0: 200, x1: 200, y1: 240 }
+    const missing = async (): Promise<FormulaRecogniser> => {
+      throw new RagChunkerError('OPTIONAL_DEPENDENCY_MISSING', 'Formula recognition needs the "x" package')
+    }
+    const warnings: string[] = []
+    const quiet = createFormulaProvider({
+      recogniser: missing,
+      cache: new CacheStore(await mkdtemp(join(tmpdir(), 'rc-formula-'))),
+      documentId: 'd',
+      onWarn: (m) => warnings.push(m),
+    })
+    expect(await quiet.provider(doc, 1, region)).toBeNull()
+    expect(await quiet.provider(doc, 2, region)).toBeNull()
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('needs the "x" package')
+    const strict = createFormulaProvider({
+      recogniser: missing,
+      required: true,
+      cache: new CacheStore(await mkdtemp(join(tmpdir(), 'rc-formula-'))),
+      documentId: 'd',
+    })
+    await expect(strict.provider(doc, 1, region)).rejects.toMatchObject({
+      code: 'OPTIONAL_DEPENDENCY_MISSING',
+    })
+    // formulasOnPage lets that error through while swallowing model trouble.
+    const regions: LayoutRegion[] = [
+      { label: 'display_formula', score: 0.9, bbox: { x0: 100, y0: 500, x1: 400, y1: 560 }, order: 1 },
+    ]
+    const page = { width: 600, height: 800 }
+    await expect(
+      formulasOnPage(regions, page, [], async () => {
+        throw new RagChunkerError('CONFIG_INVALID', 'required')
+      }),
+    ).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+    expect(
+      await formulasOnPage(regions, page, [], async () => {
+        throw new Error('model hiccup')
+      }),
+    ).toBeUndefined()
   })
 })

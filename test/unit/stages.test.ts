@@ -130,6 +130,8 @@ describe('extractDocument', () => {
         image: async () => {
           reads++
           return {
+            // The provider marks lines served from its cache; the second read stands for that.
+            ...(reads > 1 ? { cached: true } : {}),
             width: 800,
             height: 600,
             lines: [
@@ -156,6 +158,8 @@ describe('extractDocument', () => {
     // The table model (with its own cache) is asked again rather than served from a page-level copy.
     expect(reads).toBe(2)
     expect(tableCalls).toBe(2)
+    expect(first.stats).toMatchObject({ ocrPages: 1, cachedPages: 0 })
+    expect(again.stats).toMatchObject({ ocrPages: 0, cachedPages: 1 })
   })
 
   it('refuses a vision engine that cannot see images', async () => {

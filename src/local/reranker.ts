@@ -254,6 +254,32 @@ export async function createReranker(
   }
 }
 
+/**
+ * A reranker whose model is downloaded and loaded on the first query, so a server can answer its
+ * handshake first (the MCP server's stdout is the protocol, and a 570 MB download before it
+ * would look like a hang to the client). Creation happens once; a failure is retried next time.
+ */
+export function lazyReranker(
+  id: RerankerId,
+  options: RerankerOptions = {},
+  create: typeof createReranker = createReranker,
+): Reranker {
+  let pending: Promise<Reranker> | null = null
+  const load = () => {
+    if (!pending) {
+      pending = create(id, options)
+      pending.catch(() => {
+        pending = null
+      })
+    }
+    return pending
+  }
+  return {
+    id,
+    score: async (query, texts, signal) => (await load()).score(query, texts, signal),
+  }
+}
+
 export interface RerankPlan {
   /** Local model to use; null when reranking is off or hosted. */
   id: RerankerId | null

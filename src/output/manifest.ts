@@ -30,6 +30,8 @@ export interface Manifest {
       /** Layout model used for PDF pages, null when layout analysis was off. */
       layout: string | null
       layoutPages: number
+      /** Display formulas read as LaTeX (present when formula recognition ran). */
+      formulas?: { recognised: number; empty: number; cached: number; failed: number }
       durationMs: number
     }
     structure: {

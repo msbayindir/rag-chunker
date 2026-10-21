@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { evaluate, type QuestionSet } from '../../src/eval/eval.js'
-import { type TokenizerJson, UnigramTokenizer } from '../../src/local/reranker.js'
+import { lazyReranker, type TokenizerJson, UnigramTokenizer } from '../../src/local/reranker.js'
 import { buildSearchIndex, type Reranker, rerank, rerankText } from '../../src/search/search.js'
 import type { Chunk } from '../../src/types.js'
 
@@ -137,5 +137,25 @@ describe('rerank()', () => {
     const rr = report.metrics.find((m) => m.mode === 'rerank')
     expect(rr?.hitAt1).toBe(1)
     expect(report.ranks[0]?.ranks.rerank).toBe(1)
+  })
+})
+
+describe('lazyReranker()', () => {
+  it('creates the model on the first query only, once, and retries after a failure', async () => {
+    let created = 0
+    let fail = true
+    const create = async (id: string): Promise<Reranker> => {
+      created++
+      if (fail) throw new Error('download failed')
+      return { id, score: async (_q, texts) => texts.map((_t, i) => 1 - i / 10) }
+    }
+    const lazy = lazyReranker('mmarco-minilm', {}, create as never)
+    expect(created).toBe(0)
+    expect(lazy.id).toBe('mmarco-minilm')
+    await expect(lazy.score('q', ['a'])).rejects.toThrow('download failed')
+    fail = false
+    expect(await lazy.score('q', ['a', 'b'])).toEqual([1, 0.9])
+    expect(await lazy.score('q', ['c'])).toEqual([1])
+    expect(created).toBe(2)
   })
 })

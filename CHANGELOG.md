@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.1.1 — 2026-10-21
+
+- Local OCR with `ocr.engine: auto` no longer switches itself off when the `full` profile's server detector is not downloaded yet: an installation that has the mobile models (any 4.0.0 install) keeps reading scanned pages with them and says once how to fetch the server detector.
+- `rag-chunker mcp --rerank` answers the client's handshake first and downloads/loads the reranker on the first search, reporting the download on stderr; before, a first start under the `full` profile sat silent through a 570 MB download and MCP clients timed out.
+- The formula model is loaded once per process and only when a page has a formula region; processing a folder no longer reloads it per document and documents without formulas never download it. Its files download in parallel, Ctrl-C stops a running formula at the next decoder step, and `manifest.json` (`stages.ocr.formulas`) and the `process` summary report how many formulas were read.
+- `formulas.recognize: "on"` with layout analysis off is a configuration error instead of silently doing nothing.
+- Fixes: the local OCR cache key now includes the dense-page second-pass settings; a rerun of an image reports its OCR cache hit in the manifest; the "report it" link is shown only for errors that point at the tool, not for a missing file or an unsupported input; the OCR hint no longer says the models are 13 MB; the `bin` path in `package.json` is as npm expects it; `CONTRIBUTING.md` has the current source map.
+- README: what `npm install` brings and how to install the core only.
+
 ## 4.1.0 — 2026-10-20
 
 Stronger local models behind a `local.profile` switch (`full` by default, `basic` for the small

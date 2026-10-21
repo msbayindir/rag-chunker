@@ -1,6 +1,7 @@
 import type { CacheStore } from '../cache/store.js'
 import type { FormulaProvider } from '../documents/pdf.js'
 import type { Rect } from '../documents/tables.js'
+import { RagChunkerError } from '../errors.js'
 import type { FormulaRecogniser } from '../local/formula.js'
 import type { PageLike } from '../local/layout.js'
 import { importOptional } from '../util/optional.js'
@@ -8,22 +9,36 @@ import { importOptional } from '../util/optional.js'
 /**
  * The pipeline's formula provider: crops a display-formula region out of a page render (one render
  * per page, shared by the regions on it) and hands the crop to the recogniser; results are cached
- * per document region, like OCR pages.
+ * per document region, like OCR pages. The recogniser itself is created on the first region, so a
+ * document without formulas never loads (or downloads) the model.
  */
 
 export interface FormulaProviderOptions {
-  recogniser: FormulaRecogniser
+  /** The recogniser, or a factory called on the first formula region. */
+  recogniser: FormulaRecogniser | (() => Promise<FormulaRecogniser>)
   cache: CacheStore
   documentId: string
+  /**
+   * With `formulas.recognize: "on"` a recogniser that cannot run fails the document; otherwise the
+   * first failure is reported once through `onWarn` and formulas stay as text.
+   */
+  required?: boolean
   /** Longer page side in pixels for the render the crops come from (default 2048). */
   render?: number
   signal?: AbortSignal
   onWarn?: (message: string) => void
 }
 
+export interface FormulaStats {
+  recognised: number
+  empty: number
+  cached: number
+  failed: number
+}
+
 export interface FormulaCollector {
   provider: FormulaProvider
-  stats: { recognised: number; empty: number; cached: number; failed: number }
+  stats: FormulaStats
 }
 
 const FORMULA_CACHE_VERSION = 1
@@ -36,9 +51,20 @@ const loadCanvas = () =>
 
 export function createFormulaProvider(options: FormulaProviderOptions): FormulaCollector {
   const render = options.render ?? 2048
-  const stats = { recognised: 0, empty: 0, cached: 0, failed: 0 }
+  const stats: FormulaStats = { recognised: 0, empty: 0, cached: 0, failed: 0 }
   let current: { page: number; img: Promise<{ img: unknown; width: number; height: number }> } | null = null
-  let canvasMissing = false
+  let disabled = false
+  let recogniser: Promise<FormulaRecogniser> | null =
+    typeof options.recogniser === 'function' ? null : Promise.resolve(options.recogniser)
+  const factory = typeof options.recogniser === 'function' ? options.recogniser : null
+
+  /** Gives up on formulas for this document, or fails it when they are required. */
+  const giveUp = (what: string, err: unknown): null => {
+    if (options.signal?.aborted || (options.required && err instanceof RagChunkerError)) throw err
+    if (!disabled) options.onWarn?.(`${what}: ${(err as Error).message}`)
+    disabled = true
+    return null
+  }
 
   const provider: FormulaProvider = async (doc: PageLike, pageNumber: number, region: Rect) => {
     const key = options.cache.key(
@@ -57,14 +83,12 @@ export function createFormulaProvider(options: FormulaProviderOptions): FormulaC
       stats.cached++
       return cached
     }
-    if (canvasMissing) return null
+    if (disabled) return null
     let canvasMod: Awaited<ReturnType<typeof loadCanvas>>
     try {
       canvasMod = await loadCanvas()
     } catch (err) {
-      canvasMissing = true
-      options.onWarn?.(`Formulas are not recognised: ${(err as Error).message}`)
-      return null
+      return giveUp('Formulas are not recognised', err)
     }
     if (!current || current.page !== pageNumber) {
       current = {
@@ -91,8 +115,20 @@ export function createFormulaProvider(options: FormulaProviderOptions): FormulaC
     ctx.fillRect(0, 0, w, h)
     ctx.drawImage(img as Parameters<typeof ctx.drawImage>[0], x0, y0, w, h, 0, 0, w, h)
     const png = new Uint8Array(canvas.toBuffer('image/png'))
+    if (!recogniser) {
+      recogniser = (factory as () => Promise<FormulaRecogniser>)()
+      recogniser.catch(() => {
+        recogniser = null
+      })
+    }
+    let ready: FormulaRecogniser
     try {
-      const latex = await options.recogniser.recognise(png, options.signal)
+      ready = await recogniser
+    } catch (err) {
+      return giveUp('Formulas stay as text', err)
+    }
+    try {
+      const latex = await ready.recognise(png, options.signal)
       if (latex) stats.recognised++
       else stats.empty++
       await options.cache.set('formula', key, latex)

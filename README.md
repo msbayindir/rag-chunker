@@ -387,6 +387,8 @@ Run `rag-chunker doctor` first; it checks everything above.
 
 Node.js 22 or newer. Optional: [Ollama](https://ollama.com) for local models.
 
+**Install size.** The package itself is 1.5 MB; `npm install` also brings the optional native packages the local models need, about 700 MB on disk: `onnxruntime-node` (290 MB, binaries for every OS), `@huggingface/transformers` for the formula model (180 MB with its own dependencies), `@napi-rs/canvas` and the provider SDKs. `npm install --omit=optional` installs the core only (text-layer extraction, chunking, cloud providers), and you add back what you use, e.g. `npm install onnxruntime-node @napi-rs/canvas` for local OCR, layout, tables and reranking. Model files are downloaded on first use into `~/.rag-chunker/models` (`RAG_CHUNKER_MODELS_DIR`), never bundled.
+
 ## Examples
 
 [`examples/`](examples/) has runnable scripts: the basics, the local layout model with figures and their descriptions, XLSX/HTML inputs, two-stage search with the reranker, `eval --compare` for two chunk sizes, a fully local pipeline, mixed providers, a pgvector query, and the MCP setup for Claude Desktop, Claude Code and Cursor.
