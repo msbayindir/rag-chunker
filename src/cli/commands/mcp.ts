@@ -1,6 +1,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Command } from 'commander'
 import { findConfigFile, loadConfigFile, resolveConfig } from '../../config/load.js'
+import { RagChunkerError } from '../../errors.js'
 import { lazyReranker, RERANKERS, resolveReranker } from '../../local/reranker.js'
 import { createMcpServer } from '../../mcp/server.js'
 import { readOutputDir } from '../../output/writer.js'
@@ -21,6 +22,10 @@ export function mcpCommand(): Command {
       'reorder the top candidates with a reranker: the local model of local.profile (downloaded once) or cohere/… / jina/…',
     )
     .option('--no-rerank', 'no reranking even when the model is downloaded')
+    .option(
+      '--candidates <n>',
+      'first-stage results handed to the reranker (default: rerank.candidates, 30); 15 halves the time of a search with bge-reranker-v2-m3 for a small loss',
+    )
     .option('-c, --config <file>', 'config file')
     .addHelpText(
       'after',
@@ -31,12 +36,19 @@ Claude Desktop / Claude Code config:
     .action(
       async (
         dirs: string[],
-        flags: { embedding?: string; vectors?: boolean; rerank?: string | boolean; config?: string },
+        flags: {
+          embedding?: string
+          vectors?: boolean
+          rerank?: string | boolean
+          candidates?: string
+          config?: string
+        },
       ) => {
         try {
           const env = await cliEnv()
           const configFile = flags.config ?? findConfigFile()
           const config = resolveConfig(configFile ? await loadConfigFile(configFile) : undefined)
+          const candidates = parseCandidates(flags.candidates, config.rerank.candidates)
           let embedder: ReturnType<ProviderRegistry['embedder']> | undefined
           if (flags.vectors !== false) {
             const first = await readOutputDir(dirs[0] as string)
@@ -69,7 +81,7 @@ Claude Desktop / Claude Code config:
             dirs,
             embedder,
             reranker,
-            candidates: config.rerank.candidates,
+            candidates,
           })
           await server.connect(new StdioServerTransport())
         } catch (e) {
@@ -77,4 +89,20 @@ Claude Desktop / Claude Code config:
         }
       },
     )
+}
+
+/** `--candidates` as a positive whole number, or the configured value when the flag is absent. */
+export function parseCandidates(flag: string | undefined, fallback: number): number {
+  if (flag === undefined) return fallback
+  const n = Number(flag)
+  if (!Number.isInteger(n) || n < 1) {
+    throw new RagChunkerError(
+      'CONFIG_INVALID',
+      `--candidates must be a whole number of 1 or more, got "${flag}"`,
+      {
+        hint: 'The reranker scores this many first-stage results per search; 30 is the default, 15 halves the time.',
+      },
+    )
+  }
+  return n
 }

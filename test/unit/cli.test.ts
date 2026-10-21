@@ -274,3 +274,14 @@ describe('inspect server and cache command', () => {
     expect(stderr).toMatch(/Removed \d+/)
   })
 })
+
+describe('mcp command helpers', () => {
+  it('takes --candidates as a positive whole number and falls back to the config', async () => {
+    const { parseCandidates } = await import('../../src/cli/commands/mcp.js')
+    expect(parseCandidates(undefined, 30)).toBe(30)
+    expect(parseCandidates('15', 30)).toBe(15)
+    for (const bad of ['0', '-3', '2.5', 'ten', '']) {
+      expect(() => parseCandidates(bad, 30)).toThrow(/--candidates must be a whole number/)
+    }
+  })
+})

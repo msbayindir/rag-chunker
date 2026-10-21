@@ -362,6 +362,8 @@ check — and `rag-chunker eval` to measure it on your own documents.
 
 Tools: `search` (hybrid when the chunks have embeddings), `get_chunk` (with neighbours), `get_page`, `list_documents`.
 
+With `--rerank` every `search` goes through the reranker of `local.profile`, which the server downloads on the first search (the client's handshake is answered first). The `full` profile's `bge-reranker-v2-m3` takes seconds per search on a laptop CPU: `--candidates 15` halves that for a small loss (FinanceBench MRR 0.315 instead of 0.329 at 30), and `--profile basic` switches to `mmarco-minilm` at about 20 ms per pair.
+
 ## Caching, cost and privacy
 
 - Cache keys depend on content, model and prompt version — never on API keys. `rag-chunker cache info` shows the size, `cache clear --older-than 30` prunes it.

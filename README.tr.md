@@ -276,6 +276,8 @@ Python'suz yürütmek; sayıları doğrulanabilir, `rag-chunker eval` ile kendi 
 
 Araçlar: `search`, `get_chunk`, `get_page`, `list_documents`.
 
+`--rerank` ile her `search` isteği `local.profile`'ın reranker'ından geçer; sunucu modeli ilk aramada indirir (istemcinin el sıkışması önce yanıtlanır). `full` profilin `bge-reranker-v2-m3` modeli dizüstü işlemcide arama başına saniyeler alır: `--candidates 15` bunu küçük bir kayıpla yarıya indirir (FinanceBench MRR 30 adayda 0,329 yerine 0,315), `--profile basic` ise çift başına yaklaşık 20 ms süren `mmarco-minilm`'e geçer.
+
 ## Sorun giderme
 
 | Sorun | Çözüm |
