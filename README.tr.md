@@ -151,6 +151,8 @@ Ayarların önceliği (yüksekten düşüğe): **CLI bayrakları → `rag-chunke
 | `ocr.engine` | `auto` | `auto` (modelleri indirilmişse yerel PP-OCR, yoksa `MISTRAL_API_KEY` varsa Mistral, yoksa `models.vision`, yoksa metin katmanı), `text-layer`, `pp-ocr`, `mistral` ya da vision `sağlayıcı/model` |
 | `ocr.detector` | `auto` | Yerel OCR'ın metin dedektörü: `mobile` (PP-OCRv5 mobil, 5 MB, hızlı), `server` (PP-OCRv5 server, 84 MB; küçük punto ve tablo hücrelerinde daha iyi, yaklaşık 1,8 kat yavaş), `auto` (`local.profile`'ı izler) |
 | `ocr.script` | `auto` | Yerel OCR'ın tanıyıcısı: `latin` (Türkçe, İngilizce, Almanca, Fransızca…), `cjk` (Çince, Japonca ve İngilizce için PP-OCRv5 server modeli, 84 MB, satır başına ~10 kat yavaş, Ğ/İ yok), `auto` (`full` profilde belgenin ilk taranmış sayfasının en geniş satırları CJK modeliyle okunur, CJK çıkarsa belge o modele geçer) |
+| `ocr.detection.limit` | `960` | Yerel OCR dedektörünün sayfayı gördüğü en uzun kenar, piksel (PaddleOCR varsayılanı); büyüğü küçük puntoyu bulur, zaman alır |
+| `ocr.detection.denseMinLine` | `12` | Yoğun sayfalar için ikinci algılama geçişi: algılanan satırların medyanı bu kadar dedektör pikselinden kısaysa sayfa, satırı bu yüksekliğe getiren boyutta yeniden algılanır (en çok 3.200 px); `0` kapatır |
 | `ocr.orientation` | `auto` | 90, 180 veya 270 derece dönmüş taranmış sayfalar ve görseller dik okunur: `auto` yerel OCR'ın okuduğu her sayfayı sınıflandırır (PP-LCNet belge yönü modeli, 7 MB, bir kez indirilir; sayfanın `rotation` değeri `document.json`'a yazılır), `off` sayfaları olduğu gibi okur |
 | `local.profile` | `full` | `auto` ayarlarının hangi yerel modelleri seçeceği: `full` (en güçlü modeller, daha büyük indirme; bugün server OCR dedektörü, `ocr.script: auto` için CJK tanıyıcı, formül modeli ve `bge-reranker-v2-m3` reranker'ı), `basic` (küçük modeller: mobil dedektör, Latin tanıyıcı, `mmarco-minilm`; CLI `--profile basic`) |
 | `formulas.recognize` | `auto` | Layout modelinin formül bölgelerindeki blok formüller yerel bir modelle ([texify2](https://huggingface.co/vikp/texify2), 8 bit ONNX, 320 MB, `npm install @huggingface/transformers` gerekir) LaTeX'e çevrilip `$$…$$` blokları olarak yazılır: `auto` (`full` profilde, layout analizi çalışıyorsa ve paket kuruluysa açık), `on`, `off` (CLI `--no-formulas`) |
@@ -275,6 +277,8 @@ Python'suz yürütmek; sayıları doğrulanabilir, `rag-chunker eval` ile kendi 
 ```
 
 Araçlar: `search`, `get_chunk`, `get_page`, `list_documents`.
+
+`--rerank` ile her `search` isteği `local.profile`'ın reranker'ından geçer; sunucu modeli ilk aramada indirir (istemcinin el sıkışması önce yanıtlanır). `full` profilin `bge-reranker-v2-m3` modeli dizüstü işlemcide arama başına saniyeler alır: `--candidates 15` bunu küçük bir kayıpla yarıya indirir (FinanceBench MRR 30 adayda 0,329 yerine 0,315), `--profile basic` ise çift başına yaklaşık 20 ms süren `mmarco-minilm`'e geçer.
 
 ## Sorun giderme
 

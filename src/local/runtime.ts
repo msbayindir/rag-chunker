@@ -31,30 +31,22 @@ export async function hasOnnxRuntime(): Promise<boolean> {
 export type Device = 'cpu' | 'coreml' | 'cuda'
 export type DeviceChoice = Device | 'auto'
 
-let configured: DeviceChoice = 'auto'
-let resolved: Device | null = null
+let autoDevice: Device | null = null
 const fallbacks = new Set<string>()
 
 /**
- * Sets the device accelerated models use (from `local.device`); sessions created afterwards
- * follow it. 'auto' picks CoreML on macOS and CUDA elsewhere when onnxruntime-node offers them.
+ * The device a `local.device` choice stands for: the choice itself, or for 'auto' CoreML on macOS
+ * and CUDA elsewhere when onnxruntime-node offers them (resolved once per process). The choice
+ * travels with each pipeline's options, so two pipelines in one process can differ.
  */
-export function configureDevice(device: DeviceChoice): void {
-  if (device !== configured) {
-    configured = device
-    resolved = null
-  }
-}
-
-/** The device 'auto' resolved to (after the runtime loaded), or the configured one. */
-export async function resolveDevice(): Promise<Device> {
-  if (configured !== 'auto') return configured
-  if (resolved) return resolved
+export async function resolveDevice(choice: DeviceChoice = 'auto'): Promise<Device> {
+  if (choice !== 'auto') return choice
+  if (autoDevice) return autoDevice
   const rt = await loadOnnxRuntime()
   const offered = new Set((rt.listSupportedBackends?.() ?? []).map((b) => b.name))
-  resolved =
+  autoDevice =
     process.platform === 'darwin' && offered.has('coreml') ? 'coreml' : offered.has('cuda') ? 'cuda' : 'cpu'
-  return resolved
+  return autoDevice
 }
 
 /** Model files whose accelerated session failed and now run on the CPU (shown by `doctor`). */
@@ -71,6 +63,8 @@ export interface SessionOptions {
    * model, the table model, the Latin recogniser and the int8 rerankers are slower there.
    */
   accelerate?: boolean
+  /** The pipeline's `local.device` (default 'auto'); only read with `accelerate`. */
+  device?: DeviceChoice
 }
 
 /** One session per model file (and device); creation is deduplicated across concurrent callers. */
@@ -79,7 +73,7 @@ export async function sessionFor(
   purpose: string,
   options: SessionOptions = {},
 ): Promise<ort.InferenceSession> {
-  const device = options.accelerate ? await resolveDevice() : 'cpu'
+  const device = options.accelerate ? await resolveDevice(options.device) : 'cpu'
   const key = `${device}:${modelPath}`
   let s = sessions.get(key)
   if (!s) {

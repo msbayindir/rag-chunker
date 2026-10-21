@@ -49,6 +49,14 @@ describe('resolveConfig', () => {
     expect(cfg.models.context).toBe('openrouter/anthropic/claude-haiku-5-5')
   })
 
+  it('has detector settings with bounds', () => {
+    expect(resolveConfig({}).ocr.detection).toEqual({ limit: 960, denseMinLine: 12 })
+    expect(resolveConfig({ ocr: { detection: { denseMinLine: 0 } } }).ocr.detection).toEqual({
+      limit: 960,
+      denseMinLine: 0,
+    })
+    expect(() => resolveConfig({ ocr: { detection: { limit: 100 } } })).toThrow(/ocr.detection.limit/)
+  })
   it('validates ocr.engine', () => {
     expect(resolveConfig({ ocr: { engine: 'mistral' } }).ocr.engine).toBe('mistral')
     expect(resolveConfig({ ocr: { engine: 'ollama/gemma4:e4b-it-qat' } }).ocr.engine).toBe(

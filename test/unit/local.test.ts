@@ -17,7 +17,7 @@ import {
   resolveOcrScript,
   tableFor,
 } from '../../src/local/ocr.js'
-import { configureDevice, deviceFallbacks, resolveDevice } from '../../src/local/runtime.js'
+import { deviceFallbacks, resolveDevice } from '../../src/local/runtime.js'
 import { MockServer } from '../helpers/mock-server.js'
 
 describe('layout detections', () => {
@@ -213,13 +213,13 @@ describe('model files', () => {
     expect(probeSaysCjk(['12 月'])).toBe(false)
   })
 
-  it('resolves the device from the configuration', async () => {
-    configureDevice('cpu')
-    expect(await resolveDevice()).toBe('cpu')
-    configureDevice('coreml')
-    expect(await resolveDevice()).toBe('coreml')
-    configureDevice('auto')
-    expect(['cpu', 'coreml', 'cuda']).toContain(await resolveDevice())
+  it('resolves the device per choice, so pipelines in one process can differ', async () => {
+    expect(await resolveDevice('cpu')).toBe('cpu')
+    expect(await resolveDevice('coreml')).toBe('coreml')
+    expect(['cpu', 'coreml', 'cuda']).toContain(await resolveDevice('auto'))
+    expect(await resolveDevice()).toBe(await resolveDevice('auto'))
+    // One choice never leaks into the next call.
+    expect(await resolveDevice('cpu')).toBe('cpu')
     expect(deviceFallbacks()).toEqual([])
   })
 })

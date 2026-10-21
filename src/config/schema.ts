@@ -102,6 +102,29 @@ const ocrSchema = z.strictObject({
     .describe(
       'Recogniser of the local OCR. "latin": the Latin-script model (Turkish, English, German, French, …). "cjk": the PP-OCRv5 server model for Chinese, Japanese and English (84 MB, about 10× slower per line, no Ğ/İ). "auto": with local.profile "full", the widest lines of a document\'s first scanned page are read with the CJK model and the document switches to it when they come back as CJK text; otherwise Latin.',
     ),
+  detection: z
+    .strictObject({
+      limit: z
+        .number()
+        .int()
+        .min(320)
+        .max(4096)
+        .default(960)
+        .describe(
+          'Longest side, in pixels, at which the local OCR detector sees a page (PaddleOCR default 960). Larger finds smaller print and costs time.',
+        ),
+      denseMinLine: z
+        .number()
+        .int()
+        .min(0)
+        .max(64)
+        .default(12)
+        .describe(
+          'Second detection pass for dense pages: when the median detected line is shorter than this many detector pixels, the page is detected again at the size that makes a line this tall (at most 3,200 px). 0 turns the second pass off.',
+        ),
+    })
+    .prefault({})
+    .describe('Text detector of the local OCR.'),
   orientation: z
     .enum(['auto', 'off'])
     .default('auto')

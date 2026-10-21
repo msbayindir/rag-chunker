@@ -24,7 +24,7 @@ import {
   resolveOcrScript,
 } from '../local/ocr.js'
 import { createOrientationClassifier, type OrientationClassifier } from '../local/orientation.js'
-import { configureDevice, hasOnnxRuntime } from '../local/runtime.js'
+import { hasOnnxRuntime } from '../local/runtime.js'
 import type { TableStructureProvider } from '../local/table.js'
 import { createTableStructureProvider, TABLE_DICT, TABLE_MODEL } from '../local/table.js'
 import { engineLabel, extractDocument, type LocalOcr, type OcrEngine } from '../ocr/extract.js'
@@ -83,7 +83,6 @@ export function createContext(
 ): PipelineContext {
   const resolved = resolveConfig(config)
   const environment = env ?? process.env
-  configureDevice(resolved.local.device)
   return {
     config: resolved,
     env: environment,
@@ -274,6 +273,8 @@ export async function runPipeline(
       localOcr = await createOcrProvider({
         cache,
         detector: plan.detector ?? resolveOcrDetector(config),
+        detection: config.ocr.detection,
+        device: config.local.device,
         ...resolveOcrScript(config),
         documentId: doc.documentId,
         onModelDownload: (file, done, total) =>
