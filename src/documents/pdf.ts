@@ -176,10 +176,16 @@ const OCR_BODY_BAND = { low: 0.8, high: 1.28 }
 export function ocrItems(result: OcrResult, page: { width: number; height: number }): TextItem[] {
   const sx = page.width / result.width
   const sy = page.height / result.height
-  const long = result.lines
-    .filter((l) => l.text.length >= 20)
-    .map((l) => (l.y1 - l.y0) * sy)
-    .sort((a, b) => a - b)
+  const heightsOf = (minChars: number) =>
+    result.lines
+      .filter((l) => l.text.length >= minChars)
+      .map((l) => (l.y1 - l.y0) * sy)
+      .sort((a, b) => a - b)
+  // The body height comes from the long lines. Pages of short lines (tables, forms, slides) rarely
+  // have five of those; there the median of every line with some text stands in, so cells of one
+  // size stay body text instead of becoming headings when their heights jitter.
+  let long = heightsOf(20)
+  if (long.length < 5) long = heightsOf(3)
   const body = long.length >= 5 ? (long[long.length >> 1] as number) : 0
   return result.lines.map((l) => {
     const h = (l.y1 - l.y0) * sy
