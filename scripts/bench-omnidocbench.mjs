@@ -7,7 +7,7 @@
  *
  *   node scripts/bench-omnidocbench.mjs --data <dir> [--subset 200] [--seed 42]
  *        [--language english] [--source book,magazine] [--pages a.png,b.png | --pages-file list.txt]
- *        [--no-layout] [--out results.json]
+ *        [--no-layout] [--no-orientation] [--out results.json]
  *
  * <dir> holds OmniDocBench.json and images/ from https://huggingface.co/datasets/opendatalab/OmniDocBench
  * (research use only; nothing is redistributed). Needs the package built and the local models
@@ -44,6 +44,8 @@ const only = pagesFile
       .filter(Boolean)
   : flag('--pages')?.split(',')
 const layout = !args.includes('--no-layout')
+// --no-orientation reads turned pages as they are (the before side of an orientation measurement).
+const orientation = !args.includes('--no-orientation')
 const out =
   flag('--out') ??
   join(root, 'bench', 'results', `omnidocbench-${new Date().toISOString().slice(0, 10)}.json`)
@@ -155,15 +157,39 @@ const MATCH_IOU = 0.2
 const norm = (s) => M.officialNormalize(s)
 const strict = (s) => M.normalizeText(s)
 
+/**
+ * A page that was turned upright before it was read has its boxes in the upright frame; the
+ * annotations are in the original image's frame. Turns a box (fractions, origin top-left) back by
+ * the page's clockwise rotation so both can be compared.
+ */
+function unturnBox(box, rotation) {
+  if (!rotation) return box
+  const corners = [
+    [box.x, box.y],
+    [box.x + box.w, box.y],
+    [box.x, box.y + box.h],
+    [box.x + box.w, box.y + box.h],
+  ].map(([u, v]) => (rotation === 90 ? [1 - v, u] : rotation === 180 ? [1 - u, 1 - v] : [v, 1 - u]))
+  const xs = corners.map((c) => c[0])
+  const ys = corners.map((c) => c[1])
+  const x = Math.min(...xs)
+  const y = Math.min(...ys)
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }
+}
+
 function scorePage(gt, result) {
   const layoutPage = result.layout.pages[0]
-  // Display formulas we recognised ($$…$$ blocks) are scored against the reference formulas
+  const rotation = layoutPage?.rotation ?? 0
+  const blocks = (layoutPage?.blocks ?? []).map((b) =>
+    b.box ? { ...b, box: unturnBox(b.box, rotation) } : b,
+  )
+  // Display formulas we recognised ($…$ blocks) are scored against the reference formulas
   // below and kept out of the text comparison, as the official protocol does.
   const isFormulaBlock = (b) => /^\s*\$\$[\s\S]*\$\$\s*$/.test(b.text ?? '')
-  const formulaPreds = (layoutPage?.blocks ?? [])
+  const formulaPreds = blocks
     .filter((b) => b.box && isFormulaBlock(b))
-    .map((b) => ({ box: b.box, latex: b.text.trim().replace(/^\$\$/, '').replace(/\$\$$/, '').trim() }))
-  const preds = (layoutPage?.blocks ?? [])
+    .map((b) => ({ box: b.box, latex: b.text.trim().replace(/^\$\$/, '').replace(/\$\$/, '').trim() }))
+  const preds = blocks
     .filter((b) => b.box && b.kind !== 'figure' && !isFormulaBlock(b))
     // Stray OCR boxes: a few characters spanning a large part of the page (tables are exempt — their
     // markdown has no plain text by construction).
@@ -381,13 +407,13 @@ function scorePage(gt, result) {
 
 // ── Run ───────────────────────────────────────────────────────────────────────────────────────
 const config = {
-  ocr: { engine: 'pp-ocr', removeHeaderFooter: false },
+  ocr: { engine: 'pp-ocr', removeHeaderFooter: false, orientation: orientation ? 'auto' : 'off' },
   layout: { engine: layout ? 'pp-doclayout-v3' : 'off' },
   figures: { extract: false },
   cache: { enabled: false },
 }
 console.log(
-  `OmniDocBench · ${pages.length} page(s) · layout ${layout ? 'on' : 'off'} · rag-chunker ${PACKAGE_VERSION}`,
+  `OmniDocBench · ${pages.length} page(s) · layout ${layout ? 'on' : 'off'} · orientation ${orientation ? 'on' : 'off'} · rag-chunker ${PACKAGE_VERSION}`,
 )
 const records = []
 const t0 = Date.now()

@@ -12,6 +12,7 @@ import { FORMULA_MODELS } from '../../local/formula.js'
 import { LAYOUT_MODEL } from '../../local/layout.js'
 import { hasModel, MODELS, modelsDir } from '../../local/models.js'
 import { OCR_DET_MODEL, OCR_DICT, OCR_REC_MODEL } from '../../local/ocr.js'
+import { ORIENTATION_MODEL } from '../../local/orientation.js'
 import {
   defaultReranker,
   hasReranker,
@@ -170,6 +171,21 @@ export async function runChecks(
         : detServer && cjkReady
           ? undefined
           : 'The default "full" profile downloads the server detector (84 MB) and the CJK recogniser (84 MB) on first use; `--profile basic` keeps the small Latin models.',
+  })
+
+  const orientationReady = await hasModel(ORIENTATION_MODEL)
+  checks.push({
+    status: onnx && orientationReady ? 'ok' : 'info',
+    label: 'Orientation model',
+    detail: !onnx
+      ? 'onnxruntime-node not installed'
+      : orientationReady
+        ? `${MODELS[ORIENTATION_MODEL].file} in ${modelsDir(env)}`
+        : 'onnxruntime-node ready, model not downloaded',
+    hint:
+      onnx && !orientationReady
+        ? 'Downloaded (7 MB) with the first local OCR run; turned scans are then read upright. ocr.orientation: "off" skips it.'
+        : undefined,
   })
 
   const rerankers = (

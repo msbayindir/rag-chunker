@@ -45,6 +45,15 @@
             "cjk"
           ]
         },
+        "orientation": {
+          "default": "auto",
+          "description": "Scanned pages and images turned by 90, 180 or 270 degrees are read upright: \"auto\" classifies every page the local OCR reads (PP-LCNet document orientation model, 7 MB, downloaded once); \"off\" reads pages as they are.",
+          "type": "string",
+          "enum": [
+            "auto",
+            "off"
+          ]
+        },
         "concurrency": {
           "description": "Parallel page requests (default: the provider's concurrency).",
           "type": "integer",

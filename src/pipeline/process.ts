@@ -23,6 +23,7 @@ import {
   resolveOcrDetector,
   resolveOcrScript,
 } from '../local/ocr.js'
+import { createOrientationClassifier, type OrientationClassifier } from '../local/orientation.js'
 import { configureDevice, hasOnnxRuntime } from '../local/runtime.js'
 import type { TableStructureProvider } from '../local/table.js'
 import { createTableStructureProvider, TABLE_DICT, TABLE_MODEL } from '../local/table.js'
@@ -266,6 +267,7 @@ export async function runPipeline(
   reporter.start('ocr', engineName(engine))
   const mb = (n: number) => Math.round(n / 1024 / 1024)
   let localOcr: LocalOcr | undefined
+  let orientation: OrientationClassifier | undefined
   if (engine.type === 'local') {
     if (plan.note) reporter.warn('ocr', plan.note)
     try {
@@ -278,6 +280,24 @@ export async function runPipeline(
           reporter.progress('ocr', mb(done), mb(total), `downloading ${file} (MB)`),
         signal,
       })
+      if (config.ocr.orientation !== 'off') {
+        // A 7 MB classifier; when it cannot be fetched the pages are read as they are.
+        try {
+          orientation = await createOrientationClassifier({
+            onModelDownload: (done, total) =>
+              reporter.progress(
+                'ocr',
+                mb(done),
+                mb(total),
+                `downloading ${MODELS['pp-lcnet-doc-ori'].file} (MB)`,
+              ),
+            signal,
+          })
+        } catch (err) {
+          throwIfAborted(signal)
+          reporter.warn('ocr', `Turned pages are read as they are: ${(err as Error).message}`)
+        }
+      }
     } catch (err) {
       if (!plan.fallback || !(err instanceof RagChunkerError) || !OCR_FALLBACK_CODES.has(err.code)) throw err
       reporter.warn(
@@ -394,6 +414,7 @@ export async function runPipeline(
       figures: figureSink ? { save: figureSink.save, minSize: config.figures.minSize } : undefined,
       formulas: formulaCollector?.provider,
       localOcr,
+      orientation,
       registry,
       cache,
       reporter,
@@ -424,6 +445,7 @@ export async function runPipeline(
     ocrPages: extracted.stats.ocrPages,
     cachedPages: extracted.stats.cachedPages,
     scannedPages: extracted.stats.scannedPages,
+    rotatedPages: extracted.stats.rotatedPages,
     emptyPages: extracted.stats.emptyPages,
     headerFooterLinesRemoved: extracted.stats.headerFooterLinesRemoved,
     layout: layoutPlan.engine,

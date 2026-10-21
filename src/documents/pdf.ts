@@ -3,6 +3,7 @@ import { getDocumentProxy, renderPageAsImage } from 'unpdf'
 import { RagChunkerError } from '../errors.js'
 import type { LayoutLabel, LayoutRegion, PageLayoutProvider, PageLike } from '../local/layout.js'
 import type { OcrResult, PageOcrProvider } from '../local/ocr.js'
+import type { OrientedPages, Rotation } from '../local/orientation.js'
 import type { ModelTable, TableStructureProvider } from '../local/table.js'
 import { importOptional } from '../util/optional.js'
 import {
@@ -35,9 +36,11 @@ export interface PdfTextPage {
   source: 'text-layer' | 'ocr'
   /** True when the page has no usable text layer (scanned or broken fonts). */
   scanned: boolean
-  /** Page size in PDF points. */
+  /** Page size in PDF points; for a page that was turned upright, the size after turning. */
   width: number
   height: number
+  /** Clockwise angle a scanned page was turned by, undone before it was read (absent when upright). */
+  rotation?: Rotation
   /** One entry per heading, paragraph or list item of `markdown`, with its position on the page. */
   spans: TextSpan[]
   /** Non-whitespace characters on the page. */
@@ -119,6 +122,11 @@ export interface TextLayerOptions {
   figures?: FigureOptions
   /** Reads the display-formula regions the layout model reports as LaTeX; without it they stay text. */
   formulas?: FormulaProvider
+  /**
+   * Wraps the document so pages that go to OCR are turned upright first (see `orientPages`); the
+   * layout, OCR, table, figure and formula providers then see the upright page.
+   */
+  orient?: (doc: PageLike) => OrientedPages
 }
 
 /** Reads the formula in a layout region of a page as LaTeX (null when nothing usable came out). */
@@ -260,10 +268,14 @@ export class PdfDocumentHandle {
       garbled: boolean
       source: 'text-layer' | 'ocr'
       scanned: boolean
+      rotation: Rotation
     }> = []
+    const oriented = options.orient?.(this)
+    const src: PageLike = oriented ?? this
     for (let n = 1; n <= this.pageCount; n++) {
       const page = await this.proxy.getPage(n)
-      const { width, height } = page.getViewport({ scale: 1 })
+      let { width, height } = page.getViewport({ scale: 1 })
+      let rotation: Rotation = 0
       const content = await page.getTextContent()
       let items: RawItem[] = []
       for (const it of content.items as Array<Record<string, unknown>>) {
@@ -287,18 +299,24 @@ export class PdfDocumentHandle {
       const scanned = chars === 0 || garbled
       let source: 'text-layer' | 'ocr' = 'text-layer'
       if (options.ocr?.needed({ pageNumber: n, chars, garbled })) {
-        items = ocrItems(await options.ocr.recognize(this, n), { width, height })
+        // A turned scan is read upright: from here on the page is the upright one (width and
+        // height swapped for 90/270) and every provider renders it that way.
+        if (oriented) {
+          rotation = (await oriented.orient(n)).rotation
+          if (rotation === 90 || rotation === 270) [width, height] = [height, width]
+        }
+        items = ocrItems(await options.ocr.recognize(src, n), { width, height })
         chars = items.reduce((n, it) => n + it.str.replace(/\s+/g, '').length, 0)
         source = 'ocr'
       }
-      const regions = options.layout ? await options.layout(this, n) : null
+      const regions = options.layout ? await options.layout(src, n) : null
       const rulings = await extractRulings(page).catch((): Rulings => ({ h: [], v: [] }))
       const lines0 = toLines(items, width, regions)
       const models = await modelTablesFor(
         lines0,
         regions,
         rulings,
-        options.tables ? (region) => (options.tables as TableStructureProvider)(this, n, region) : undefined,
+        options.tables ? (region) => (options.tables as TableStructureProvider)(src, n, region) : undefined,
       )
       const figures = options.figures
         ? await figuresOnPage(
@@ -307,12 +325,12 @@ export class PdfDocumentHandle {
             rulings.images ?? [],
             { width, height },
             options.figures.minSize,
-            (f) => (options.figures as FigureOptions).save(this, n, f),
+            (f) => (options.figures as FigureOptions).save(src, n, f),
           )
         : []
       const formulas = options.formulas
         ? await formulasOnPage(regions, { width, height }, lines0, (r) =>
-            (options.formulas as FormulaProvider)(this, n, r),
+            (options.formulas as FormulaProvider)(src, n, r),
           )
         : undefined
       pages.push({
@@ -324,6 +342,7 @@ export class PdfDocumentHandle {
         garbled,
         source,
         scanned,
+        rotation,
       })
     }
     const prose = pages.filter((p) => p.source === 'text-layer').map((p) => p.lines.filter((l) => !l.table))
@@ -345,6 +364,7 @@ export class PdfDocumentHandle {
         scanned: p.scanned,
         width: p.width,
         height: p.height,
+        ...(p.rotation ? { rotation: p.rotation } : {}),
         spans,
         chars: p.chars,
         garbled: p.garbled,

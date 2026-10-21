@@ -2,6 +2,7 @@ import { type Block, parseBlocks } from '../chunker/markdown.js'
 import type { FigureData } from '../documents/figures.js'
 import { type Box, matchSpans, type TextSpan, unionBoxes } from '../documents/layout.js'
 import type { TableData } from '../documents/tables.js'
+import type { Rotation } from '../local/orientation.js'
 import type { ExtractedPage } from '../ocr/extract.js'
 import type { Chunk } from '../types.js'
 
@@ -40,6 +41,8 @@ export interface LayoutPage {
   height: number | null
   /** Engine that produced the page text. */
   source: string
+  /** Clockwise angle a scanned page was turned by; its size and boxes are those of the upright page. */
+  rotation?: Rotation
   blocks: LayoutBlock[]
 }
 
@@ -66,6 +69,7 @@ export function buildDocumentLayout(input: {
       width: p.width ?? null,
       height: p.height ?? null,
       source: p.source,
+      ...(p.rotation ? { rotation: p.rotation } : {}),
       blocks: [],
     })
   }

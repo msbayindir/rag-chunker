@@ -184,6 +184,8 @@ export interface PageLike {
   pageCount: number
   renderPng(pageNumber: number, longSide?: number): Promise<Uint8Array>
   pageSize(pageNumber: number): Promise<{ width: number; height: number }>
+  /** Clockwise angle the page was turned back by before rendering (0 when absent); part of cache keys. */
+  rotation?(pageNumber: number): 0 | 90 | 180 | 270
 }
 
 /** What the PDF reader calls per page when layout analysis is on. */
@@ -221,6 +223,7 @@ export async function createLayoutProvider(options: LayoutProviderOptions = {}):
       pageNumber,
       render,
       minScore,
+      doc.rotation?.(pageNumber) ?? 0,
     )
     if (key && options.cache) {
       const hit = await options.cache.get<LayoutRegion[]>('layout', key)
