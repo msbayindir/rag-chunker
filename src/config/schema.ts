@@ -102,6 +102,12 @@ const ocrSchema = z.strictObject({
     .describe(
       'Recogniser of the local OCR. "latin": the Latin-script model (Turkish, English, German, French, …). "cjk": the PP-OCRv5 server model for Chinese, Japanese and English (84 MB, about 10× slower per line, no Ğ/İ). "auto": with local.profile "full", the widest lines of a document\'s first scanned page are read with the CJK model and the document switches to it when they come back as CJK text; otherwise Latin.',
     ),
+  orientation: z
+    .enum(['auto', 'off'])
+    .default('auto')
+    .describe(
+      'Scanned pages and images turned by 90, 180 or 270 degrees are read upright: "auto" classifies every page the local OCR reads (PP-LCNet document orientation model, 7 MB, downloaded once); "off" reads pages as they are.',
+    ),
   concurrency: z
     .number()
     .int()

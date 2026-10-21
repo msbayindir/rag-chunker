@@ -528,3 +528,53 @@ describe('embedTexts', () => {
 it('fixtures exist', async () => {
   expect((await readFile(fixture('turkish.pdf'))).length).toBeGreaterThan(1000)
 })
+
+describe('page orientation', () => {
+  it('reads a turned image upright, records the rotation and keys the OCR cache by it', async () => {
+    const doc = await readDocument(fixture('scan.png'))
+    const cache = await tmpCache()
+    const imageCalls: Array<{ bytes: Uint8Array; rotation?: number }> = []
+    let classified = 0
+    const line = (text: string, y0: number) => ({ text, x0: 40, y0, x1: 400, y1: y0 + 24, confidence: 0.98 })
+    const opts = {
+      engine: { type: 'local' as const },
+      pages: 'scanned' as const,
+      minTextChars: 40,
+      stripImages: true,
+      removeHeaderFooter: false,
+      registry: registry(),
+      cache,
+      reporter: new Reporter(),
+      localOcr: {
+        page: async () => {
+          throw new Error('no PDF pages in this test')
+        },
+        image: async (bytes: Uint8Array, options?: { rotation?: number }) => {
+          imageCalls.push({ bytes, ...(options ?? {}) })
+          return { width: 600, height: 800, lines: [line('Hiponatremi tedavisinde ilk adım', 60)] }
+        },
+      },
+      orientation: async () => {
+        classified++
+        return { rotation: 90 as const, score: 0.95 }
+      },
+    }
+    const res = await extractDocument(doc, opts)
+    expect(classified).toBe(1)
+    expect(res.stats.rotatedPages).toBe(1)
+    expect(res.pages[0]).toMatchObject({ rotation: 90, width: 600, height: 800 })
+    // The OCR saw the turned bytes, not the original file, and knows the angle for its cache key.
+    expect(imageCalls).toHaveLength(1)
+    expect(imageCalls[0]?.rotation).toBe(90)
+    expect(imageCalls[0]?.bytes).not.toEqual(doc.bytes)
+
+    const upright = await extractDocument(doc, {
+      ...opts,
+      orientation: async () => ({ rotation: 0 as const, score: 0.93 }),
+    })
+    expect(upright.stats.rotatedPages).toBe(0)
+    expect(upright.pages[0]?.rotation).toBeUndefined()
+    expect(imageCalls[1]?.rotation).toBe(0)
+    expect(imageCalls[1]?.bytes).toBe(doc.bytes)
+  })
+})

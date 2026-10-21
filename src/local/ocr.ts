@@ -483,7 +483,7 @@ const OCR_CACHE_VERSION = 1
 export async function createOcrProvider(options: OcrProviderOptions = {}): Promise<{
   models: OcrModelPaths
   page: PageOcrProvider
-  image: (bytes: Uint8Array) => Promise<OcrResult>
+  image: (bytes: Uint8Array, options?: { rotation?: number }) => Promise<OcrResult>
 }> {
   const models = await loadOcrModels(options)
   const render = options.render ?? 2000
@@ -506,7 +506,7 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
       ...part,
     )
   const page: PageOcrProvider = async (doc, pageNumber) => {
-    const key = keyFor(pageNumber, render)
+    const key = keyFor(pageNumber, render, doc.rotation?.(pageNumber) ?? 0)
     if (key && options.cache) {
       const hit = await options.cache.get<OcrResult>('ocr-local', key)
       if (hit) {
@@ -522,8 +522,8 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
   }
   // A standalone image is one page: its lines are cached like a PDF page's (the page itself is
   // composed again on every run, so layout and table settings take effect).
-  const image = async (bytes: Uint8Array): Promise<OcrResult> => {
-    const key = options.documentId ? keyFor('image') : undefined
+  const image = async (bytes: Uint8Array, imageOptions: { rotation?: number } = {}): Promise<OcrResult> => {
+    const key = options.documentId ? keyFor('image', imageOptions.rotation ?? 0) : undefined
     if (key && options.cache) {
       const hit = await options.cache.get<OcrResult>('ocr-local', key)
       if (hit) return { ...hit, cached: true }

@@ -3,7 +3,7 @@
  * Mirrors the local ONNX models to a Hugging Face model repo owned by the project, with a model
  * card and licence files generated from the catalogue in src/local/models.ts.
  *
- *   node scripts/hf-mirror.mjs <user-or-org>/<repo> [--models <dir>] [--only layout,ocr,table] [--dry-run]
+ *   node scripts/hf-mirror.mjs <user-or-org>/<repo> [--models <dir>] [--only layout,ocr,table,orientation] [--dry-run]
  *
  * Needs HF_TOKEN (a write token) in the environment or .env, the models downloaded (run
  * `rag-chunker process x.pdf --layout --ocr pp-ocr` once, or point --models at the folder) and the
@@ -24,7 +24,7 @@ const flag = (name) => {
 const dryRun = args.includes('--dry-run')
 if (!repoArg) {
   console.error(
-    'usage: node scripts/hf-mirror.mjs [<user-or-org>/]<repo> [--models <dir>] [--only layout,ocr,table] [--dry-run]',
+    'usage: node scripts/hf-mirror.mjs [<user-or-org>/]<repo> [--models <dir>] [--only layout,ocr,table,orientation] [--dry-run]',
   )
   process.exit(2)
 }
@@ -53,6 +53,7 @@ const GROUPS = {
     ],
   },
   table: { title: 'Table structure', ids: ['slanet-plus', 'slanet-dict'] },
+  orientation: { title: 'Page orientation', ids: ['pp-lcnet-doc-ori'] },
   formula: {
     title: 'Formula recognition',
     ids: [

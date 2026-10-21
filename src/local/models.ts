@@ -173,6 +173,15 @@ export const MODELS = {
     license: 'Apache-2.0 (PaddlePaddle PP-DocLayoutV3)',
     description: 'Page layout: 25 block classes with reading order',
   },
+  'pp-lcnet-doc-ori': {
+    id: 'pp-lcnet-doc-ori',
+    file: 'PP-LCNet_x1_0_doc_ori.onnx',
+    url: 'https://huggingface.co/msbayindir/rag-chunker-models/resolve/main/PP-LCNet_x1_0_doc_ori.onnx',
+    sha256: '6039f8048d654587addc5e8c94cf89573a1b07af63e92b20691de98ab68deeb5',
+    bytes: 6_787_896,
+    license: 'Apache-2.0 (PaddleOCR PP-LCNet_x1_0_doc_ori)',
+    description: 'Page orientation: upright, 90, 180 or 270 degrees',
+  },
   'reranker-mmarco-minilm-arm64': {
     id: 'reranker-mmarco-minilm-arm64',
     file: 'mmarco-mMiniLMv2-L12-H384-v1.qint8-arm64.onnx',

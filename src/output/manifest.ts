@@ -25,6 +25,8 @@ export interface Manifest {
       ocrPages: number
       cachedPages: number
       scannedPages: number
+      /** Scanned pages and images turned upright before OCR (90, 180 or 270 degrees). */
+      rotatedPages: number
       emptyPages: number
       headerFooterLinesRemoved: number
       /** Layout model used for PDF pages, null when layout analysis was off. */

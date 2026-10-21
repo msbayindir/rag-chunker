@@ -18,6 +18,7 @@ import { xlsxToMarkdown } from '../documents/xlsx.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
 import type { PageLayoutProvider, PageLike } from '../local/layout.js'
 import type { OcrResult, PageOcrProvider } from '../local/ocr.js'
+import { type OrientationClassifier, orientPages, type Rotation, turnUpright } from '../local/orientation.js'
 import type { TableStructureProvider } from '../local/table.js'
 import type { Reporter } from '../pipeline/events.js'
 import {
@@ -43,7 +44,8 @@ export type OcrEngine =
 /** Local OCR (PP-OCRv5): per PDF page, or for a whole image. */
 export interface LocalOcr {
   page: PageOcrProvider
-  image: (bytes: Uint8Array) => Promise<OcrResult>
+  /** `rotation`: clockwise angle the image was turned back by before this call (part of the cache key). */
+  image: (bytes: Uint8Array, options?: { rotation?: Rotation }) => Promise<OcrResult>
 }
 
 export interface ExtractOptions {
@@ -64,6 +66,8 @@ export interface ExtractOptions {
   figures?: { save: FigureSink; minSize?: number }
   /** Reads display formulas in layout regions as LaTeX; without it they stay OCR text. */
   formulas?: FormulaProvider
+  /** Turns scanned pages and images that are rotated upright before the local OCR reads them. */
+  orientation?: OrientationClassifier
   registry: ProviderRegistry
   cache: CacheStore
   reporter: Reporter
@@ -80,6 +84,8 @@ export interface ExtractedPage {
   height?: number
   /** Positions of the page's text blocks (text-layer pages only). */
   spans?: TextSpan[]
+  /** Clockwise angle a scanned page or image was turned by, undone before it was read. */
+  rotation?: Rotation
 }
 
 export interface ExtractStats {
@@ -92,6 +98,8 @@ export interface ExtractStats {
   headerFooterLinesRemoved: number
   /** PDF pages that went through layout analysis. */
   layoutPages: number
+  /** Scanned pages and images that were turned upright before OCR. */
+  rotatedPages: number
 }
 
 export interface ExtractResult {
@@ -132,6 +140,7 @@ export async function extractDocument(doc: DocumentInput, opts: ExtractOptions):
     emptyPages: 0,
     headerFooterLinesRemoved: 0,
     layoutPages: 0,
+    rotatedPages: 0,
   }
   let pages: ExtractedPage[]
 
@@ -218,9 +227,17 @@ async function ocrImage(
     // markdown here lost the page size and spans on a rerun and kept tables from an earlier table
     // model or layout setting.
     opts.reporter.progress('ocr', 0, 1, label)
-    const result = await localOcrOf(opts).image(doc.bytes)
+    // A turned image is read upright; its size, spans and figures are those of the upright image.
+    const rotation = opts.orientation ? (await opts.orientation(doc.bytes)).rotation : 0
+    const bytes = rotation ? await turnUpright(doc.bytes, rotation) : doc.bytes
+    const result = await localOcrOf(opts).image(bytes, { rotation })
     const size = { width: result.width, height: result.height }
-    const asPage: PageLike = { pageCount: 1, renderPng: async () => doc.bytes, pageSize: async () => size }
+    const asPage: PageLike = {
+      pageCount: 1,
+      renderPng: async () => bytes,
+      pageSize: async () => size,
+      rotation: () => rotation,
+    }
     const regions = opts.layout ? await opts.layout(asPage, 1) : null
     const tables = opts.tables
     const figures = opts.figures
@@ -233,6 +250,7 @@ async function ocrImage(
     })
     if (result.cached) stats.cachedPages++
     else stats.ocrPages++
+    if (rotation) stats.rotatedPages++
     opts.reporter.progress('ocr', 1, 1, label)
     return {
       pageNumber: 1,
@@ -241,6 +259,7 @@ async function ocrImage(
       width: size.width,
       height: size.height,
       spans: page.spans,
+      ...(rotation ? { rotation } : {}),
     }
   }
   const key = opts.cache.key('ocr', OCR_CACHE_VERSION, doc.documentId, 1, label, VISION_PROMPT_VERSION)
@@ -303,6 +322,15 @@ async function extractPdf(
               needed: (p) => opts.pages === 'all' || p.chars < opts.minTextChars || p.garbled,
               recognize: local.page,
             },
+            ...(opts.orientation
+              ? {
+                  orient: (d: PageLike) =>
+                    orientPages(d, opts.orientation as OrientationClassifier, {
+                      cache: opts.cache,
+                      documentId: doc.documentId,
+                    }),
+                }
+              : {}),
           }
         : {}),
     })
@@ -315,6 +343,7 @@ async function extractPdf(
     if (local) {
       stats.ocrPages = textPages.filter((p) => p.source === 'ocr').length
       stats.textLayerPages = textPages.length - stats.ocrPages
+      stats.rotatedPages = textPages.filter((p) => p.rotation).length
       return textPages.map((p) => ({
         pageNumber: p.pageNumber,
         markdown: p.markdown,
@@ -322,6 +351,7 @@ async function extractPdf(
         width: p.width,
         height: p.height,
         spans: p.spans,
+        ...(p.rotation ? { rotation: p.rotation } : {}),
       }))
     }
     const targets = engine.type === 'text-layer' ? [] : opts.pages === 'all' ? all : scanned

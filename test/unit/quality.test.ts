@@ -45,6 +45,7 @@ const ocrStage = {
   headerFooterLinesRemoved: 0,
   layout: null,
   layoutPages: 0,
+  rotatedPages: 0,
   durationMs: 1,
 }
 

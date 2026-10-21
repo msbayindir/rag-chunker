@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PdfDocumentHandle } from '../../documents/pdf.js'
+import { turnUpright } from '../../local/orientation.js'
 import { readOutputDir } from '../../output/writer.js'
 
 const STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), 'static')
@@ -41,7 +42,9 @@ export async function startInspectServer(options: {
     let png = rendered.get(page)
     if (!png) {
       pdfHandle ??= readFile(options.pdf as string).then((b) => PdfDocumentHandle.open(new Uint8Array(b)))
-      png = pdfHandle.then((h) => h.renderPng(page, 1400))
+      // Boxes are in the upright frame: a page that was turned before OCR is shown turned too.
+      const rotation = output.layout?.pages.find((p) => p.number === page)?.rotation ?? 0
+      png = pdfHandle.then(async (h) => turnUpright(await h.renderPng(page, 1400), rotation))
       png.catch(() => rendered.delete(page))
       rendered.set(page, png)
     }
