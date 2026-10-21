@@ -88,7 +88,7 @@
     "TEDS_structure_only": 0.6060606060606061
   },
   "page-83587fc3-fe55-4e51-a3c5-f0664edba743.png_[0]": {
-    "TEDS": 0.6183740940799474,
+    "TEDS": 0.6234959102482753,
     "TEDS_structure_only": 1.0
   },
   "page-83587fc3-fe55-4e51-a3c5-f0664edba743.png_[1]": {
@@ -372,8 +372,8 @@
     "TEDS_structure_only": 0.8333333333333334
   },
   "page-2deb83b3-abe2-442c-a544-0b6a8db464f1.png_[0]": {
-    "TEDS": 0.06982323232323229,
-    "TEDS_structure_only": 0.16666666666666663
+    "TEDS": 0.7549914477939044,
+    "TEDS_structure_only": 0.905511811023622
   },
   "page-bf2cd266-22b7-41d7-a244-28595d23974f.png_[0]": {
     "TEDS": 0.728937728937729,
@@ -404,12 +404,12 @@
     "TEDS_structure_only": 0.7619047619047619
   },
   "page-cb30bac7-d4bd-47d0-ac84-e0b46d051fe9.png_[0]": {
-    "TEDS": 0.0,
-    "TEDS_structure_only": 0.0
+    "TEDS": 0.5785510176957545,
+    "TEDS_structure_only": 0.8888888888888888
   },
   "page-1955f827-fb35-4806-b3a4-463d9e0d6cc8.png_[0]": {
-    "TEDS": 0.17660943351127412,
-    "TEDS_structure_only": 0.29447852760736193
+    "TEDS": 0.21149727731030377,
+    "TEDS_structure_only": 0.5460122699386503
   },
   "page-ddb9d794-5230-4b43-b1ec-273b9e7ebc11.png_[0]": {
     "TEDS": 0.9986559139784946,
@@ -472,8 +472,8 @@
     "TEDS_structure_only": 0.8928571428571429
   },
   "page-50ffe5d2-cd27-449a-a813-d4a8c44b12ea.png_[0]": {
-    "TEDS": 0.05202879598479504,
-    "TEDS_structure_only": 0.3375
+    "TEDS": 0.7953757022876041,
+    "TEDS_structure_only": 0.935672514619883
   },
   "page-be2ebf31-5f24-4d3e-97f0-4a8df7e773b4.png_[0]": {
     "TEDS": 0.3941638365482263,
@@ -564,7 +564,7 @@
     "TEDS_structure_only": 0.9435215946843853
   },
   "page-f3e750d8-8201-4a22-9419-9776798b7a32.png_[0]": {
-    "TEDS": 0.24802288806117923,
+    "TEDS": 0.26621329786388104,
     "TEDS_structure_only": 0.440745672436751
   },
   "page-ab4f331b-e8f3-41fb-ba6b-8da5ade54983.png_[0]": {
@@ -1252,7 +1252,7 @@
     "TEDS_structure_only": 0.0
   },
   "jiaocaineedrop_jiaocai_needrop_en_1417.jpg_[1]": {
-    "TEDS": 0.8835227272727273,
+    "TEDS": 0.8892045454545454,
     "TEDS_structure_only": 1.0
   },
   "jiaocaineedrop_jiaocai_needrop_en_1417.jpg_[2]": {
@@ -2180,8 +2180,8 @@
     "TEDS_structure_only": 0.5
   },
   "scihub_bloodadvances.2019030924.pdf_3.jpg_[0]": {
-    "TEDS": 0.7767645249487355,
-    "TEDS_structure_only": 0.8200000000000001
+    "TEDS": 0.7874274167324755,
+    "TEDS_structure_only": 0.8252427184466019
   },
   "scihub_carcin%2Fbgh032.pdf_2.jpg_[0]": {
     "TEDS": 0.43264229614114824,
@@ -2276,32 +2276,32 @@
     "TEDS_structure_only": 0.7272727272727273
   },
   "docstructbench_llm-raw-scihub-o.O-s001280000131.pdf_5.jpg_[0]": {
-    "TEDS": 0.08270710583083807,
-    "TEDS_structure_only": 0.24137931034482762
+    "TEDS": 0.42746720468322896,
+    "TEDS_structure_only": 0.9080459770114943
   },
   "yanbaor2_0aa9545ccbc482a37e3b55c96897f0f24cee08bb80c7addfb0c219814af44a3b.pdf_27.jpg_[0]": {
-    "TEDS": 0.14868362892677733,
-    "TEDS_structure_only": 0.5909090909090908
+    "TEDS": 0.20643039032045607,
+    "TEDS_structure_only": 0.9346590909090909
   },
   "yanbaor2_1492d25d79af850815ea449254ea62418c3c7fd582792b5191e1879671ba1219.pdf_88.jpg_[0]": {
-    "TEDS": 0.06253274872794634,
-    "TEDS_structure_only": 0.3134796238244514
+    "TEDS": 0.23482896238071893,
+    "TEDS_structure_only": 0.8338557993730408
   },
   "scihub_j.1528-1167.2008.01552.x.pdf_3.jpg_[0]": {
     "TEDS": 0.0,
     "TEDS_structure_only": 0.0
   },
   "scihub_journal.pone.0166577.pdf_5.jpg_[0]": {
-    "TEDS": 0.02178375785163622,
-    "TEDS_structure_only": 0.0808314087759815
+    "TEDS": 0.1007039109528044,
+    "TEDS_structure_only": 0.1385681293302541
   },
   "scihub_s00381-021-05138-3.pdf_3.jpg_[0]": {
     "TEDS": 0.13036231445322366,
     "TEDS_structure_only": 0.3560606060606061
   },
   "scihub_s12237-014-9873-7.pdf_4.jpg_[0]": {
-    "TEDS": 0.0,
-    "TEDS_structure_only": 0.0
+    "TEDS": 0.1458707976125112,
+    "TEDS_structure_only": 0.2894736842105263
   },
   "PPT_LEP power point presentation-English-FINAL-10-31-07_page_011.png_[0]": {
     "TEDS": 0.4724687618861606,

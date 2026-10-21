@@ -1,30 +1,30 @@
 {
   "benchmark": "OmniDocBench v1.6, all 1,651 pages (opendatalab/OmniDocBench; annotations and images are not redistributed)",
   "run": {
-    "package": "@msbayindir/rag-chunker 4.1.0 (master 34ae4ae)",
+    "package": "@msbayindir/rag-chunker 4.2.0 (release branch 2a359ed: master e6db4de with the short-line body-height change reverted)",
     "machine": "Apple M1, 16 GB, macOS; RAG_CHUNKER_THREADS=4; local.device auto (CoreML for the OCR detector)",
-    "config": "default full profile: layout PP-DocLayoutV3, PP-OCRv5 server detector, Latin/CJK recogniser chosen per document, SLANet_plus tables, texify2 formulas; page images only, cache off",
-    "date": "2026-10-20"
+    "config": "default full profile: layout PP-DocLayoutV3, PP-OCRv5 server detector, Latin/CJK recogniser chosen per document, SLANet_plus tables, texify2 formulas; page images only, cache off; pages scanned sideways turned upright (ocr.orientation auto)",
+    "date": "2026-10-22"
   },
   "official": {
     "scorer": "OmniDocBench pdf_validation.py, main branch of 2026-10-19, default end2end settings (quick_match) without the display-formula metrics (CDM needs a LaTeX toolchain)",
     "textEditDistance": 0.165,
     "textEditDistanceWhole": 0.23,
-    "tableTEDS": 54.8,
-    "tableTEDSStructure": 68.5,
+    "tableTEDS": 55.2,
+    "tableTEDSStructure": 69.2,
     "readingOrderEditDistance": 0.218,
     "byLanguage": {
       "english": {
         "textEditDistance": 0.151,
-        "tableTEDS": 56.8,
-        "tableTEDSStructure": 70.8,
+        "tableTEDS": 58.6,
+        "tableTEDSStructure": 73.2,
         "readingOrderEditDistance": 0.196
       },
       "simplified_chinese": {
-        "textEditDistance": 0.157,
-        "tableTEDS": 55.6,
-        "tableTEDSStructure": 66.9,
-        "readingOrderEditDistance": 0.231
+        "textEditDistance": 0.156,
+        "tableTEDS": 55.7,
+        "tableTEDSStructure": 67.2,
+        "readingOrderEditDistance": 0.23
       },
       "en_ch_mixed": {
         "textEditDistance": 0.29,
@@ -51,6 +51,21 @@
         "tableTEDS": 65.77,
         "tableTEDSStructure": 73.24,
         "readingOrderEditDistance": 0.243
+      }
+    },
+    "previous": {
+      "4.1.0": {
+        "textEditDistance": 0.165,
+        "textEditDistanceWhole": 0.23,
+        "tableTEDS": 54.8,
+        "tableTEDSStructure": 68.5,
+        "readingOrderEditDistance": 0.218,
+        "run": {
+          "package": "@msbayindir/rag-chunker 4.1.0 (master 34ae4ae)",
+          "machine": "Apple M1, 16 GB, macOS; RAG_CHUNKER_THREADS=4; local.device auto (CoreML for the OCR detector)",
+          "config": "default full profile: layout PP-DocLayoutV3, PP-OCRv5 server detector, Latin/CJK recogniser chosen per document, SLANet_plus tables, texify2 formulas; page images only, cache off",
+          "date": "2026-10-20"
+        }
       }
     }
   },
@@ -766,6 +781,107 @@
       "tableTEDS": {
         "4.0.0": 57.2,
         "4.1.0": 58.5
+      }
+    },
+    "full1651": {
+      "pages": 1651,
+      "overall": {
+        "pages": 1651,
+        "textED": 0.13905190589988026,
+        "textScore": 86.09480941001198,
+        "textEDStrict": 0.19603522776422766,
+        "formulas": 2066,
+        "formulasMatched": 1060,
+        "formulaED": 0.6151178497760582,
+        "tables": 665,
+        "tablesMatched": 577,
+        "teds": 56.47875297450548,
+        "tedsS": 68.34253223903934,
+        "orderED": 0.05296032617133152,
+        "msPerPage": 7129.917625681405,
+        "errors": 0
+      },
+      "byLanguage": {
+        "english": {
+          "pages": 755,
+          "textED": 0.12745684542147181,
+          "textScore": 87.25431545785281,
+          "textEDStrict": 0.16643131118441717,
+          "formulas": 1660,
+          "formulasMatched": 880,
+          "formulaED": 0.5729760329582979,
+          "tables": 243,
+          "tablesMatched": 196,
+          "teds": 50.235354247138154,
+          "tedsS": 62.45557133306051,
+          "orderED": 0.04169816186522,
+          "msPerPage": 6850.92715231788,
+          "errors": 0
+        },
+        "simplified_chinese": {
+          "pages": 765,
+          "textED": 0.12663487636909265,
+          "textScore": 87.33651236309073,
+          "textEDStrict": 0.20323257302196646,
+          "formulas": 405,
+          "formulasMatched": 180,
+          "formulaED": 0.7868969454976876,
+          "tables": 382,
+          "tablesMatched": 344,
+          "teds": 60.49206274150822,
+          "tedsS": 71.82612548687503,
+          "orderED": 0.06553126681109593,
+          "msPerPage": 7946.6274509803925,
+          "errors": 0
+        },
+        "traditional_chinese": {
+          "pages": 13,
+          "textED": 0.45168742067608025,
+          "textScore": 54.83125793239198,
+          "textEDStrict": 0.5105280991851165,
+          "formulas": 0,
+          "formulasMatched": 0,
+          "formulaED": null,
+          "tables": 10,
+          "tablesMatched": 10,
+          "teds": 52.143573701120104,
+          "tedsS": 67.08980102854503,
+          "orderED": 0.08424908424908426,
+          "msPerPage": 4602,
+          "errors": 0
+        },
+        "en_ch_mixed": {
+          "pages": 116,
+          "textED": 0.2635525758595247,
+          "textScore": 73.64474241404753,
+          "textEDStrict": 0.30821165019293345,
+          "formulas": 1,
+          "formulasMatched": 0,
+          "formulaED": 1,
+          "tables": 30,
+          "tablesMatched": 27,
+          "teds": 57.392531390808855,
+          "tedsS": 72.08673862519109,
+          "orderED": 0.040764905990522175,
+          "msPerPage": 3902.8793103448274,
+          "errors": 0
+        },
+        "other": {
+          "pages": 2,
+          "textED": 0.012531328320802004,
+          "textScore": 98.7468671679198,
+          "textEDStrict": 0.06809301045679692,
+          "formulas": 0,
+          "formulasMatched": 0,
+          "formulaED": null,
+          "tables": 0,
+          "tablesMatched": 0,
+          "teds": null,
+          "tedsS": null,
+          "orderED": 0,
+          "msPerPage": 3657,
+          "errors": 0
+        }
       }
     }
   }

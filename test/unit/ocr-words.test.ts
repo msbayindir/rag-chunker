@@ -103,34 +103,4 @@ describe('OCR word positions', () => {
     expect(sizes[6]).toBeCloseTo(29 / 1.05, 2)
     expect(sizes[7]).toBeCloseTo(12 / 1.05, 2)
   })
-
-  it('takes the body height from all lines on a page of short lines (tables, forms)', () => {
-    const line = (y0: number, h: number, text: string) => ({
-      text,
-      x0: 10,
-      y0,
-      x1: 300,
-      y1: y0 + h,
-      confidence: 0.9,
-    })
-    const result: OcrResult = {
-      width: 1000,
-      height: 1000,
-      lines: [
-        line(0, 46, 'FORM TITLE'),
-        line(60, 22, 'A long introductory sentence for the form'),
-        line(90, 20, 'Name'),
-        line(120, 24, 'Surname'),
-        line(150, 21, 'Date of birth'),
-        line(180, 23, 'Address'),
-        line(210, 20, 'Phone'),
-        line(240, 25, 'E-mail'),
-        line(270, 22, 'Signature'),
-      ],
-    }
-    const sizes = ocrItems(result, { width: 1000, height: 1000 }).map((i) => Number(i.size.toFixed(2)))
-    expect(sizes[0]).toBeCloseTo(46 / 1.05, 2)
-    // Two long lines are not enough for a body height; the cells decide and all land on one size.
-    expect(new Set(sizes.slice(1)).size).toBe(1)
-  })
 })

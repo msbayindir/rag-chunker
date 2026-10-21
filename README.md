@@ -19,7 +19,7 @@ npx @msbayindir/rag-chunker process book.pdf --local    # everything on Ollama, 
 
 - **Chunks that respect the document.** A deterministic, AST-based chunker keeps headings with their content, never splits mid-sentence unless it must, splits big tables by rows *with the header repeated*, keeps code fences intact and never drops a word (property-tested).
 - **Accurate citations.** Every chunk has `pageStart`/`pageEnd`, a heading breadcrumb (`sectionPath`) and a stable, collision-free `chunkId`.
-- **Tiered OCR.** Digital pages are read from the PDF text layer for free; only scanned pages go to OCR: the local PP-OCRv5 models (no keys; Latin scripts incl. Turkish, and Chinese/Japanese detected per document with the default profile), Mistral OCR, or a vision model (Gemma 4, Gemini, Claude, GPT…). Running headers, footers and page numbers are removed.
+- **Tiered OCR.** Digital pages are read from the PDF text layer for free; only scanned pages go to OCR: the local PP-OCRv5 models (no keys; Latin scripts incl. Turkish, and Chinese/Japanese detected per document with the default profile), Mistral OCR, or a vision model (Gemma 4, Gemini, Claude, GPT…). Running headers, footers and page numbers are removed; pages scanned sideways or upside down are turned upright first.
 - **Local document models, measured.** Page layout with reading order, table structure, display formulas as LaTeX and a cross-encoder reranker all run on `onnxruntime-node` on your machine. `local.profile` picks the strongest models (`full`, the default) or the small, fast ones (`basic`); see [Benchmarks](#benchmarks) for what they score on public sets.
 - **Contextual retrieval** ([Anthropic's method](https://www.anthropic.com/news/contextual-retrieval)): each chunk gets a 1–2 sentence summary that situates it in the document. Large documents that do not fit a model use document + section summaries instead, so it works with small local models too.
 - **Heading repair.** OCR reads pages one by one and gets heading levels wrong; an LLM pass plus a deterministic numbering pass fixes them.
@@ -315,7 +315,7 @@ Questions come with a verbatim evidence quote, so they are valid for any chunkin
 
 ## Benchmarks
 
-Measured on rag-chunker 4.1.0 with the default `full` profile (local layout, OCR, table and formula
+Measured on rag-chunker 4.2.0 with the default `full` profile (local layout, OCR, table and formula
 models; no API keys), page images only, on an Apple M1. Per-page results and the commands to
 reproduce them are in [`bench/`](bench/README.md#external-benchmarks).
 
@@ -325,13 +325,15 @@ table):
 
 | | Text edit distance ↓ | Table TEDS ↑ | Table TEDS-S ↑ | Reading-order edit ↓ |
 | --- | ---: | ---: | ---: | ---: |
-| **rag-chunker 4.1.0** | **0.165** | **54.8** | **68.5** | **0.218** |
+| **rag-chunker 4.2.0** | **0.165** | **55.2** | **69.2** | **0.218** |
 | Marker (official table) | 0.157 | 65.8 | 73.2 | 0.243 |
 | MinerU pipeline (official table) | 0.055 | 81.9 | 88.7 | 0.153 |
 
-By language: English 0.151 (755 pages), Simplified Chinese 0.157 (765 pages), mixed English–Chinese
+By language: English 0.151 (755 pages), Simplified Chinese 0.156 (765 pages), mixed English–Chinese
 0.290 (116 pages). Text is close to Marker and well behind MinerU, reading order is ahead of Marker,
-and tables are the weakest part. There is no formula (CDM) score, which needs a LaTeX toolchain, so
+and tables are the weakest part. 4.2.0 reads the pages scanned sideways upright (10 pages of the
+set, all tables printed across the page): their TEDS rose, and the text score of every other page
+is identical to 4.1.0 (4.1.0: 0.165 / 54.8 / 68.5 / 0.218). There is no formula (CDM) score, which needs a LaTeX toolchain, so
 the official "Overall" is not reported. The competitor rows are copied from the official table, not
 re-run by us; we ran the official script from its main branch (2026-10-19) with its default
 matching settings.
