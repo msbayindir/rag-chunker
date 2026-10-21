@@ -2,7 +2,7 @@ import type { CacheStore } from '../cache/store.js'
 import { importOptional } from '../util/optional.js'
 import type { PageLike } from './layout.js'
 import { ensureModel, type ModelId } from './models.js'
-import { sessionFor } from './runtime.js'
+import { type DeviceChoice, sessionFor } from './runtime.js'
 
 /**
  * Local OCR with PP-OCRv5 mobile: a DBNet text detector finds text lines on the page image, a
@@ -289,6 +289,8 @@ export interface RecognizeOptions {
   script?: OcrScript | 'auto'
   /** Detector input size and dense-page second pass (default `DEFAULT_DETECTION`). */
   detection?: DetectionSettings
+  /** `local.device` of the pipeline: where the detector and the CJK recogniser run. */
+  device?: DeviceChoice
 }
 
 /** Share of CJK characters (Han, kana, Hangul) among the non-space characters of a text. */
@@ -328,7 +330,7 @@ export async function recognizeImage(
   const canvasMod = await importOptional('@napi-rs/canvas', 'Local OCR', () => import('@napi-rs/canvas'))
   const rt = await import('onnxruntime-node')
   const [det, rec, img] = await Promise.all([
-    sessionFor(models.det, 'Local OCR', { accelerate: true }),
+    sessionFor(models.det, 'Local OCR', { accelerate: true, device: options.device }),
     sessionFor(models.rec, 'Local OCR'),
     canvasMod.loadImage(Buffer.from(image)),
   ])
@@ -437,7 +439,7 @@ export async function recognizeImage(
   const latin: Recogniser = { session: rec, dictionary: models.dictionary }
   const cjk: Recogniser | null = models.cjk
     ? {
-        session: await sessionFor(models.cjk.rec, 'Local OCR', { accelerate: true }),
+        session: await sessionFor(models.cjk.rec, 'Local OCR', { accelerate: true, device: options.device }),
         dictionary: models.cjk.dictionary,
       }
     : null
@@ -473,6 +475,8 @@ export interface OcrProviderOptions {
   cjk?: boolean
   /** Detector input size and dense-page second pass (`ocr.detection`). */
   detection?: DetectionSettings
+  /** `local.device`: where the detector and the CJK recogniser run (default 'auto'). */
+  device?: DeviceChoice
   cache?: CacheStore
   documentId?: string
   modelsDir?: string
@@ -519,7 +523,11 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
       }
     }
     const png = await doc.renderPng(pageNumber, render)
-    const result = await recognizeImage(png, models, { script: decided ?? 'auto', detection })
+    const result = await recognizeImage(png, models, {
+      script: decided ?? 'auto',
+      detection,
+      device: options.device,
+    })
     if (decided === null && result.probed && result.script) decided = result.script
     if (key && options.cache) await options.cache.set('ocr-local', key, result)
     return result
@@ -532,7 +540,11 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
       const hit = await options.cache.get<OcrResult>('ocr-local', key)
       if (hit) return { ...hit, cached: true }
     }
-    const result = await recognizeImage(bytes, models, { script: scriptMode, detection })
+    const result = await recognizeImage(bytes, models, {
+      script: scriptMode,
+      detection,
+      device: options.device,
+    })
     if (key && options.cache) await options.cache.set('ocr-local', key, result)
     return result
   }

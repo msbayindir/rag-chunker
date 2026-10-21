@@ -98,7 +98,7 @@ export async function runChecks(
 
   const onnx = await canImport(() => import('onnxruntime-node'))
   if (onnx) {
-    const device = await resolveDevice().catch(() => 'cpu' as const)
+    const device = await resolveDevice(config.local.device).catch(() => 'cpu' as const)
     const fell = deviceFallbacks()
     checks.push({
       status: 'info',
