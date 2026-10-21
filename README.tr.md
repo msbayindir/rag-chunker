@@ -293,6 +293,8 @@ Araçlar: `search`, `get_chunk`, `get_page`, `list_documents`.
 
 Node.js 22 veya üzeri. İsteğe bağlı: yerel modeller için [Ollama](https://ollama.com).
 
+**Kurulum boyutu.** Paketin kendisi 1,5 MB; `npm install` yerel modellerin gerektirdiği isteğe bağlı yerel paketleri de getirir, diskte yaklaşık 700 MB: `onnxruntime-node` (290 MB, her işletim sistemi için ikili dosyalar), formül modeli için `@huggingface/transformers` (kendi bağımlılıklarıyla 180 MB), `@napi-rs/canvas` ve sağlayıcı SDK'ları. `npm install --omit=optional` yalnız çekirdeği kurar (metin katmanı, chunk'lama, bulut sağlayıcıları); kullandığınızı sonradan eklersiniz, örneğin yerel OCR, layout, tablo ve reranker için `npm install onnxruntime-node @napi-rs/canvas`. Model dosyaları ilk kullanımda `~/.rag-chunker/models` klasörüne iner (`RAG_CHUNKER_MODELS_DIR`), pakete hiç girmez.
+
 ## Örnekler
 
 [`examples/`](examples/) klasöründe çalıştırılabilir betikler var: temel kullanım, yerel yerleşim modeli ile şekiller ve betimlemeleri, XLSX/HTML girdileri, reranker ile iki aşamalı arama, iki chunk boyutunu `eval --compare` ile karşılaştırma, tamamen yerel hat, karışık sağlayıcılar, pgvector sorgusu ve Claude Desktop / Claude Code / Cursor için MCP kurulumu.

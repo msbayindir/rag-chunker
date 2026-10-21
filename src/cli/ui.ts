@@ -115,8 +115,12 @@ export class ProgressRenderer {
 export const ISSUES_URL = 'https://github.com/msbayindir/rag-chunker/issues/new/choose'
 export const DISCUSSIONS_URL = 'https://github.com/msbayindir/rag-chunker/discussions'
 
-/** Errors that point at the tool rather than at the user's setup get a link to report them. */
-const REPORTABLE = new Set(['PROVIDER_ERROR', 'INPUT_INVALID', 'UNSUPPORTED_INPUT'])
+/**
+ * Errors that point at the tool rather than at the user's input or setup get a link to report
+ * them: unexpected provider answers, and anything that is not a RagChunkerError at all. A missing
+ * file, an unsupported input or a configuration mistake is the user's to fix.
+ */
+const REPORTABLE = new Set(['PROVIDER_ERROR'])
 
 export function reportError(error: unknown, verbose = false): number {
   err()

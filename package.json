@@ -1,6 +1,6 @@
 {
   "name": "@msbayindir/rag-chunker",
-  "version": "4.1.0",
+  "version": "4.1.1",
   "description": "PDF, Office and Markdown to retrieval-ready chunks — multi-provider (Ollama, Gemini, Claude, OpenAI, OpenRouter, Mistral OCR), works fully local, with contextual retrieval",
   "type": "module",
   "main": "./dist/index.js",
@@ -14,7 +14,7 @@
     "./schema.json": "./schema/config.schema.json"
   },
   "bin": {
-    "rag-chunker": "./dist/cli/index.js"
+    "rag-chunker": "dist/cli/index.js"
   },
   "files": [
     "dist",

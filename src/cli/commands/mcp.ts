@@ -1,7 +1,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Command } from 'commander'
 import { findConfigFile, loadConfigFile, resolveConfig } from '../../config/load.js'
-import { createReranker, resolveReranker } from '../../local/reranker.js'
+import { lazyReranker, RERANKERS, resolveReranker } from '../../local/reranker.js'
 import { createMcpServer } from '../../mcp/server.js'
 import { readOutputDir } from '../../output/writer.js'
 import { ProviderRegistry } from '../../providers/registry.js'
@@ -44,18 +44,33 @@ Claude Desktop / Claude Code config:
             if (model) embedder = new ProviderRegistry({ config, env }).embedder(model)
           }
           const plan = await resolveReranker(config, flags.rerank)
+          // stdout carries the protocol; the download, when there is one, reports on stderr and
+          // only starts with the first search, after the client has its handshake.
+          let lastMb = -1
           const reranker = plan.ref
             ? new ProviderRegistry({ config, env }).reranker(plan.ref)
             : plan.id
-              ? await createReranker(plan.id)
+              ? lazyReranker(plan.id, {
+                  onModelDownload: (file, done, total) => {
+                    const mb = Math.round(done / 1024 / 1024)
+                    if (mb === lastMb && done < total) return
+                    lastMb = mb
+                    process.stderr.write(
+                      `rag-chunker: downloading ${file} ${mb}/${Math.round(total / 1024 / 1024)} MB\n`,
+                    )
+                  },
+                })
               : undefined
+          if (plan.id && plan.download)
+            process.stderr.write(
+              `rag-chunker: the reranker ${plan.id} (${RERANKERS[plan.id].label}) is downloaded on the first search.\n`,
+            )
           const server = await createMcpServer({
             dirs,
             embedder,
             reranker,
             candidates: config.rerank.candidates,
           })
-          // stdout carries the protocol; nothing else may be written there.
           await server.connect(new StdioServerTransport())
         } catch (e) {
           process.exitCode = reportError(e)

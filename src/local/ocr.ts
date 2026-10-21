@@ -49,6 +49,8 @@ export interface OcrResult {
   script?: OcrScript
   /** True when the 'auto' probe had enough lines to decide the script. */
   probed?: boolean
+  /** Set by the provider when the lines came from the cache (not stored). */
+  cached?: boolean
 }
 
 /**
@@ -73,11 +75,6 @@ const DET_MAX_LIMIT = 3200
 export type OcrDetector = 'mobile' | 'server'
 
 /**
- * The detector a configuration asks for: an explicit `ocr.detector`, else the profile's choice
- * ("full" → server, "basic" → mobile). Returns undefined when the environment override
- * RAG_CHUNKER_OCR_DET_MODEL should decide (benchmarks set it without touching the config).
- */
-/**
  * Recogniser plan from a configuration: `ocr.script` ('auto' probes, 'latin'/'cjk' force) and
  * whether the CJK server model is downloaded at all (the "full" profile, or an explicit 'cjk').
  * RAG_CHUNKER_OCR_SCRIPT overrides the script for benchmarks.
@@ -93,6 +90,11 @@ export function resolveOcrScript(
   return { script: cjk ? script : 'latin', cjk }
 }
 
+/**
+ * The detector a configuration asks for: an explicit `ocr.detector`, else the profile's choice
+ * ("full" → server, "basic" → mobile). Returns undefined when the environment override
+ * RAG_CHUNKER_OCR_DET_MODEL should decide (benchmarks set it without touching the config).
+ */
 export function resolveOcrDetector(
   config: { ocr: { detector: 'auto' | OcrDetector }; local: { profile: 'full' | 'basic' } },
   env: Record<string, string | undefined> = process.env,
@@ -488,23 +490,28 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
   const scriptMode: OcrScript | 'auto' = models.cjk ? (options.script ?? 'latin') : 'latin'
   // A document is read in one script: the first page with enough lines decides for the rest.
   let decided: OcrScript | null = scriptMode === 'auto' ? null : scriptMode
-  const page: PageOcrProvider = async (doc, pageNumber) => {
-    const key = options.cache?.key(
+  // Everything that changes the lines is in the key: models, detector input size and second pass,
+  // the script mode, the document, the page (or the image itself) and the render size.
+  const keyFor = (...part: Array<string | number>) =>
+    options.cache?.key(
       'ocr-local',
       OCR_CACHE_VERSION,
       OCR_REC_MODEL,
       ocrDetectorModel(options.detector),
       DET_LIMIT,
+      DET_MIN_LINE,
+      DET_MAX_LIMIT,
       scriptMode,
       options.documentId ?? '',
-      pageNumber,
-      render,
+      ...part,
     )
+  const page: PageOcrProvider = async (doc, pageNumber) => {
+    const key = keyFor(pageNumber, render)
     if (key && options.cache) {
       const hit = await options.cache.get<OcrResult>('ocr-local', key)
       if (hit) {
         if (decided === null && hit.probed && hit.script) decided = hit.script
-        return hit
+        return { ...hit, cached: true }
       }
     }
     const png = await doc.renderPng(pageNumber, render)
@@ -516,21 +523,10 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
   // A standalone image is one page: its lines are cached like a PDF page's (the page itself is
   // composed again on every run, so layout and table settings take effect).
   const image = async (bytes: Uint8Array): Promise<OcrResult> => {
-    const key = options.documentId
-      ? options.cache?.key(
-          'ocr-local',
-          OCR_CACHE_VERSION,
-          OCR_REC_MODEL,
-          ocrDetectorModel(options.detector),
-          DET_LIMIT,
-          scriptMode,
-          options.documentId,
-          'image',
-        )
-      : undefined
+    const key = options.documentId ? keyFor('image') : undefined
     if (key && options.cache) {
       const hit = await options.cache.get<OcrResult>('ocr-local', key)
-      if (hit) return hit
+      if (hit) return { ...hit, cached: true }
     }
     const result = await recognizeImage(bytes, models, { script: scriptMode })
     if (key && options.cache) await options.cache.set('ocr-local', key, result)

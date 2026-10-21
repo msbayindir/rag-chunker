@@ -317,7 +317,7 @@ export class PdfDocumentHandle {
         : undefined
       pages.push({
         pageNumber: n,
-        lines: composePage(items, { width, height }, regions, rulings, models, figures, formulas),
+        lines: composePage(lines0, { width, height }, regions, rulings, models, figures, formulas),
         width,
         height,
         chars,
@@ -390,7 +390,7 @@ export interface PageFormulas {
 }
 
 function composePage(
-  items: RawItem[],
+  textLines: Line[],
   page: { width: number; height: number },
   regions: LayoutRegion[] | null,
   rulings: Rulings,
@@ -398,7 +398,7 @@ function composePage(
   figures: Line[] = [],
   formulas?: PageFormulas,
 ): Line[] {
-  let lines = toLines(items, page.width, regions)
+  let lines = textLines
   if (regions) lines = applyLayout(lines, regions)
   if (formulas && formulas.lines.length > 0) lines = lines.filter((l) => !formulas.inside(l))
   const hints = regions?.filter((r) => r.label === 'table').map((r) => r.bbox)
@@ -445,7 +445,10 @@ export async function formulasOnPage(
     let latex: string | null = null
     try {
       latex = await recognise(r.bbox)
-    } catch {
+    } catch (err) {
+      // The provider turns model trouble into null itself; what still arrives here is deliberate:
+      // an abort, or a required recogniser that cannot run.
+      if (err instanceof RagChunkerError) throw err
       latex = null
     }
     if (!latex) continue
@@ -507,7 +510,7 @@ export async function pageFromItems(
   const formulas = options.formulas
     ? await formulasOnPage(options.regions ?? null, page, lines0, options.formulas)
     : undefined
-  const lines = composePage(items, page, options.regions ?? null, none, models, figures, formulas)
+  const lines = composePage(lines0, page, options.regions ?? null, none, models, figures, formulas)
   const prose = [lines.filter((l) => !l.table)]
   const typo = typography(prose)
   typo.levelMap = levelMap(prose, typo)

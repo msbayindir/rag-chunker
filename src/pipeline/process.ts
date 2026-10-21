@@ -12,11 +12,13 @@ import { embedTexts } from '../embeddings/embed.js'
 import { RagChunkerError, throwIfAborted } from '../errors.js'
 import { createFormulaRecogniser } from '../local/formula.js'
 import { createLayoutProvider, LAYOUT_MODEL, type PageLayoutProvider } from '../local/layout.js'
-import { hasModel } from '../local/models.js'
+import { hasModel, MODELS } from '../local/models.js'
 import {
   createOcrProvider,
+  OCR_DET_MODEL,
   OCR_DICT,
   OCR_REC_MODEL,
+  type OcrDetector,
   ocrDetectorModel,
   resolveOcrDetector,
   resolveOcrScript,
@@ -95,9 +97,12 @@ export interface OcrPlan {
   pages: 'all' | 'scanned'
   /** Engine to use when an automatically chosen Mistral OCR is unusable (no quota, bad key). */
   fallback?: { engine: OcrEngine; pages: 'all' | 'scanned' }
+  /** Detector the local engine runs with when "auto" had to settle for the one on disk. */
+  detector?: OcrDetector
+  /** What "auto" settled for, said once at the start of the run. */
+  note?: string
 }
 
-/** True when onnxruntime-node and the three PP-OCR files are on this machine. */
 /** True when onnxruntime-node and the OCR models (with the given detector) are present. */
 export async function hasLocalOcr(detector = ocrDetectorModel()): Promise<boolean> {
   if (!(await hasOnnxRuntime())) return false
@@ -108,6 +113,7 @@ export async function hasLocalOcr(detector = ocrDetectorModel()): Promise<boolea
 export async function resolveOcrEngine(ctx: PipelineContext): Promise<OcrPlan> {
   const { engine, pages } = ctx.config.ocr
   const detector = ocrDetectorModel(resolveOcrDetector(ctx.config))
+  let plan: Pick<OcrPlan, 'detector' | 'note'> = {}
   let resolved: OcrEngine
   if (engine === 'text-layer') resolved = { type: 'text-layer' }
   else if (engine === 'pp-ocr') {
@@ -132,7 +138,15 @@ export async function resolveOcrEngine(ctx: PipelineContext): Promise<OcrPlan> {
   } else if (engine === 'auto') {
     const vision = ctx.config.models.vision
     if (await hasLocalOcr(detector)) resolved = { type: 'local' }
-    else if (ctx.registry.provider('mistral').apiKey) resolved = { type: 'mistral' }
+    else if (detector !== OCR_DET_MODEL && (await hasLocalOcr(OCR_DET_MODEL))) {
+      // The profile asks for the server detector but only the mobile one is on disk (an
+      // installation from before profiles): local OCR with what is there beats no local OCR.
+      plan = {
+        detector: 'mobile',
+        note: `Local OCR runs with the mobile text detector: the "${ctx.config.local.profile}" profile's ${MODELS[detector].file} is not downloaded yet (run once with --ocr pp-ocr to fetch it).`,
+      }
+      resolved = { type: 'local' }
+    } else if (ctx.registry.provider('mistral').apiKey) resolved = { type: 'mistral' }
     else if (vision) resolved = { type: 'vision', ref: vision }
     else resolved = { type: 'text-layer' }
   } else {
@@ -149,9 +163,9 @@ export async function resolveOcrEngine(ctx: PipelineContext): Promise<OcrPlan> {
           ? { type: 'vision', ref: vision }
           : { type: 'text-layer' }
     const fallbackPages = pages === 'auto' ? (fallback.type === 'mistral' ? 'all' : 'scanned') : pages
-    return { engine: resolved, pages: mode, fallback: { engine: fallback, pages: fallbackPages } }
+    return { ...plan, engine: resolved, pages: mode, fallback: { engine: fallback, pages: fallbackPages } }
   }
-  return { engine: resolved, pages: mode }
+  return { ...plan, engine: resolved, pages: mode }
 }
 
 /** Errors that make an automatically chosen OCR engine unusable; "auto" then moves on to the next one. */
@@ -253,10 +267,11 @@ export async function runPipeline(
   const mb = (n: number) => Math.round(n / 1024 / 1024)
   let localOcr: LocalOcr | undefined
   if (engine.type === 'local') {
+    if (plan.note) reporter.warn('ocr', plan.note)
     try {
       localOcr = await createOcrProvider({
         cache,
-        detector: resolveOcrDetector(config),
+        detector: plan.detector ?? resolveOcrDetector(config),
         ...resolveOcrScript(config),
         documentId: doc.documentId,
         onModelDownload: (file, done, total) =>
@@ -326,29 +341,44 @@ export async function runPipeline(
     })
   }
   // Formula recognition needs the layout model's formula regions; "auto" is on with the full
-  // profile and steps aside (with a warning) when the optional package or the model is missing.
+  // profile and steps aside (with a warning) when the optional package or the model is missing,
+  // "on" fails the run instead. The model itself is loaded on the first formula region.
   let formulaCollector: FormulaCollector | undefined
-  const wantFormulas =
-    config.formulas.recognize === 'on' ||
-    (config.formulas.recognize === 'auto' && config.local.profile === 'full')
-  if (wantFormulas && layoutProvider && (doc.kind === 'pdf' || doc.kind === 'image')) {
-    try {
+  const required = config.formulas.recognize === 'on'
+  const wantFormulas = required || (config.formulas.recognize === 'auto' && config.local.profile === 'full')
+  if (wantFormulas && (doc.kind === 'pdf' || doc.kind === 'image')) {
+    if (!layoutProvider) {
+      if (required) {
+        throw new RagChunkerError('CONFIG_INVALID', 'formulas.recognize is "on" but layout analysis is off', {
+          hint:
+            layoutPlan.reason ??
+            'Formula regions come from the layout model: set layout.engine to "pp-doclayout-v3" (CLI --layout) or formulas.recognize to "auto".',
+        })
+      }
+    } else {
       const toMb = (n: number) => Math.round(n / 1024 / 1024)
-      const recogniser = await createFormulaRecogniser({
-        onModelDownload: (file, done, total) =>
-          reporter.progress('ocr', toMb(done), toMb(total), `downloading ${file} (MB)`),
-        signal,
-      })
-      formulaCollector = createFormulaProvider({
-        recogniser,
-        cache,
-        documentId: doc.documentId,
-        onWarn: (m) => reporter.warn('ocr', m),
-        signal,
-      })
-    } catch (err) {
-      if (config.formulas.recognize === 'on' || signal?.aborted) throw err
-      reporter.warn('ocr', `Formulas stay as text: ${(err as Error).message}`)
+      const makeRecogniser = () =>
+        createFormulaRecogniser({
+          onModelDownload: (file, done, total) =>
+            reporter.progress('ocr', toMb(done), toMb(total), `downloading ${file} (MB)`),
+          signal,
+        })
+      try {
+        // Checks the optional package now (cheap); downloading and loading the model waits for
+        // the first formula.
+        const recogniser = await makeRecogniser()
+        formulaCollector = createFormulaProvider({
+          recogniser,
+          required,
+          cache,
+          documentId: doc.documentId,
+          onWarn: (m) => reporter.warn('ocr', m),
+          signal,
+        })
+      } catch (err) {
+        if (required || signal?.aborted) throw err
+        reporter.warn('ocr', `Formulas stay as text: ${(err as Error).message}`)
+      }
     }
   }
   const extract = (e: OcrEngine, p: 'all' | 'scanned') =>
@@ -398,15 +428,19 @@ export async function runPipeline(
     headerFooterLinesRemoved: extracted.stats.headerFooterLinesRemoved,
     layout: layoutPlan.engine,
     layoutPages: extracted.stats.layoutPages,
+    ...(formulaCollector ? { formulas: { ...formulaCollector.stats } } : {}),
     durationMs: Date.now() - t,
   }
+  const formulaCount = formulaCollector
+    ? formulaCollector.stats.recognised + formulaCollector.stats.cached
+    : 0
   reporter.end(
     'ocr',
     `${extracted.pageCount} page(s), ${extracted.ocrModel}${layoutPlan.engine ? ' + layout' : ''}${
       figureSink && figureSink.stats.extracted > 0
         ? `, ${figureSink.stats.extracted} figure(s)${figureSink.stats.described > 0 ? ' described' : ''}`
         : ''
-    }`,
+    }${formulaCount > 0 ? `, ${formulaCount} formula(s)` : ''}`,
   )
   if (extracted.pages.every((p) => p.markdown.trim() === '')) {
     reporter.warn('ocr', `No text could be extracted from ${doc.name}.`)
