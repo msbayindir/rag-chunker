@@ -3,7 +3,8 @@
 ## Unreleased
 
 - Scanned pages and images that are turned by 90, 180 or 270 degrees are read upright: PaddleOCR's PP-LCNet document orientation classifier (7 MB, downloaded with the first local OCR run) checks every page the local OCR reads, the page is turned before layout analysis, OCR, tables and formulas, `document.json` records the page's `rotation`, `manifest.json` counts `rotatedPages` and the inspector shows the page as it was read. `ocr.orientation: "off"` switches it off.
-- `rag-chunker mcp --candidates <n>` sets how many first-stage results the reranker scores per search (default `rerank.candidates`, 30); the README says what 15 costs and gains, and when `--profile basic` is the better choice for an interactive agent. Pages are turned only when the model is sure (90/270 at a score of 0.75 or more, 180 at 0.9 or more); on OmniDocBench that turns 9 of the 12 sideways pages and one upright cover with a vertical title.
+- `rag-chunker mcp --candidates <n>` sets how many first-stage results the reranker scores per search (default `rerank.candidates`, 30); the README says what 15 costs and gains, and when `--profile basic` is the better choice for an interactive agent.
+- The local OCR detector's input size and dense-page second pass are configuration options, `ocr.detection.limit` (960) and `ocr.detection.denseMinLine` (12), instead of the environment variables `RAG_CHUNKER_OCR_DET_LIMIT` and `RAG_CHUNKER_OCR_DET_MIN_LINE`, which are no longer read. Pages are turned only when the model is sure (90/270 at a score of 0.75 or more, 180 at 0.9 or more); on OmniDocBench that turns 9 of the 12 sideways pages and one upright cover with a vertical title.
 
 ## 4.1.1 — 2026-10-21
 

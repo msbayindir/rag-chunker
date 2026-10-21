@@ -53,23 +53,21 @@ export interface OcrResult {
   cached?: boolean
 }
 
-/**
- * Longest side the detector sees (PaddleOCR's default 960), both sides multiples of 32. Dense pages with
- * small print (newspapers, high-resolution scans) need more; RAG_CHUNKER_OCR_DET_LIMIT overrides it
- * until it is a config option.
- */
-const DET_LIMIT =
-  Number(process.env.RAG_CHUNKER_OCR_DET_LIMIT) > 0 ? Number(process.env.RAG_CHUNKER_OCR_DET_LIMIT) : 960
+/** Text-detector settings (`ocr.detection` in the config). */
+export interface DetectionSettings {
+  /**
+   * Longest side the detector sees (PaddleOCR's default 960), both sides multiples of 32. Dense
+   * pages with small print (newspapers, high-resolution scans) need more.
+   */
+  limit: number
+  /**
+   * Second detection pass for dense pages: triggered when the median detected line is shorter than
+   * this many pixels in the detector's input (0 disables), never beyond DET_MAX_LIMIT px.
+   */
+  denseMinLine: number
+}
 
-/**
- * Second detection pass for dense pages: triggered when the median detected line is shorter than
- * this many pixels in the detector's input (0 disables; RAG_CHUNKER_OCR_DET_MIN_LINE overrides),
- * never beyond DET_MAX_LIMIT px on the longest side.
- */
-const DET_MIN_LINE =
-  process.env.RAG_CHUNKER_OCR_DET_MIN_LINE !== undefined
-    ? Number(process.env.RAG_CHUNKER_OCR_DET_MIN_LINE) || 0
-    : 12
+export const DEFAULT_DETECTION: DetectionSettings = { limit: 960, denseMinLine: 12 }
 const DET_MAX_LIMIT = 3200
 
 export type OcrDetector = 'mobile' | 'server'
@@ -289,6 +287,8 @@ export interface RecognizeOptions {
    * confidence cannot tell: it reads Chinese as confident Latin gibberish.
    */
   script?: OcrScript | 'auto'
+  /** Detector input size and dense-page second pass (default `DEFAULT_DETECTION`). */
+  detection?: DetectionSettings
 }
 
 /** Share of CJK characters (Han, kana, Hangul) among the non-space characters of a text. */
@@ -370,22 +370,23 @@ export async function recognizeImage(
       scale,
     }
   }
-  let detected = await detect(DET_LIMIT)
+  const { limit: detLimit, denseMinLine } = options.detection ?? DEFAULT_DETECTION
+  let detected = await detect(detLimit)
   if (!detected) return { lines: [], width: img.width, height: img.height }
   // Dense small print (newspapers, high-resolution scans): when the page had to be shrunk and the
   // typical line came out only a few pixels tall, the detector merges and loses lines. A second
-  // pass at the resolution that makes a line about DET_MIN_LINE px tall finds them; pages whose
+  // pass at the resolution that makes a line about denseMinLine px tall finds them; pages whose
   // text is already large never pay for it.
   if (
-    DET_MIN_LINE > 0 &&
+    denseMinLine > 0 &&
     detected.scale < 1 &&
     detected.boxes.length >= 20 &&
     detected.median > 0 &&
-    detected.median < DET_MIN_LINE
+    detected.median < denseMinLine
   ) {
-    const wanted = Math.ceil((DET_LIMIT * ((DET_MIN_LINE + 2) / detected.median)) / 32) * 32
+    const wanted = Math.ceil((detLimit * ((denseMinLine + 2) / detected.median)) / 32) * 32
     const limit = Math.min(Math.max(img.width, img.height), DET_MAX_LIMIT, wanted)
-    if (limit > DET_LIMIT) {
+    if (limit > detLimit) {
       const again = await detect(limit)
       if (again && again.boxes.length >= detected.boxes.length) detected = again
     }
@@ -470,6 +471,8 @@ export interface OcrProviderOptions {
   script?: OcrScript | 'auto'
   /** Download and hold the CJK server recogniser (84 MB) so 'auto' and 'cjk' can use it. */
   cjk?: boolean
+  /** Detector input size and dense-page second pass (`ocr.detection`). */
+  detection?: DetectionSettings
   cache?: CacheStore
   documentId?: string
   modelsDir?: string
@@ -488,6 +491,7 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
   const models = await loadOcrModels(options)
   const render = options.render ?? 2000
   const scriptMode: OcrScript | 'auto' = models.cjk ? (options.script ?? 'latin') : 'latin'
+  const detection = options.detection ?? DEFAULT_DETECTION
   // A document is read in one script: the first page with enough lines decides for the rest.
   let decided: OcrScript | null = scriptMode === 'auto' ? null : scriptMode
   // Everything that changes the lines is in the key: models, detector input size and second pass,
@@ -498,8 +502,8 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
       OCR_CACHE_VERSION,
       OCR_REC_MODEL,
       ocrDetectorModel(options.detector),
-      DET_LIMIT,
-      DET_MIN_LINE,
+      detection.limit,
+      detection.denseMinLine,
       DET_MAX_LIMIT,
       scriptMode,
       options.documentId ?? '',
@@ -515,7 +519,7 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
       }
     }
     const png = await doc.renderPng(pageNumber, render)
-    const result = await recognizeImage(png, models, { script: decided ?? 'auto' })
+    const result = await recognizeImage(png, models, { script: decided ?? 'auto', detection })
     if (decided === null && result.probed && result.script) decided = result.script
     if (key && options.cache) await options.cache.set('ocr-local', key, result)
     return result
@@ -528,7 +532,7 @@ export async function createOcrProvider(options: OcrProviderOptions = {}): Promi
       const hit = await options.cache.get<OcrResult>('ocr-local', key)
       if (hit) return { ...hit, cached: true }
     }
-    const result = await recognizeImage(bytes, models, { script: scriptMode })
+    const result = await recognizeImage(bytes, models, { script: scriptMode, detection })
     if (key && options.cache) await options.cache.set('ocr-local', key, result)
     return result
   }

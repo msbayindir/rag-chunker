@@ -274,6 +274,7 @@ export async function runPipeline(
       localOcr = await createOcrProvider({
         cache,
         detector: plan.detector ?? resolveOcrDetector(config),
+        detection: config.ocr.detection,
         ...resolveOcrScript(config),
         documentId: doc.documentId,
         onModelDownload: (file, done, total) =>

@@ -45,6 +45,28 @@
             "cjk"
           ]
         },
+        "detection": {
+          "description": "Text detector of the local OCR.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "limit": {
+              "default": 960,
+              "description": "Longest side, in pixels, at which the local OCR detector sees a page (PaddleOCR default 960). Larger finds smaller print and costs time.",
+              "type": "integer",
+              "minimum": 320,
+              "maximum": 4096
+            },
+            "denseMinLine": {
+              "default": 12,
+              "description": "Second detection pass for dense pages: when the median detected line is shorter than this many detector pixels, the page is detected again at the size that makes a line this tall (at most 3,200 px). 0 turns the second pass off.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 64
+            }
+          },
+          "additionalProperties": false
+        },
         "orientation": {
           "default": "auto",
           "description": "Scanned pages and images turned by 90, 180 or 270 degrees are read upright: \"auto\" classifies every page the local OCR reads (PP-LCNet document orientation model, 7 MB, downloaded once); \"off\" reads pages as they are.",
