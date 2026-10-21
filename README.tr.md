@@ -19,7 +19,7 @@ npx @msbayindir/rag-chunker process kitap.pdf --local    # her şey Ollama'da, h
 
 - **Dokümana saygılı chunk'lar.** Deterministik, AST tabanlı chunker başlıkları içerikleriyle birlikte tutar, mecbur kalmadıkça cümle ortasından bölmez, büyük tabloları *başlık satırını tekrarlayarak* satır satır böler, kod bloklarının çitlerini korur ve hiçbir kelimeyi kaybetmez (property testleriyle doğrulanır).
 - **Doğru kaynak gösterimi.** Her chunk'ta `pageStart`/`pageEnd`, başlık yolu (`sectionPath`) ve çakışmayan, kalıcı bir `chunkId` bulunur.
-- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar OCR'a gider: yerel PP-OCRv5 modelleri (anahtarsız; Türkçe dahil Latin alfabeleri, varsayılan profilde belge başına tespit edilen Çince/Japonca), Mistral OCR ya da bir vision modeli (Gemma 4, Gemini, Claude, GPT…). Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir.
+- **Kademeli OCR.** Dijital sayfalar PDF'in metin katmanından ücretsiz okunur; yalnızca taranmış sayfalar OCR'a gider: yerel PP-OCRv5 modelleri (anahtarsız; Türkçe dahil Latin alfabeleri, varsayılan profilde belge başına tespit edilen Çince/Japonca), Mistral OCR ya da bir vision modeli (Gemma 4, Gemini, Claude, GPT…). Tekrar eden üst/alt bilgiler ve sayfa numaraları temizlenir. Yan veya ters taranmış sayfalar önce dik çevrilir.
 - **Ölçülmüş yerel belge modelleri.** Okuma sırasıyla sayfa yerleşimi, tablo yapısı, LaTeX olarak blok formüller ve cross-encoder reranker, hepsi makinenizde `onnxruntime-node` üzerinde çalışır. `local.profile` en güçlü modelleri (`full`, varsayılan) ya da küçük ve hızlı olanları (`basic`) seçer; açık veri setlerindeki sonuçlar için bkz. [Ölçümler](#ölçümler).
 - **Contextual retrieval** ([Anthropic'in yöntemi](https://www.anthropic.com/news/contextual-retrieval)): her chunk'a, dokümandaki yerini anlatan 1–2 cümlelik bir özet eklenir. Modele sığmayan büyük dokümanlarda doküman ve bölüm özetleri kullanılır, böylece küçük yerel modellerle de çalışır.
 - **Başlık onarımı.** OCR sayfaları tek tek okuduğu için başlık seviyelerini karıştırır; bir LLM adımı ve deterministik bir numaralandırma adımı bunu düzeltir.
@@ -229,7 +229,7 @@ Sorular birebir alıntılanmış bir kanıt cümlesiyle üretildiği için aynı
 
 ## Ölçümler
 
-rag-chunker 4.1.0, varsayılan `full` profille (yerel layout, OCR, tablo ve formül modelleri; API
+rag-chunker 4.2.0, varsayılan `full` profille (yerel layout, OCR, tablo ve formül modelleri; API
 anahtarı yok), yalnız sayfa görselleriyle, Apple M1'de ölçüldü. Sayfa sayfa sonuçlar ve yeniden
 üretme komutları [`bench/`](bench/README.md#external-benchmarks) klasöründe.
 
@@ -239,13 +239,15 @@ ortalaması):
 
 | | Metin düzenleme mesafesi ↓ | Tablo TEDS ↑ | Tablo TEDS-S ↑ | Okuma sırası ↓ |
 | --- | ---: | ---: | ---: | ---: |
-| **rag-chunker 4.1.0** | **0.165** | **54.8** | **68.5** | **0.218** |
+| **rag-chunker 4.2.0** | **0.165** | **55.2** | **69.2** | **0.218** |
 | Marker (resmi tablo) | 0.157 | 65.8 | 73.2 | 0.243 |
 | MinerU pipeline (resmi tablo) | 0.055 | 81.9 | 88.7 | 0.153 |
 
-Dile göre: İngilizce 0.151 (755 sayfa), Basitleştirilmiş Çince 0.157 (765 sayfa), İngilizce-Çince
+Dile göre: İngilizce 0.151 (755 sayfa), Basitleştirilmiş Çince 0.156 (765 sayfa), İngilizce-Çince
 karışık 0.290 (116 sayfa). Metinde Marker'a yakın ve MinerU'nun epey gerisinde, okuma sırasında
-Marker'ın önünde; en zayıf yanımız tablolar. Formül (CDM) skoru LaTeX araç zinciri istediği için
+Marker'ın önünde; en zayıf yanımız tablolar. 4.2.0 yan taranmış sayfaları dik okuyor (setteki 10
+sayfa, hepsi sayfaya yatay basılmış tablolar): onların TEDS'i yükseldi, diğer her sayfanın metin
+puanı 4.1.0 ile birebir aynı (4.1.0: 0.165 / 54.8 / 68.5 / 0.218). Formül (CDM) skoru LaTeX araç zinciri istediği için
 yok, bu yüzden resmi "Overall" verilmiyor. Rakip satırları resmi tablodan alındı, biz koşturmadık;
 resmi betiği ana dalının 2026-10-19 haliyle ve varsayılan eşleştirme ayarlarıyla çalıştırdık.
 

@@ -41,18 +41,18 @@ upper bound and the differences between runs as the signal.
 
 ## Results
 
-Numbers from `results/`, Apple M1, Node 22, default `full` profile with layout analysis and the reranker. The run below was made on the commit released as 4.1.0 (`34ae4ae`), before the version number was raised, so it reports 4.0.0; `results/2026-10-18-local-layout.json` is the 4.0.0 baseline it is compared with.
+Numbers from `results/`, Apple M1, Node 22, default `full` profile with layout analysis and the reranker. The run below was made on commit `2a359ed` of the 4.2.0 release branch, before the version number was raised, so it reports 4.0.0; `results/2026-10-18-local-layout.json` is the 4.0.0 baseline it is compared with.
 
 <!-- results:start -->
-Run `final` on 2026-10-20: rag-chunker 4.0.0, darwin-arm64, Node v22.23.2; layout `auto`, embedding `off`, reranker `bge-reranker-v2-m3`, chunks 512/64 tokens.
+Run `4.2.0` on 2026-10-21: rag-chunker 4.1.1, darwin-arm64, Node v22.23.2; layout `auto`, embedding `off`, reranker `bge-reranker-v2-m3`, chunks 512/64 tokens.
 
 | Document | Pages | Time | Chunks | Headings | Tables | Figures | MRR bm25 | MRR hybrid | MRR rerank |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| anayasa | 75 | 109.2 s | 257 | 243 | 3 | 0 | 0.764 (hit@1 66%) | – | 0.940 (hit@1 92%) |
-| hipertansiyon-2022 | 222 | 313.0 s | 463 | 316 | 43 | 11 | 0.579 (hit@1 46%) | – | 0.847 (hit@1 80%) |
-| diyabet-protokol | 101 | 112.8 s | 200 | 202 | 17 | 19 | – | – | – |
-| bert | 16 | 22.1 s | 44 | 36 | 8 | 8 | 0.771 (hit@1 63%) | – | 0.916 (hit@1 88%) |
-| llama2 | 77 | 114.3 s | 219 | 69 | 62 | 48 | 0.752 (hit@1 66%) | – | 0.854 (hit@1 78%) |
+| anayasa | 75 | 216.6 s | 257 | 243 | 3 | 0 | 0.764 (hit@1 66%) | – | 0.940 (hit@1 92%) |
+| hipertansiyon-2022 | 222 | 297.9 s | 463 | 316 | 43 | 11 | 0.579 (hit@1 46%) | – | 0.847 (hit@1 80%) |
+| diyabet-protokol | 101 | 141.9 s | 200 | 202 | 17 | 19 | – | – | – |
+| bert | 16 | 25.6 s | 44 | 36 | 8 | 8 | 0.771 (hit@1 63%) | – | 0.916 (hit@1 88%) |
+| llama2 | 77 | 115.5 s | 219 | 69 | 62 | 48 | 0.752 (hit@1 66%) | – | 0.854 (hit@1 78%) |
 
 Quality findings per document:
 - `anayasa`: 3 block(s) with few letters (broken text layer or OCR noise), e.g. page 38; 1 heading(s) longer than 120 characters — probably body text; 47 chunk(s) (18 %) below minTokens
@@ -81,7 +81,7 @@ document the standard error of an MRR is about 0.03: read differences smaller th
 
 Three runners measure the pipeline on public, human-labelled sets. None of the data is in the
 repository (research or non-commercial licences); each runner says where to fetch it. The results
-below are for 4.1.0; the per-page and per-run numbers are in [`results/external/`](results/external/)
+below are for 4.2.0; the per-page and per-run numbers are in [`results/external/`](results/external/)
 (scores only, no text from the data sets).
 
 | Runner | Set | What it measures |
@@ -93,10 +93,10 @@ below are for 4.1.0; the per-page and per-run numbers are in [`results/external/
 The metrics live in `src/eval/metrics.ts` and are unit-tested, including the LaTeX-to-text
 rendering against `pylatexenc`, which the official OmniDocBench scorer uses.
 
-### Results (4.1.0)
+### Results (4.2.0)
 
 All runs: Apple M1 (16 GB), 4 ONNX threads, `local.device: auto` (CoreML for the OCR detector),
-default `full` profile, cache off, commit `34ae4ae`.
+default `full` profile, cache off, commit `2a359ed` (the 4.2.0 release branch before the version bump).
 
 **OmniDocBench, official scorer.** Every page image of the 1,651-page v1.6 set went through
 `processDocument` (layout, local OCR with the per-document Latin/CJK choice, SLANet_plus tables,
@@ -106,15 +106,19 @@ with the official `pdf_validation.py` (main branch, 2026-10-19) using its defaul
 
 | Pages | Text edit distance ↓ | Table TEDS ↑ | TEDS-S ↑ | Reading-order edit ↓ |
 | --- | ---: | ---: | ---: | ---: |
-| All 1,651 | **0.165** | **54.8** | **68.5** | **0.218** |
-| English (755) | 0.151 | 56.8 | 70.8 | 0.196 |
-| Simplified Chinese (765) | 0.157 | 55.6 | 66.9 | 0.231 |
+| All 1,651 | **0.165** | **55.2** | **69.2** | **0.218** |
+| English (755) | 0.151 | 58.6 | 73.2 | 0.196 |
+| Simplified Chinese (765) | 0.156 | 55.7 | 67.2 | 0.230 |
 | Mixed English–Chinese (116) | 0.290 | 52.5 | 67.6 | 0.257 |
 | Traditional Chinese (13) | 0.369 | 56.9 | 74.0 | 0.429 |
 
+4.1.0 scored 0.165 / 54.8 / 68.5 / 0.218 on the same set with the same scorer. The difference is the
+page-orientation step of 4.2.0: 10 pages scanned sideways (tables printed across the page) are read
+upright; their tables account for the TEDS gain, the text score of every other page is identical.
+
 Page-averaged like the official end-to-end table, where Marker scores 0.157 / 65.8 / 73.2 / 0.243 and
 MinerU's pipeline 0.055 / 81.9 / 88.7 / 0.153 (copied, not re-run). The character-weighted text edit
-distance is 0.230. Time per page: 9.8 s for English pages, 7.2 s for the others.
+distance is 0.230. Time per page: 7.1 s (6.9 s for English pages, 7.9 s for Chinese ones).
 
 Things to know when reading these: only page images were given (no PDF text layer); the official
 matcher aligns our text to the reference's block structure, so paragraphs that rag-chunker carries
